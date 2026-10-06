@@ -1,0 +1,16 @@
+import Sidebar from '@/components/layout/sidebar'
+import type { ReactNode } from 'react'
+
+type PrivateLayoutProps = {
+	children: ReactNode
+}
+
+export default function PrivateLayout({ children }: PrivateLayoutProps) {
+	return (
+		<div className="flex min-h-dvh bg-[#fafafa]">
+			<Sidebar />
+
+			<main className="min-w-0 flex-1">{children}</main>
+		</div>
+	)
+}
