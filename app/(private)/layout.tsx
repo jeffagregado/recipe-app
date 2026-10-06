@@ -11,7 +11,7 @@ export default function PrivateLayout({ children }: PrivateLayoutProps) {
 			<Sidebar />
 
 			{/* <main className="min-w-0 flex-1">{children}</main> */}
-			<main className='min-h-dvh pb-20 lg:pb-0'>{children}</main>
+			<main className="pb-20 lg:pb-0 min-w-0 flex-1">{children}</main>
 		</div>
 	)
 }
