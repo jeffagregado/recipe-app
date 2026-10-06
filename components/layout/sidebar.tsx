@@ -47,7 +47,7 @@ export default function Sidebar() {
 		return pathname.startsWith(href)
 	}
 	return (
-		<aside className="hidden h-dvh w-55 shrink-0 border-r border-neutral-200 bg-sidebar lg:flex lg:flex-col ">
+		<aside className="hidden h-dvh w-55 shrink-0 border-r border-neutral-200 bg-sidebar lg:sticky lg:top-0 lg:flex lg:flex-col ">
 			<div className="px-5 py-6">
 				<Brand />
 			</div>
