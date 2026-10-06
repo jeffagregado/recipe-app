@@ -1,3 +1,4 @@
+import PageContainer from '@/components/layout/page-container'
 import Sidebar from '@/components/layout/sidebar'
 import type { ReactNode } from 'react'
 
@@ -10,7 +11,8 @@ export default function PrivateLayout({ children }: PrivateLayoutProps) {
 		<div className="flex min-h-dvh bg-[#fafafa]">
 			<Sidebar />
 
-			<main className="min-w-0 flex-1">{children}</main>
+			{/* <main className="min-w-0 flex-1">{children}</main> */}
+			<PageContainer size='full'>{children}</PageContainer>
 		</div>
 	)
 }
