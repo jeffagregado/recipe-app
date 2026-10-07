@@ -5,9 +5,12 @@
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
-    "typecheck": "turbo typecheck"
+    "typecheck": "turbo typecheck",
+    "qa:fallow": "fallow",
+    "qa:react": "pnpm --filter @recipe/web run qa:react"
   },
   "devDependencies": {
+    "fallow": "3.32.0",
     "turbo": "latest"
   },
   "packageManager": "pnpm@12.9.1"
