@@ -28,11 +28,9 @@ export default function RecipesPage() {
 					<Plus /> New Recipe
 				</Button>
 			</header>
-			<div>
-				<Suspense fallback={<div>Loading...</div>}>
-					<RecipeGrid recipes={sampleRecipes} />
-				</Suspense>
-			</div>
+			<Suspense fallback={<div>Loading...</div>}>
+				<RecipeGrid recipes={sampleRecipes} />
+			</Suspense>
 		</PageContainer>
 	)
 }
