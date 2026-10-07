@@ -1,39 +1,55 @@
-import pastaPhoto from '@/public/recipes/creamy-garlic-pasta.png'
+import 'server-only'
 
-import type { RecipeCardData } from './components/recipe-card'
+import type { RecipeSummary } from '@recipe-app/contracts/types'
 
-// Preview data until recipe queries are connected.
-export const sampleRecipes: RecipeCardData[] = [
+// Temporary API data until the NestJS recipe service is available.
+export const sampleRecipes: RecipeSummary[] = [
 	{
 		id: 'creamy-garlic-pasta',
 		title: 'Creamy Garlic Pasta',
-		imageUrl: pastaPhoto.src,
+		imageUrl: null,
 		category: 'Dinner',
-		updatedAt: '2026-10-05T08:00:00+08:00',
-		updatedLabel: '2 days ago',
+		description: null,
+		servings: null,
+		prepTimeMinutes: null,
+		cookTimeMinutes: null,
+		createdAt: '2026-10-05T00:00:00Z',
+		updatedAt: '2026-10-05T00:00:00Z',
 	},
 	{
 		id: 'creamy-garlic-pasta2',
 		title: 'Creamy Garlic Pasta',
-		imageUrl: pastaPhoto.src,
+		imageUrl: null,
 		category: 'Dinner',
-		updatedAt: '2026-10-05T08:00:00+08:00',
-		updatedLabel: '2 days ago',
+		description: null,
+		servings: null,
+		prepTimeMinutes: null,
+		cookTimeMinutes: null,
+		createdAt: '2026-10-05T00:00:00Z',
+		updatedAt: '2026-10-05T00:00:00Z',
 	},
 	{
 		id: 'creamy-garlic-pasta3',
 		title: 'Creamy Garlic Pasta',
-		imageUrl: pastaPhoto.src,
+		imageUrl: null,
 		category: 'Dinner',
-		updatedAt: '2026-10-05T08:00:00+08:00',
-		updatedLabel: '2 days ago',
+		description: null,
+		servings: null,
+		prepTimeMinutes: null,
+		cookTimeMinutes: null,
+		createdAt: '2026-10-05T00:00:00Z',
+		updatedAt: '2026-10-05T00:00:00Z',
 	},
 	{
 		id: 'creamy-garlic-pasta4',
 		title: 'Creamy Garlic Pasta',
-		imageUrl: pastaPhoto.src,
+		imageUrl: null,
 		category: 'Dinner',
-		updatedAt: '2026-10-05T08:00:00+08:00',
-		updatedLabel: '2 days ago',
+		description: null,
+		servings: null,
+		prepTimeMinutes: null,
+		cookTimeMinutes: null,
+		createdAt: '2026-10-05T00:00:00Z',
+		updatedAt: '2026-10-05T00:00:00Z',
 	},
 ]

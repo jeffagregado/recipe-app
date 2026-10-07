@@ -6,7 +6,6 @@ import { Plus, Search } from 'lucide-react'
 
 import { Suspense } from 'react'
 import { RecipeGrid } from './components/recipe-grid'
-import { sampleRecipes } from './sample-recipes'
 
 export default function RecipesPage() {
 	return (
@@ -29,7 +28,7 @@ export default function RecipesPage() {
 				</Button>
 			</header>
 			<Suspense fallback={<div>Loading...</div>}>
-				<RecipeGrid recipes={sampleRecipes} />
+				<RecipeGrid />
 			</Suspense>
 		</PageContainer>
 	)
