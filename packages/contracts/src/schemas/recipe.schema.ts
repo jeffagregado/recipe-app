@@ -1,10 +1,12 @@
 import { z } from "zod";
 
 import {
+  RECIPE_CATEGORIES,
   RECIPE_SORT_FIELDS,
   type CreateRecipeInput,
   type CreateRecipeInstructionInput,
   type Recipe,
+  type RecipeCategory,
   type RecipeInstruction,
   type RecipeQueryParams,
   type RecipeSortField,
@@ -23,6 +25,10 @@ import {
   recipeIngredientSchema,
 } from "./ingredient.schema";
 
+export const recipeCategorySchema: z.ZodType<RecipeCategory> = z.enum(
+  RECIPE_CATEGORIES,
+);
+
 export const recipeInstructionSchema: z.ZodType<RecipeInstruction> = z.object({
   id: entityIdSchema,
   stepNumber: z.number().int().positive(),
@@ -39,6 +45,8 @@ export const recipeSchema: z.ZodType<Recipe> = z.object({
   userId: entityIdSchema,
 
   title: z.string().trim().min(1).max(200),
+
+  category: recipeCategorySchema.optional(),
 
   description: z.string().trim().max(2_000).nullable(),
 
@@ -62,6 +70,8 @@ export const recipeSummarySchema: z.ZodType<RecipeSummary> = z.object({
 
   title: z.string().trim().min(1).max(200),
 
+  category: recipeCategorySchema.optional(),
+
   description: z.string().trim().max(2_000).nullable(),
 
   imageUrl: z.url().nullable(),
@@ -77,6 +87,8 @@ export const recipeSummarySchema: z.ZodType<RecipeSummary> = z.object({
 
 export const createRecipeSchema: z.ZodType<CreateRecipeInput> = z.object({
   title: z.string().trim().min(1).max(200),
+
+  category: recipeCategorySchema.optional(),
 
   description: z.string().trim().max(2_000).nullable().optional(),
 
@@ -95,6 +107,8 @@ export const createRecipeSchema: z.ZodType<CreateRecipeInput> = z.object({
 
 export const updateRecipeSchema: z.ZodType<UpdateRecipeInput> = z.object({
   title: z.string().trim().min(1).max(200).optional(),
+
+  category: recipeCategorySchema.optional(),
 
   description: z.string().trim().max(2_000).nullable().optional(),
 
