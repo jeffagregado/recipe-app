@@ -1,7 +1,8 @@
 'use client'
 
+import type { RecipeCategory, RecipeSummary } from '@recipe-app/contracts/types'
 import { BookOpen, Heart, MoreHorizontal } from 'lucide-react'
-import Image, { type ImageProps } from 'next/image'
+import Image from 'next/image'
 import Link from 'next/link'
 import { useId } from 'react'
 
@@ -17,8 +18,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 
-type RecipeCategory = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snacks' | 'Desserts'
-
 const categoryVariants = {
 	Breakfast: 'breakfast',
 	Lunch: 'lunch',
@@ -27,12 +26,7 @@ const categoryVariants = {
 	Desserts: 'dessert',
 } as const satisfies Record<RecipeCategory, string>
 
-export type RecipeCardData = {
-	id: string
-	title: string
-	image: ImageProps['src']
-	category: RecipeCategory
-	updatedAt: string
+export type RecipeCardData = Pick<RecipeSummary, 'id' | 'title' | 'imageUrl' | 'category' | 'updatedAt'> & {
 	updatedLabel: string
 }
 
@@ -57,7 +51,7 @@ export function RecipeCard({ recipe, isFavorite, onFavoriteToggle, preload = fal
 		>
 			<div className="relative aspect-video overflow-hidden">
 				<Image
-					src={recipe.image}
+					src={recipe.imageUrl || '/recipes/recipe-placeholder.png'}
 					alt=""
 					fill
 					preload={preload}
@@ -98,7 +92,7 @@ export function RecipeCard({ recipe, isFavorite, onFavoriteToggle, preload = fal
 						{recipe.title}
 					</Link>
 				</h2>
-				<Badge variant={categoryVariants[recipe.category]}>{recipe.category}</Badge>
+				{recipe.category !== undefined && <Badge variant={categoryVariants[recipe.category]}>{recipe.category}</Badge>}
 				<div className="flex min-w-0 items-center justify-between gap-2">
 					<time dateTime={recipe.updatedAt} className="text-sm leading-5 text-muted-foreground">
 						Updated {recipe.updatedLabel}

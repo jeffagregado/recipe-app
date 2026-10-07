@@ -7,7 +7,7 @@ export const sampleRecipes: RecipeCardData[] = [
 	{
 		id: 'creamy-garlic-pasta',
 		title: 'Creamy Garlic Pasta',
-		image: pastaPhoto,
+		imageUrl: pastaPhoto.src,
 		category: 'Dinner',
 		updatedAt: '2026-10-05T08:00:00+08:00',
 		updatedLabel: '2 days ago',
@@ -15,7 +15,7 @@ export const sampleRecipes: RecipeCardData[] = [
 	{
 		id: 'creamy-garlic-pasta2',
 		title: 'Creamy Garlic Pasta',
-		image: pastaPhoto,
+		imageUrl: pastaPhoto.src,
 		category: 'Dinner',
 		updatedAt: '2026-10-05T08:00:00+08:00',
 		updatedLabel: '2 days ago',
@@ -23,7 +23,7 @@ export const sampleRecipes: RecipeCardData[] = [
 	{
 		id: 'creamy-garlic-pasta3',
 		title: 'Creamy Garlic Pasta',
-		image: pastaPhoto,
+		imageUrl: pastaPhoto.src,
 		category: 'Dinner',
 		updatedAt: '2026-10-05T08:00:00+08:00',
 		updatedLabel: '2 days ago',
@@ -31,7 +31,7 @@ export const sampleRecipes: RecipeCardData[] = [
 	{
 		id: 'creamy-garlic-pasta4',
 		title: 'Creamy Garlic Pasta',
-		image: pastaPhoto,
+		imageUrl: pastaPhoto.src,
 		category: 'Dinner',
 		updatedAt: '2026-10-05T08:00:00+08:00',
 		updatedLabel: '2 days ago',
