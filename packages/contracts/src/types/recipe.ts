@@ -10,6 +10,16 @@ import type {
   RecipeIngredient,
 } from "./ingredient";
 
+export const RECIPE_CATEGORIES = [
+  "Breakfast",
+  "Lunch",
+  "Dinner",
+  "Snacks",
+  "Desserts",
+] as const;
+
+export type RecipeCategory = (typeof RECIPE_CATEGORIES)[number];
+
 export type RecipeInstruction = {
   id: EntityId;
   stepNumber: number;
@@ -21,6 +31,7 @@ export type Recipe = {
   userId: EntityId;
 
   title: string;
+  category?: RecipeCategory;
   description: string | null;
 
   imageUrl: string | null;
@@ -41,6 +52,7 @@ export type RecipeSummary = Pick<
   Recipe,
   | "id"
   | "title"
+  | "category"
   | "description"
   | "imageUrl"
   | "servings"
@@ -56,6 +68,8 @@ export type CreateRecipeInstructionInput = {
 
 export type CreateRecipeInput = {
   title: string;
+
+  category?: RecipeCategory;
 
   description?: string | null;
 
