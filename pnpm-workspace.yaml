@@ -2,6 +2,8 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
+  # Nest CLI's optional SWC compiler is not used by the Vite-based tests.
+  '@swc/core': false
   unrs-resolver: true
 minimumReleaseAgeExclude:
   - "@next/env@16.4.0"

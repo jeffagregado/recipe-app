@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "types": ["node"]
+  },
+  "include": [
+    "playwright.config.ts",
+    "e2e/**/*.ts",
+    "apps/api/vitest*.ts",
+    "apps/api/test/**/*.ts",
+    "packages/contracts/vitest.config.ts",
+    "packages/contracts/src/**/*.test.ts",
+    "packages/contracts/src/**/*.spec.ts"
+  ]
+}
