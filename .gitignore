@@ -46,7 +46,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-#AI
+# Local agent instructions (AGENTS.md matches the root and all workspaces)
 AGENTS.md
 CLAUDE.md
 design-qa.md
