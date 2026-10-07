@@ -25,7 +25,7 @@ export function RecipeGrid() {
 		return (
 			<div role="alert" className="space-y-3">
 				<p className="font-semibold">Could not load recipes.</p>
-				<p className="text-sm text-muted-foreground break-words">{query.error.message} Check your connection and the recipe API, then retry.</p>
+				<p className="text-sm text-muted-foreground wrap-break-word">{query.error.message} Check your connection and the recipe API, then retry.</p>
 				<Button onClick={() => void query.refetch()} disabled={query.isFetching}>
 					{query.isFetching ? 'Retrying...' : 'Retry'}
 				</Button>
