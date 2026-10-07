@@ -3,12 +3,12 @@ import type {
   ISODateString,
   PaginationParams,
   SortDirection,
-} from "./common";
+} from "./common.js";
 
 import type {
   CreateRecipeIngredientInput,
   RecipeIngredient,
-} from "./ingredient";
+} from "./ingredient.js";
 
 export const RECIPE_CATEGORIES = [
   "Breakfast",

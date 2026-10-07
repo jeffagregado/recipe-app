@@ -4,7 +4,7 @@ import type {
   PaginationMeta,
   PaginationParams,
   SortDirection,
-} from "../types/common";
+} from "../types/common.js";
 
 export const entityIdSchema = z.string().min(1);
 

@@ -4,6 +4,14 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 First, run the development server:
 
+This Turborepo runs Next.js in `apps/web` and NestJS in `apps/api`. From the repository root, install with `pnpm install`, copy `apps/web/.env.example` to `apps/web/.env.local`, then run `pnpm dev`. Turbo builds the shared contracts before starting either app and watches them during development.
+
+The recipe list reads NestJS `GET /recipes` on the server. `RECIPE_API_URL` is the API base URL reachable from the Next.js server, defaults to `http://localhost:3001` in the example, and must be set to the deployed API URL in production. NestJS uses `PORT` (default `3001`); update the URL if that port changes. Fetch failures appear with a manual Retry button; there is no local-data substitute.
+
+Validated lists use a `recipes` cache tag with 30 seconds of client reuse, background revalidation after 60 seconds, and expiry after 5 minutes. The configured API endpoint is part of the cache key. Failed reads throw; the grid error boundary shows a user-facing message and Retry while server logs retain technical details.
+
+Use `pnpm build` for production builds and `pnpm typecheck` / `pnpm lint` for checks. A running API is not required during the web build; it is required when visiting `/recipes`. For an individual app build, run `pnpm exec turbo build --filter=@recipe/api` or `--filter=@recipe/web` so contracts are built first.
+
 ```bash
 npm run dev
 # or

@@ -6,9 +6,9 @@ import {
   type Ingredient,
   type MeasurementUnit,
   type RecipeIngredient,
-} from "../types/ingredient";
+} from "../types/ingredient.js";
 
-import { entityIdSchema } from "./common.schema";
+import { entityIdSchema } from "./common.schema.js";
 
 export const measurementUnitSchema: z.ZodType<MeasurementUnit> = z.enum(
   MEASUREMENT_UNITS,

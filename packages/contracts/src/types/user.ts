@@ -1,4 +1,4 @@
-import type { EntityId, ISODateString } from "./common";
+import type { EntityId, ISODateString } from "./common.js";
 
 export type User = {
   id: EntityId;

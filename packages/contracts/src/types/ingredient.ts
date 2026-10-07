@@ -1,4 +1,4 @@
-import type { EntityId } from "./common";
+import type { EntityId } from "./common.js";
 
 export const MEASUREMENT_UNITS = [
   "tsp",

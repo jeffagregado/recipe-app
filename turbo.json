@@ -11,19 +11,27 @@
       ]
     },
     "dev": {
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     },
     "@recipe/api#dev": {
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true,
       "passThroughEnv": ["PORT"]
+    },
+    "@recipe/web#dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": ["RECIPE_API_URL"]
     },
     "lint": {
       "dependsOn": ["^lint"]
     },
     "typecheck": {
-      "dependsOn": ["^typecheck"]
+      "dependsOn": ["^build", "^typecheck"]
     }
   }
 }

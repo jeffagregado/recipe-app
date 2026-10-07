@@ -1,11 +1,11 @@
 import { z } from "zod";
 
-import type { User, UserSummary } from "../types/user";
+import type { User, UserSummary } from "../types/user.js";
 
 import {
   entityIdSchema,
   isoDateStringSchema,
-} from "./common.schema";
+} from "./common.schema.js";
 
 export const userSchema: z.ZodType<User> = z.object({
   id: entityIdSchema,

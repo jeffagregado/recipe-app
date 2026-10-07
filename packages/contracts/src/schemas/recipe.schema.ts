@@ -12,18 +12,18 @@ import {
   type RecipeSortField,
   type RecipeSummary,
   type UpdateRecipeInput,
-} from "../types/recipe";
+} from "../types/recipe.js";
 
 import {
   entityIdSchema,
   isoDateStringSchema,
   sortDirectionSchema,
-} from "./common.schema";
+} from "./common.schema.js";
 
 import {
   createRecipeIngredientSchema,
   recipeIngredientSchema,
-} from "./ingredient.schema";
+} from "./ingredient.schema.js";
 
 export const recipeCategorySchema: z.ZodType<RecipeCategory> = z.enum(
   RECIPE_CATEGORIES,
