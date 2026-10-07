@@ -4,7 +4,7 @@ import type { RecipeCategory, RecipeSummary } from '@recipe-app/contracts/types'
 import { BookOpen, Heart, MoreHorizontal } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { useId } from 'react'
+import { useId, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -32,15 +32,26 @@ export type RecipeCardData = Pick<RecipeSummary, 'id' | 'title' | 'imageUrl' | '
 
 type RecipeCardProps = {
 	recipe: RecipeCardData
-	isFavorite: boolean
-	onFavoriteToggle: () => void
 	preload?: boolean
 }
 
-export function RecipeCard({ recipe, isFavorite, onFavoriteToggle, preload = false }: RecipeCardProps) {
+export function RecipeCard({ recipe, preload = false }: RecipeCardProps) {
+	const [favorites, setFavorites] = useState<Set<string>>(() => new Set())
+	const isFavorite = favorites.has(recipe.id)
+
 	const titleId = useId()
 	const href = `/recipes/${encodeURIComponent(recipe.id)}`
 	const favoriteLabel = `${isFavorite ? 'Remove' : 'Add'} ${recipe.title} ${isFavorite ? 'from' : 'to'} favorites`
+
+
+	function toggleFavorite(id: string) {
+		setFavorites((current) => {
+			const next = new Set(current)
+			if (next.has(id)) next.delete(id)
+			else next.add(id)
+			return next
+		})
+	}
 
 	return (
 		<Card
@@ -72,7 +83,7 @@ export function RecipeCard({ recipe, isFavorite, onFavoriteToggle, preload = fal
 									<BookOpen aria-hidden="true" />
 									View recipe
 								</DropdownMenuItem>
-								<DropdownMenuItem onClick={onFavoriteToggle}>
+								<DropdownMenuItem onClick={() =>toggleFavorite(recipe.id)}>
 									<Heart aria-hidden="true" />
 									{isFavorite ? 'Remove from favorites' : 'Add to favorites'}
 								</DropdownMenuItem>
@@ -103,7 +114,7 @@ export function RecipeCard({ recipe, isFavorite, onFavoriteToggle, preload = fal
 						size="icon"
 						aria-label={favoriteLabel}
 						aria-pressed={isFavorite}
-						onClick={onFavoriteToggle}
+						onClick={() =>toggleFavorite(recipe.id)}
 						className="relative z-10 -my-1 -mr-1 size-11 rounded-full sm:size-8"
 					>
 						<Heart aria-hidden="true" className={cn(isFavorite && 'fill-destructive text-destructive')} />
