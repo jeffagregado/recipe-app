@@ -40,3 +40,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+#AI
+AGENTS.md
+CLAUDE.md
+design-qa.md
+TODO.md
+designs/
+docs/
