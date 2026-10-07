@@ -1,0 +1,13 @@
+{
+	"name": "@recipe-app/contracts",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./types": "./src/types/index.ts",
+		"./schemas": "./src/schemas/index.ts"
+	},
+	"dependencies": {
+		"zod": "^4.6.5"
+	}
+}
