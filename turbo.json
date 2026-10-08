@@ -19,7 +19,7 @@
       "dependsOn": ["^build"],
       "cache": false,
       "persistent": true,
-      "passThroughEnv": ["PORT"]
+      "passThroughEnv": ["PORT", "DATABASE_URL", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_ENDPOINT_URL_S3", "AWS_REGION", "S3_BUCKET"]
     },
     "@recipe/web#dev": {
       "dependsOn": ["^build"],
@@ -46,6 +46,11 @@
     "test:integration": {
       "dependsOn": ["^build"],
       "cache": false
+    },
+    "@recipe/api#test:integration": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "passThroughEnv": ["PORT", "DATABASE_URL", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_ENDPOINT_URL_S3", "AWS_REGION", "S3_BUCKET"]
     },
     "typecheck": {
       "dependsOn": ["^build", "^typecheck"]
