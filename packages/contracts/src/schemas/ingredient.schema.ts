@@ -22,7 +22,7 @@ export const ingredientSchema: z.ZodType<Ingredient> = z.object({
 export const recipeIngredientSchema: z.ZodType<RecipeIngredient> = z.object({
   id: entityIdSchema,
 
-  ingredientId: entityIdSchema.nullable(),
+  ingredientId: entityIdSchema,
 
   name: z.string().trim().min(1).max(100),
 

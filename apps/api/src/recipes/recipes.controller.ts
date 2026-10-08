@@ -8,7 +8,7 @@ export class RecipesController {
 
   @Get()
   @Header('Cache-Control', 'no-store')
-  findAll(): RecipeSummary[] {
+  findAll(): Promise<RecipeSummary[]> {
     return this.recipesService.findAll();
   }
 }

@@ -31,7 +31,7 @@ export type Recipe = {
   userId: EntityId;
 
   title: string;
-  category?: RecipeCategory;
+  categories: RecipeCategory[];
   description: string | null;
 
   imageUrl: string | null;
@@ -52,7 +52,7 @@ export type RecipeSummary = Pick<
   Recipe,
   | "id"
   | "title"
-  | "category"
+  | "categories"
   | "description"
   | "imageUrl"
   | "servings"
@@ -69,7 +69,7 @@ export type CreateRecipeInstructionInput = {
 export type CreateRecipeInput = {
   title: string;
 
-  category?: RecipeCategory;
+  categories?: RecipeCategory[];
 
   description?: string | null;
 

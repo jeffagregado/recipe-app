@@ -1,0 +1,2 @@
+ALTER TABLE "recipe_ingredients" DROP CONSTRAINT "recipe_ingredients_quantity_check";--> statement-breakpoint
+ALTER TABLE "recipe_ingredients" ADD CONSTRAINT "recipe_ingredients_quantity_check" CHECK ("recipe_ingredients"."quantity" > 0 AND "recipe_ingredients"."quantity" <> 'NaN'::numeric);

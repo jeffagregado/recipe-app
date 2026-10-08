@@ -16,6 +16,11 @@ const databaseUrlSchema = z.url({ protocol: /^postgres(?:ql)?$/, hostname: /\S+/
     }, 'must keep certificate verification enabled'));
 
 const environmentSchema = z.object({
+  BETTER_AUTH_SECRET: z.string().min(32).refine((value) => value.trim().length >= 32),
+  BETTER_AUTH_URL: z.url({ protocol: /^https?$/, hostname: /\S+/ }).pipe(z.string().refine((value) => {
+    const url = new URL(value);
+    return [url.username, url.password, url.search, url.hash].every((part) => !part);
+  }, 'must be an HTTP(S) URL without credentials, query, or fragment')),
   DATABASE_URL: databaseUrlSchema,
   AWS_ACCESS_KEY_ID: z.string().trim().min(1),
   AWS_SECRET_ACCESS_KEY: z.string().min(1).refine((value) => value.trim().length > 0),

@@ -4,9 +4,12 @@ import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module.js';
 import type { Environment } from './config/environment.js';
 import { DatabaseError, DatabaseService } from './database/database.service.js';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { mountAuth } from './auth/auth.http.js';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { abortOnError: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { abortOnError: false, bodyParser: false });
+  mountAuth(app);
   const logger = new Logger('Bootstrap');
   app.enableShutdownHooks();
   app.get(DatabaseService).onPoolError = (error) => {

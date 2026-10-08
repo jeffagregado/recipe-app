@@ -7,6 +7,7 @@ import { RecipesModule } from './recipes/recipes.module.js';
 import { validateEnvironment } from './config/environment.js';
 import { DatabaseModule } from './database/database.module.js';
 import { StorageModule } from './storage/storage.module.js';
+import { AuthModule } from './auth/auth.module.js';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { StorageModule } from './storage/storage.module.js';
     }),
     DatabaseModule,
     StorageModule,
+    AuthModule,
     RecipesModule,
   ],
   controllers: [AppController],

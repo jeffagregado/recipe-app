@@ -1,2 +1,3 @@
-// Tables belong here once recipe persistence is approved.
-export {};
+export * from './auth.schema.js';
+export * from './recipe.schema.js';
+export * from './relations.js';

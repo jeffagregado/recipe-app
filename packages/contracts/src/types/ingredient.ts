@@ -28,13 +28,9 @@ export type Ingredient = {
 export type RecipeIngredient = {
   id: EntityId;
 
-  ingredientId: EntityId | null;
+  ingredientId: EntityId;
 
-  /**
-   * Snapshot/display name.
-   *
-   * Useful even if you later create a normalized Ingredient table.
-   */
+  /** Display name preserved independently of the canonical ingredient name. */
   name: string;
 
   quantity: number | null;

@@ -26,7 +26,7 @@ const categoryVariants = {
 	Desserts: 'dessert',
 } as const satisfies Record<RecipeCategory, string>
 
-export type RecipeCardData = Pick<RecipeSummary, 'id' | 'title' | 'imageUrl' | 'category' | 'updatedAt'> & {
+export type RecipeCardData = Pick<RecipeSummary, 'id' | 'title' | 'imageUrl' | 'categories' | 'updatedAt'> & {
 	updatedLabel: string
 }
 
@@ -103,7 +103,13 @@ export function RecipeCard({ recipe, preload = false }: RecipeCardProps) {
 						{recipe.title}
 					</Link>
 				</h2>
-				{recipe.category !== undefined && <Badge variant={categoryVariants[recipe.category]}>{recipe.category}</Badge>}
+				{recipe.categories.length > 0 && (
+					<div className="flex flex-wrap gap-1.5">
+						{recipe.categories.slice(0, 2).map((category) => (
+							<Badge key={category} variant={categoryVariants[category]}>{category}</Badge>
+						))}
+					</div>
+				)}
 				<div className="flex min-w-0 items-center justify-between gap-2">
 					<time dateTime={recipe.updatedAt} className="text-sm leading-5 text-muted-foreground">
 						Updated {recipe.updatedLabel}
