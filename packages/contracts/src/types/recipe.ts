@@ -2,6 +2,7 @@ import type {
   EntityId,
   ISODateString,
   PaginationParams,
+  PaginatedResult,
   SortDirection,
 } from "./common.js";
 
@@ -98,6 +99,23 @@ export const RECIPE_SORT_FIELDS = [
 ] as const;
 
 export type RecipeSortField = (typeof RECIPE_SORT_FIELDS)[number];
+
+export type RecipeFilters = {
+  category?: RecipeCategory;
+  sortBy: RecipeSortField;
+  order: SortDirection;
+};
+
+export type RecipeListQuery = Required<PaginationParams> & RecipeFilters;
+
+export type RecipeCounts = {
+  total: number;
+  categories: Record<RecipeCategory, number>;
+};
+
+export type RecipeListResponse = PaginatedResult<RecipeSummary> & {
+  counts: RecipeCounts;
+};
 
 export type RecipeQueryParams = PaginationParams & {
   search?: string;

@@ -11,6 +11,8 @@ import {
   type RecipeQueryParams,
   type RecipeSortField,
   type RecipeSummary,
+  type RecipeListQuery,
+  type RecipeListResponse,
   type UpdateRecipeInput,
 } from "../types/recipe.js";
 
@@ -18,6 +20,7 @@ import {
   entityIdSchema,
   isoDateStringSchema,
   sortDirectionSchema,
+  paginationMetaSchema,
 } from "./common.schema.js";
 
 import {
@@ -131,6 +134,29 @@ export const updateRecipeSchema: z.ZodType<UpdateRecipeInput> = z.object({
 export const recipeSortFieldSchema: z.ZodType<RecipeSortField> = z.enum(
   RECIPE_SORT_FIELDS,
 );
+
+// Query strings must be whole numbers; blank, repeated and fractional values fail.
+const queryInteger = (schema: z.ZodNumber) => z.preprocess(
+  (value) => typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value,
+  schema,
+);
+
+export const recipeListQuerySchema: z.ZodType<RecipeListQuery> = z.object({
+  category: recipeCategorySchema.optional(),
+  page: queryInteger(z.number().int().positive().max(Math.floor(Number.MAX_SAFE_INTEGER / 20))).default(1),
+  limit: queryInteger(z.number().int().positive().max(20)).default(20),
+  sortBy: recipeSortFieldSchema.default("createdAt"),
+  order: sortDirectionSchema.default("desc"),
+});
+
+export const recipeListResponseSchema: z.ZodType<RecipeListResponse> = z.object({
+  data: z.array(recipeSummarySchema),
+  meta: paginationMetaSchema,
+  counts: z.object({
+    total: z.number().int().nonnegative(),
+    categories: z.record(z.enum(RECIPE_CATEGORIES), z.number().int().nonnegative()),
+  }),
+});
 
 export const recipeQueryParamsSchema: z.ZodType<RecipeQueryParams> = z.object({
   page: z.number().int().positive().optional(),

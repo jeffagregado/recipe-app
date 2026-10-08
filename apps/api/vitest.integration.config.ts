@@ -6,5 +6,7 @@ export default defineConfig({
   test: {
     ...config.test,
     include: ['test/integration/**/*.{test,spec}.ts'],
+    // Suites share the approved dev database and make count assertions.
+    fileParallelism: false,
   },
 });

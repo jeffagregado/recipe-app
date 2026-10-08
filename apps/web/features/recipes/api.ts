@@ -1,28 +1,21 @@
 import 'server-only'
 
-import { recipeSummarySchema } from '@recipe-app/contracts/schemas'
-import type { RecipeSummary } from '@recipe-app/contracts/types'
+import type { RecipeFilters, RecipeListResponse } from '@recipe-app/contracts/types'
 import { cacheLife, cacheTag } from 'next/cache'
+import { dehydrate, QueryClient } from '@tanstack/react-query'
+import { fetchRecipePage, RecipeApiError } from './request'
+import { recipeQueryOptions } from './query'
 
-class RecipeApiError extends Error {
-	constructor(message: string, options?: ErrorOptions) {
-		super(message, options)
-		this.name = 'RecipeApiError'
-	}
-}
-
-function getRecipesUrl(): string {
+/** Only this validated, credential-free public endpoint is serialized to the browser. */
+export function getRecipesUrl(): string {
 	const baseUrl = process.env.RECIPE_API_URL
-	if (!baseUrl) {
-		throw new RecipeApiError('RECIPE_API_URL is missing. Set the recipe API base URL in the web server environment, then restart it.')
-	}
-
+	if (!baseUrl) throw new RecipeApiError('RECIPE_API_URL is missing. Set the recipe API base URL in the web server environment, then restart it.')
 	let url: URL
 	try {
 		url = new URL(baseUrl)
-	} catch (error) {
-		if (!(error instanceof TypeError)) throw error
-		throw new RecipeApiError('RECIPE_API_URL must be an absolute HTTP or HTTPS base URL.', { cause: error })
+	} catch (cause) {
+		if (!(cause instanceof TypeError)) throw cause
+		throw new RecipeApiError('RECIPE_API_URL must be an absolute HTTP or HTTPS base URL.', { cause })
 	}
 	if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
 		throw new RecipeApiError('RECIPE_API_URL must use HTTP or HTTPS without credentials, query parameters, or a fragment.')
@@ -31,40 +24,21 @@ function getRecipesUrl(): string {
 	return url.href
 }
 
-export async function getRecipes(): Promise<RecipeSummary[]> {
-	return getRecipeList(getRecipesUrl())
-}
-
-// Include the configured endpoint in the cache key; only validated data is returned.
-async function getRecipeList(url: string): Promise<RecipeSummary[]> {
+// Endpoint and every filter participate in the first-page server cache key.
+async function getRecipes(endpoint: string, filters: RecipeFilters): Promise<RecipeListResponse> {
 	'use cache'
 	cacheLife({ stale: 30, revalidate: 60, expire: 300 })
 	cacheTag('recipes')
+	return fetchRecipePage(endpoint, filters, 1)
+}
 
-	let payload: unknown
+/** Each request owns its server client; browser clients live in RecipeProvider. */
+export async function hydrateRecipePage(endpoint: string, filters: RecipeFilters) {
+	const client = new QueryClient()
 	try {
-		const response = await fetch(url, { signal: AbortSignal.timeout(5_000) })
-		if (!response.ok) {
-			throw new RecipeApiError(`GET /recipes failed (${response.status} ${response.statusText}). Check the recipe API response.`)
-		}
-		payload = await response.json()
-	} catch (error) {
-		if (error instanceof SyntaxError) {
-			throw new RecipeApiError('GET /recipes returned invalid JSON. Check the recipe API response.', { cause: error })
-		}
-		if (error instanceof DOMException && error.name === 'TimeoutError') {
-			throw new RecipeApiError('GET /recipes timed out after 5 seconds. Check recipe API availability.', { cause: error })
-		}
-		if (error instanceof TypeError || error instanceof DOMException) {
-			throw new RecipeApiError('GET /recipes failed during transport. Check RECIPE_API_URL and recipe API availability.', { cause: error })
-		}
-		throw error
+		await client.fetchInfiniteQuery({ ...recipeQueryOptions(endpoint, filters), queryFn: () => getRecipes(endpoint, filters) })
+		return dehydrate(client)
+	} finally {
+		client.clear()
 	}
-	const result = recipeSummarySchema.array().safeParse(payload)
-
-	if (!result.success) {
-		throw new RecipeApiError(`GET /recipes returned invalid recipe data. Check the API response against RecipeSummary: ${result.error.message}`, { cause: result.error })
-	}
-
-	return result.data
 }

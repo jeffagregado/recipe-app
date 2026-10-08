@@ -5,10 +5,10 @@ import { Input } from '@/components/ui/input'
 import { Plus, Search } from 'lucide-react'
 
 import { Suspense } from 'react'
-import { RecipeGrid } from './components/recipe-grid'
+import { RecipeGrid } from '@/features/recipes/recipe-grid'
 import { RecipeErrorBoundary } from './components/recipe-error'
 
-export default function RecipesPage() {
+export default function RecipesPage({ searchParams }: PageProps<'/recipes'>) {
 	return (
 		<PageContainer size="full" className="space-y-8">
 			<header className="grid grid-cols-[1fr_auto] items-center gap-4 md:grid-cols-[1fr_60%_1fr]">
@@ -30,7 +30,7 @@ export default function RecipesPage() {
 			</header>
 			<RecipeErrorBoundary message="Please try again in a moment.">
 				<Suspense fallback={<p role="status">Loading recipes...</p>}>
-					<RecipeGrid />
+					<RecipeGrid searchParams={searchParams} />
 				</Suspense>
 			</RecipeErrorBoundary>
 		</PageContainer>

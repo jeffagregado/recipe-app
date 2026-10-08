@@ -15,6 +15,7 @@ coverage
 test-results/
 playwright-report/
 blob-report/
+output/playwright/
 
 # next.js
 .next/

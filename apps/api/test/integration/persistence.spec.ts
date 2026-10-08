@@ -7,6 +7,7 @@ import { recipeSchema } from '@recipe-app/contracts/schemas';
 import * as schema from '../../src/database/schema.js';
 import { DEMO_AUTHOR_ID, seedDatabase } from '../../src/database/seed.js';
 import { sampleRecipes } from '../../src/recipes/sample-recipes.js';
+import { seedRecipes, seedDetails } from '../../src/recipes/seed-recipes.js';
 import { getDevDatabaseUrl } from '../neon-dev.js';
 
 describe('Neon relational persistence', () => {
@@ -24,19 +25,24 @@ describe('Neon relational persistence', () => {
       where: eq(schema.recipes.userId, DEMO_AUTHOR_ID), orderBy: asc(schema.recipes.sortOrder),
       with: { ingredients: { orderBy: (t, { asc }) => asc(t.sortOrder), with: { ingredient: true } }, instructions: { orderBy: (t, { asc }) => asc(t.stepNumber) }, categories: { orderBy: (t, { asc }) => asc(t.sortOrder), with: { category: true } } },
     });
-    expect(rows.map(({ id }) => id)).toEqual(sampleRecipes.map(({ id }) => id));
+    expect(rows).toHaveLength(100);
+    expect(new Set(rows.map(({ id }) => id)).size).toBe(100);
+    expect(rows.map(({ id }) => id)).toEqual(seedRecipes.map(({ id }) => id));
+    expect(seedRecipes.slice(0, 20)).toEqual(sampleRecipes);
     for (const [index, row] of rows.entries()) {
       const recipe = recipeSchema.parse({ ...row,
         categories: row.categories.map(({ category }) => category.name), imageUrl: null,
         ingredients: row.ingredients.map((ingredient) => ({ ...ingredient, quantity: ingredient.quantity === null ? null : Number(ingredient.quantity) })),
         createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
       });
-      const expected = sampleRecipes[index];
+      const expected = seedRecipes[index];
       expect({ id: recipe.id, title: recipe.title, categories: recipe.categories, description: recipe.description, imageUrl: recipe.imageUrl, servings: recipe.servings, prepTimeMinutes: recipe.prepTimeMinutes, cookTimeMinutes: recipe.cookTimeMinutes,
         createdAt: new Date(recipe.createdAt).getTime(), updatedAt: new Date(recipe.updatedAt).getTime(),
       }).toEqual({ ...expected, createdAt: new Date(expected.createdAt).getTime(), updatedAt: new Date(expected.updatedAt).getTime() });
       expect(recipe.ingredients.length).toBeGreaterThan(0);
       expect(recipe.instructions.length).toBeGreaterThan(0);
+      expect(recipe.ingredients.map(({ name, quantity, unit, preparation }) => [name, quantity, unit, ...(preparation === null ? [] : [preparation])])).toEqual(seedDetails[row.id].ingredients);
+      expect(recipe.instructions.map(({ description }) => description)).toEqual(seedDetails[row.id].instructions);
       expect(recipe.ingredients.every((item) => item.ingredientId.length > 0)).toBe(true);
       expect(recipe.instructions.map(({ stepNumber }) => stepNumber)).toEqual(recipe.instructions.map((_, i) => i + 1));
     }

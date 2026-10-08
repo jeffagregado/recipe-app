@@ -1,0 +1,115 @@
+import type { AddressInfo } from 'node:net';
+import { randomUUID } from 'node:crypto';
+import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { inArray } from 'drizzle-orm';
+import { recipeListResponseSchema } from '@recipe-app/contracts/schemas';
+import { RECIPE_CATEGORIES, RECIPE_SORT_FIELDS } from '@recipe-app/contracts/types';
+import type { RecipeListQuery, RecipeSummary } from '@recipe-app/contracts/types';
+import { mountAuth } from '../../src/auth/auth.http.js';
+import { DatabaseService } from '../../src/database/database.service.js';
+import { DEMO_AUTHOR_ID, seedDatabase } from '../../src/database/seed.js';
+import { recipes } from '../../src/database/schema.js';
+import { seedRecipes } from '../../src/recipes/seed-recipes.js';
+import { getDevDatabaseUrl } from '../neon-dev.js';
+
+describe('Public SQL recipe pagination', () => {
+  let app: NestExpressApplication;
+  let baseUrl: string;
+  beforeAll(async () => {
+    process.env.DATABASE_URL = await getDevDatabaseUrl();
+    process.env.BETTER_AUTH_URL = 'http://127.0.0.1:4101';
+    const { AppModule } = await import('../../src/app.module.js');
+    app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: false, bodyParser: false, abortOnError: false });
+    mountAuth(app);
+    await seedDatabase(app.get(DatabaseService).db);
+    await app.listen(0, '127.0.0.1');
+    baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
+  }, 60_000);
+  afterAll(async () => { await app?.close(); });
+
+  async function list(params: Partial<RecipeListQuery> = {}) {
+    const query = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]));
+    const response = await fetch(`${baseUrl}/recipes?${query}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    return recipeListResponseSchema.parse(await response.json());
+  }
+
+  function ordered(sortBy: RecipeListQuery['sortBy'], order: RecipeListQuery['order'], source = seedRecipes) {
+    return source.map((recipe) => ({ recipe, position: seedRecipes.findIndex(({ id }) => id === recipe.id) }))
+      .sort((a, b) => {
+        const left = sortBy === 'title' ? a.recipe.title : Date.parse(a.recipe[sortBy]);
+        const right = sortBy === 'title' ? b.recipe.title : Date.parse(b.recipe[sortBy]);
+        const comparison = left < right ? -1 : left > right ? 1 : 0;
+        return comparison * (order === 'asc' ? 1 : -1) || a.position - b.position;
+      }).map(({ recipe }) => recipe.id);
+  }
+
+  it('returns five disjoint 20-item pages, default newest order, full counts and an empty terminal page', async () => {
+    const pages = await Promise.all([1, 2, 3, 4, 5].map((page) => list({ page })));
+    for (const [index, page] of pages.entries()) {
+      expect(page.data).toHaveLength(20);
+      expect(page.meta).toEqual({ page: index + 1, limit: 20, total: 100, totalPages: 5 });
+      expect(page.counts.total).toBe(100);
+      for (const category of RECIPE_CATEGORIES) expect(page.counts.categories[category]).toBe(seedRecipes.filter((recipe) => recipe.categories.includes(category)).length);
+    }
+    const ids = pages.flatMap((page) => page.data.map(({ id }) => id));
+    expect(new Set(ids).size).toBe(100);
+    expect(ids).toEqual(ordered('createdAt', 'desc'));
+    expect((await list({ page: 6 })).data).toEqual([]);
+    expect((await list({ page: 1, limit: 3 })).data).toHaveLength(3);
+  }, 30_000);
+
+  it('filters before counting and paginating without duplicating multi-category recipes', async () => {
+    for (const category of RECIPE_CATEGORIES) {
+      const expected = seedRecipes.filter((recipe) => recipe.categories.includes(category));
+      const first = await list({ category });
+      const records: RecipeSummary[] = [...first.data];
+      for (let page = 2; page <= first.meta.totalPages; page++) records.push(...(await list({ category, page })).data);
+      expect(first.meta.total).toBe(expected.length);
+      expect(first.counts.total).toBe(100);
+      expect(first.counts.categories[category]).toBe(expected.length);
+      expect(records.every((recipe) => recipe.categories.includes(category))).toBe(true);
+      expect(records.map(({ id }) => id)).toEqual(ordered('createdAt', 'desc', expected));
+      expect(new Set(records.map(({ id }) => id)).size).toBe(expected.length);
+      expect((await list({ category, page: first.meta.totalPages + 1 })).data).toEqual([]);
+    }
+  }, 30_000);
+
+  it('honors every sorting direction with stable sortOrder ties across pages', async () => {
+    for (const sortBy of RECIPE_SORT_FIELDS) for (const order of ['asc', 'desc'] as const) {
+      const pages = await Promise.all([1, 2, 3, 4, 5].map((page) => list({ page, sortBy, order })));
+      expect(pages.flatMap((page) => page.data.map(({ id }) => id))).toEqual(ordered(sortBy, order));
+    }
+  }, 60_000);
+
+  it('rejects malformed supported parameters with actionable HTTP 400 errors', async () => {
+    for (const query of ['page=0', 'page=-1', 'page=1.5', 'page=no', 'page=', 'page=1&page=2', 'limit=0', 'limit=21', 'limit=', 'category=no', 'category=', 'category=Dinner&category=Lunch', 'sortBy=no', 'sortBy=', 'order=no', 'order=', 'order=ASC']) {
+      const response = await fetch(`${baseUrl}/recipes?${query}`);
+      expect(response.status, query).toBe(400);
+      const payload: unknown = await response.json();
+      expect(payload).toMatchObject({
+        message: expect.stringContaining('Invalid recipe query'),
+        errors: expect.arrayContaining([expect.objectContaining({ parameter: expect.stringMatching(/\S+/), message: expect.any(String) })]),
+      });
+    }
+  }, 30_000);
+
+  it('uses ID to break equal primary sort and sortOrder ties across page boundaries', async () => {
+    const db = app.get(DatabaseService).db;
+    const token = randomUUID();
+    const ids = [`verify-tie-a-${token}`, `verify-tie-b-${token}`];
+    try {
+      await db.insert(recipes).values(ids.toReversed().map((id) => ({ id, userId: DEMO_AUTHOR_ID, title: 'AAAA API tie', sortOrder: 100,
+        createdAt: new Date('2000-01-01T00:00:00Z'), updatedAt: new Date('2000-01-01T00:00:00Z'),
+      })));
+      for (const sortBy of RECIPE_SORT_FIELDS) {
+        const first = await list({ page: 1, limit: 1, sortBy, order: 'asc' });
+        const second = await list({ page: 2, limit: 1, sortBy, order: 'asc' });
+        expect([first.data[0].id, second.data[0].id]).toEqual(ids);
+      }
+    } finally { await db.delete(recipes).where(inArray(recipes.id, ids)); }
+  }, 30_000);
+});

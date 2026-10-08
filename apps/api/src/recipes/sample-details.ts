@@ -1,7 +1,7 @@
 import type { MeasurementUnit } from '@recipe-app/contracts/types';
 
-type SeedIngredient = readonly [name: string, quantity: number, unit: MeasurementUnit, preparation?: string];
-type SeedDetails = { ingredients: readonly SeedIngredient[]; instructions: readonly string[] };
+export type SeedIngredient = readonly [name: string, quantity: number, unit: MeasurementUnit, preparation?: string];
+export type SeedDetails = { ingredients: readonly SeedIngredient[]; instructions: readonly string[] };
 
 const pasta: SeedDetails = {
   ingredients: [['pasta', 300, 'g'], ['garlic', 4, 'clove', 'minced'], ['cream', 200, 'ml'], ['parmesan', 50, 'g', 'grated'], ['butter', 2, 'tbsp']],

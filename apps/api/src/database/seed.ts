@@ -5,8 +5,7 @@ import { RECIPE_CATEGORIES } from '@recipe-app/contracts/types';
 import type { RecipeSummary } from '@recipe-app/contracts/types';
 import type { DrizzleDb } from './database.service.js';
 import { categories, ingredients, recipeCategories, recipeIngredients, recipeInstructions, recipes, users } from './schema.js';
-import { sampleRecipes } from '../recipes/sample-recipes.js';
-import { sampleDetails } from '../recipes/sample-details.js';
+import { seedRecipes, seedDetails } from '../recipes/seed-recipes.js';
 
 export const DEMO_AUTHOR_ID = 'seed-demo-author';
 type Transaction = Parameters<Parameters<DrizzleDb['transaction']>[0]>[0];
@@ -14,7 +13,7 @@ const seedDate = new Date('2026-10-05T00:00:00Z');
 const ingredientId = (name: string) => `seed-ingredient-${createHash('sha256').update(name.toLowerCase()).digest('hex').slice(0, 24)}`;
 
 function detailsFor(id: string) {
-  const details = sampleDetails[id];
+  const details = seedDetails[id];
   if (!details) throw new Error(`Missing recipe seed details: ${id}.`);
   return details;
 }
@@ -47,7 +46,7 @@ async function seedCatalog(tx: Transaction, samples: RecipeSummary[]) {
   };
 }
 
-async function seedRecipes(tx: Transaction, samples: RecipeSummary[]): Promise<void> {
+async function seedRecipeRows(tx: Transaction, samples: RecipeSummary[]): Promise<void> {
   const rows = samples.map((sample, sortOrder) => ({
     id: sample.id, userId: DEMO_AUTHOR_ID, title: sample.title, description: sample.description,
     servings: sample.servings, prepTimeMinutes: sample.prepTimeMinutes, cookTimeMinutes: sample.cookTimeMinutes,
@@ -80,11 +79,14 @@ async function seedContent(tx: Transaction, samples: RecipeSummary[], catalog: A
 
 /** Explicit, transactional seed; collisions with non-seed recipe owners fail rather than overwrite. */
 export async function seedDatabase(db: DrizzleDb): Promise<void> {
-  const samples = recipeSummarySchema.array().parse(sampleRecipes);
+  const samples = recipeSummarySchema.array().parse(seedRecipes);
+  if (samples.length !== 100 || new Set(samples.map(({ id }) => id)).size !== samples.length) {
+    throw new Error('Recipe seed requires exactly 100 unique fixture IDs. No records changed.');
+  }
   await db.transaction(async (tx) => {
     await checkOwner(tx, samples);
     const catalog = await seedCatalog(tx, samples);
-    await seedRecipes(tx, samples);
+    await seedRecipeRows(tx, samples);
     await seedContent(tx, samples, catalog);
   });
 }

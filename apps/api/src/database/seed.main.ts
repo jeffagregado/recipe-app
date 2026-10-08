@@ -5,13 +5,14 @@ import { DrizzleQueryError } from 'drizzle-orm';
 import { validateDatabaseUrl } from '../config/environment.js';
 import { DatabaseService } from './database.service.js';
 import { seedDatabase } from './seed.js';
+import { seedRecipes } from '../recipes/seed-recipes.js';
 
 async function seed(): Promise<void> {
   config({ quiet: true });
   const database = new DatabaseService(new ConfigService({ DATABASE_URL: validateDatabaseUrl(process.env.DATABASE_URL) }));
   try {
     await seedDatabase(database.db);
-    console.log('Recipe seed complete: 20 samples, five categories, fictional author without login credentials.');
+    console.log(`Recipe seed complete: ${seedRecipes.length} samples, five categories, fictional author without login credentials.`);
   } finally {
     await database.onApplicationShutdown();
   }

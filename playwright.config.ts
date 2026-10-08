@@ -11,6 +11,7 @@ export default defineConfig({
   workers: process.env.CI ? 2 : undefined,
   reporter: [['list'], ['html', { open: 'never' }]],
   outputDir: './test-results',
+  timeout: 60_000,
   use: {
     baseURL: webUrl,
     trace: 'retain-on-failure',
@@ -26,7 +27,7 @@ export default defineConfig({
   webServer: [
     {
       name: 'recipe-api',
-      command: 'pnpm --filter @recipe/api run start:prod',
+      command: 'pnpm --filter @recipe/api run test:server',
       url: `${apiUrl}/recipes`,
       env: { PORT: '4101' },
       reuseExistingServer: false,

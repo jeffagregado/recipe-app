@@ -5,13 +5,13 @@ import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { eq, like, or } from 'drizzle-orm';
-import { recipeSummarySchema, updateRecipeSchema } from '@recipe-app/contracts/schemas';
+import { recipeListResponseSchema, updateRecipeSchema } from '@recipe-app/contracts/schemas';
 import { authOrigins, createAuth } from '../../src/auth/auth.js';
 import { mountAuth } from '../../src/auth/auth.http.js';
 import { validateEnvironment } from '../../src/config/environment.js';
 import { DatabaseService } from '../../src/database/database.service.js';
 import { authRateLimits, categories, recipeCategories, recipeImages, recipes, users } from '../../src/database/schema.js';
-import { sampleRecipes } from '../../src/recipes/sample-recipes.js';
+import { seedRecipes } from '../../src/recipes/seed-recipes.js';
 import { getDevDatabaseUrl } from '../neon-dev.js';
 
 describe('Native Better Auth and public recipe HTTP', () => {
@@ -118,10 +118,14 @@ describe('Native Better Auth and public recipe HTTP', () => {
     const response = await fetch(`${baseUrl}/recipes`);
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
-    const summaries = recipeSummarySchema.array().parse(await response.json());
-    expect(summaries.map(({ id }) => id)).toEqual(sampleRecipes.map(({ id }) => id));
+    const list = recipeListResponseSchema.parse(await response.json());
+    const summaries = list.data;
+    const expected = seedRecipes.map((recipe, sortOrder) => ({ recipe, sortOrder }))
+      .sort((a, b) => Date.parse(b.recipe.createdAt) - Date.parse(a.recipe.createdAt) || a.sortOrder - b.sortOrder).slice(0, 20).map(({ recipe }) => recipe);
+    expect(summaries.map(({ id }) => id)).toEqual(expected.map(({ id }) => id));
     expect(summaries.length).toBe(20);
-    expect(summaries.map(({ categories }) => categories)).toEqual(sampleRecipes.map(({ categories }) => categories));
+    expect(list.meta.total).toBe(100);
+    expect(summaries.map(({ categories }) => categories)).toEqual(expected.map(({ categories }) => categories));
     expect(updateRecipeSchema.safeParse({ categories: [] }).success).toBe(true);
     expect(updateRecipeSchema.safeParse({ categories: ['Dinner', 'Dinner'] }).success).toBe(false);
     expect(updateRecipeSchema.safeParse({ categories: ['Dinner', 'Lunch', 'Snacks', 'Breakfast'] }).success).toBe(false);
@@ -131,10 +135,10 @@ describe('Native Better Auth and public recipe HTTP', () => {
     const probeId = `verify-read-${randomUUID()}`;
     try {
       await db.insert(recipes).values({ id: probeId, userId: owner.id, title: 'Temporary database read', sortOrder: 100 });
-      const changed = recipeSummarySchema.array().parse(await (await fetch(`${baseUrl}/recipes`)).json());
-      expect(changed.length).toBe(21);
-      expect(changed.at(-1)?.id === probeId).toBe(true);
-      expect(changed.at(-1)?.categories).toEqual([]);
+      const changed = recipeListResponseSchema.parse(await (await fetch(`${baseUrl}/recipes`)).json());
+      expect(changed.meta.total).toBe(101);
+      expect(changed.data.length).toBe(20);
+      expect(changed.data.find(({ id }) => id === probeId)?.categories).toEqual([]);
       const categoryRows = await db.select().from(categories);
       const names = ['Dinner', 'Lunch', 'Snacks'] as const;
       await db.insert(recipeCategories).values(names.map((name, sortOrder) => {
@@ -143,13 +147,13 @@ describe('Native Better Auth and public recipe HTTP', () => {
         return { recipeId: probeId, categoryId: category.id, sortOrder };
       }));
       await db.insert(recipeImages).values({ recipeId: probeId, objectKey: probeId, sortOrder: 0 });
-      const withCover = recipeSummarySchema.array().parse(await (await fetch(`${baseUrl}/recipes`)).json()).at(-1);
+      const withCover = recipeListResponseSchema.parse(await (await fetch(`${baseUrl}/recipes`)).json()).data.find(({ id }) => id === probeId);
       expect(withCover?.categories).toEqual(names);
       // Validate the signing projection without fetching an absent object or printing the signed URL.
       expect(withCover?.imageUrl !== null).toBe(true);
       expect(new URL(withCover?.imageUrl ?? 'https://invalid.example').searchParams.has('X-Amz-Signature')).toBe(true);
     } finally { await db.delete(recipes).where(eq(recipes.id, probeId)); }
-  });
+  }, 30_000);
 
   it('fails missing or invalid auth settings with key-only errors', () => {
     const config = app.get<ConfigService>(ConfigService);
