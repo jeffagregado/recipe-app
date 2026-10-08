@@ -1,6 +1,6 @@
 import type { RecipeFilters, RecipeListResponse } from '@recipe-app/contracts/types'
 import { infiniteQueryOptions } from '@tanstack/react-query'
-import { fetchRecipePage, RECIPE_PAGE_SIZE } from './request'
+import { fetchRecipePage, RECIPE_PAGE_SIZE } from '../api/request'
 
 export function recipeQueryOptions(endpoint: string, filters: RecipeFilters) {
 	return infiniteQueryOptions({

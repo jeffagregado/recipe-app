@@ -1,7 +1,7 @@
 import type { RecipeSummary } from '@recipe-app/contracts/types'
 
 import pastaPhoto from '@/public/recipes/creamy-garlic-pasta.png'
-import type { RecipeCardData } from './components/recipe-card'
+import type { RecipeCardData } from '../_components/recipe-card'
 
 // Presentation metadata belongs to the preview UI, not the recipe API contract.
 const previewIds = new Set([

@@ -3,7 +3,7 @@
 import type { RecipeFilters } from '@recipe-app/contracts/types'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
-import { recipeQueryOptions } from './query'
+import { recipeQueryOptions } from '../queries/recipe-query'
 
 export function useRecipePages(endpoint: string, filters: RecipeFilters) {
 	const query = useInfiniteQuery(recipeQueryOptions(endpoint, filters))

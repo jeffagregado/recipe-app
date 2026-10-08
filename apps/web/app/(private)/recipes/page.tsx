@@ -5,8 +5,8 @@ import { Input } from '@/components/ui/input'
 import { Plus, Search } from 'lucide-react'
 
 import { Suspense } from 'react'
-import { RecipeGrid } from '@/features/recipes/recipe-grid'
-import { RecipeErrorBoundary } from './components/recipe-error'
+import { RecipeGrid } from './_components/recipe-grid'
+import { RecipeErrorBoundary } from './_components/recipe-error'
 
 export default function RecipesPage({ searchParams }: PageProps<'/recipes'>) {
 	return (

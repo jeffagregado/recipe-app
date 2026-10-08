@@ -2,7 +2,7 @@
 
 import { useSearchParams } from 'next/navigation'
 import { useQueryStates } from 'nuqs'
-import { recipeFilterError, recipeParsers, recipeUrlOptions } from './filters'
+import { recipeFilterError, recipeParsers, recipeUrlOptions } from '@/features/recipes/lib/filters'
 import { RecipeFilterErrorView } from './recipe-filter-error'
 import { RecipeResults } from './recipe-results'
 

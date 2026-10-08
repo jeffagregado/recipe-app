@@ -4,7 +4,7 @@ import type { RecipeCategory, RecipeFilters } from '@recipe-app/contracts/types'
 import { RecipeControls } from './recipe-controls'
 import { RecipeList } from './recipe-list'
 import { RecipeRequestError } from './recipe-request-error'
-import { useRecipePages } from './use-recipe-pages'
+import { useRecipePages } from '@/features/recipes/hooks/use-recipe-pages'
 
 type RecipeResultsProps = {
 	endpoint: string

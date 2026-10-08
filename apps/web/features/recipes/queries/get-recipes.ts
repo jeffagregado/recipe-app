@@ -3,8 +3,8 @@ import 'server-only'
 import type { RecipeFilters, RecipeListResponse } from '@recipe-app/contracts/types'
 import { cacheLife, cacheTag } from 'next/cache'
 import { dehydrate, QueryClient } from '@tanstack/react-query'
-import { fetchRecipePage, RecipeApiError } from './request'
-import { recipeQueryOptions } from './query'
+import { fetchRecipePage, RecipeApiError } from '../api/request'
+import { recipeQueryOptions } from './recipe-query'
 
 /** Only this validated, credential-free public endpoint is serialized to the browser. */
 export function getRecipesUrl(): string {
