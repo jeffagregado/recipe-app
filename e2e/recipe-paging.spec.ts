@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 const api = 'http://127.0.0.1:4101';
 const cards = (page: Page) => page.getByRole('list', { name: 'Recipes' }).locator(':scope > li');
-const category = (page: Page, name: string) => page.getByRole('group', { name: 'Recipe categories' }).getByRole('button', { name: new RegExp(`^${name} `) });
+const category = (page: Page, name: string) => page.getByRole('group', { name: 'Recipe categories' }).getByRole('button', { name: new RegExp(`^${name}(?: |$)`) });
 const firstTitle = (page: Page) => cards(page).first().getByRole('heading');
 const filterAlert = (page: Page) => page.getByRole('alert').filter({ hasText: 'Invalid recipe filters.' });
 const requestAlert = (page: Page) => page.getByRole('alert').filter({ hasText: 'Could not load' });
@@ -25,7 +25,10 @@ test('server-renders 20, appends five disjoint pages and stops at 100', async ({
     if (request.url().startsWith(`${api}/recipes?`)) requests.push(Number(new URL(request.url()).searchParams.get('page')));
   });
   const response = await page.goto('/recipes');
-  expect((await response!.text()).match(/<li class="min-w-0"/g)).toHaveLength(20);
+  const html = await response!.text();
+  expect(html.match(/<li class="min-w-0"/g)).toHaveLength(20);
+  expect(html).toContain('aria-label="Loading categories"');
+  expect(html).toContain('aria-label="Loading recipes"');
   await expect(cards(page)).toHaveCount(20);
   await expect(category(page, 'All')).toContainText('100');
   await expect(page.getByRole('button', { name: 'Sort recipes' })).toHaveText('Newest first');
@@ -45,6 +48,69 @@ test('server-renders 20, appends five disjoint pages and stops at 100', async ({
   for (const path of missingRoutes) expect(['/categories', '/favorites', '/settings']).toContain(path);
   expect(consoleErrors).toHaveLength(missingRoutes.length);
   expect(consoleErrors.every((message) => message.includes('404 (Not Found)'))).toBe(true);
+});
+
+test('shows category/count and card skeletons while real filter and next-page requests wait', async ({ page }, info) => {
+  let releaseFilter!: () => void;
+  let releasePage!: () => void;
+  const filterGate = new Promise<void>((resolve) => { releaseFilter = resolve; });
+  const pageGate = new Promise<void>((resolve) => { releasePage = resolve; });
+  await page.route(`${api}/recipes?*`, async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    if (params.get('category') === 'Breakfast') await (params.get('page') === '1' ? filterGate : pageGate);
+    await route.continue();
+  });
+  try {
+    await page.goto('/recipes');
+    await expect(cards(page)).toHaveCount(20);
+    await category(page, 'Breakfast').click();
+    const categories = page.getByRole('group', { name: 'Recipe categories' });
+    const loading = page.getByRole('status', { name: 'Loading recipes', exact: true });
+    await expect(categories).toHaveAttribute('aria-busy', 'true');
+    await expect(categories.locator('[data-slot="skeleton"]')).toHaveCount(6);
+    await expect(loading).toBeVisible();
+    await expect(category(page, 'Dinner')).toBeEnabled();
+    await mkdir('output/playwright', { recursive: true });
+    await page.screenshot({ path: `output/playwright/recipe-loading-${info.project.name}.png` });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    expect(await loading.locator('[data-slot="skeleton"]').first().evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
+    releaseFilter();
+    await expect(cards(page)).toHaveCount(20);
+    await expect(loading).toHaveCount(0);
+    await expect(categories).toHaveAttribute('aria-busy', 'false');
+    await page.getByText('Showing 20 of 23 recipes', { exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole('status', { name: 'Loading more recipes', exact: true })).toBeVisible();
+    await expect(cards(page)).toHaveCount(20);
+    releasePage();
+    await expect(cards(page)).toHaveCount(23);
+    await expect(page.getByRole('status', { name: 'Loading more recipes', exact: true })).toHaveCount(0);
+  } finally { releaseFilter(); releasePage(); }
+});
+
+test('toggles Asc/Desc beside sort while preserving category, field and URL history', async ({ page }) => {
+  await page.goto('/recipes?category=Breakfast&sortBy=title&order=asc');
+  await expect(cards(page)).toHaveCount(20);
+  await expect(firstTitle(page)).toHaveText('Apple Cinnamon Porridge');
+  const direction = page.getByRole('group', { name: 'Recipe sorting' });
+  await expect(direction.getByRole('button', { name: 'Switch to descending order' })).toHaveText('Asc');
+  await direction.getByRole('button', { name: 'Switch to descending order' }).click();
+  await expect(firstTitle(page)).toHaveText('Tomato Scrambled Eggs');
+  await expect(cards(page)).toHaveCount(20);
+  const descending = new URL(page.url());
+  expect(descending.searchParams.get('category')).toBe('Breakfast');
+  expect(descending.searchParams.get('sortBy')).toBe('title');
+  expect(descending.searchParams.has('order')).toBe(false);
+  await expect(direction.getByRole('button', { name: 'Switch to ascending order' })).toHaveText('Desc');
+  await page.reload();
+  await expect(firstTitle(page)).toHaveText('Tomato Scrambled Eggs');
+  await page.goBack();
+  await expect(firstTitle(page)).toHaveText('Apple Cinnamon Porridge');
+  await page.goForward();
+  await expect(firstTitle(page)).toHaveText('Tomato Scrambled Eggs');
+  await direction.getByRole('button', { name: 'Switch to ascending order' }).click();
+  await expect(firstTitle(page)).toHaveText('Apple Cinnamon Porridge');
+  expect(new URL(page.url()).searchParams.get('order')).toBe('asc');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test('resets filters, batches sorting, restores URL on reload/back/forward and revisits page one', async ({ page }) => {

@@ -4,7 +4,9 @@ import { RECIPE_CATEGORIES } from '@recipe-app/contracts/types'
 import type { RecipeCategory, RecipeCounts, RecipeFilters } from '@recipe-app/contracts/types'
 import { ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { RecipeSortDirection } from './recipe-sort-direction'
 
 const sorts = [
 	{ label: 'Newest first', sortBy: 'createdAt', order: 'desc' },
@@ -23,16 +25,17 @@ const sortLabels = {
 type RecipeControlsProps = {
 	filters: RecipeFilters
 	counts?: RecipeCounts
+	loading: boolean
 	onCategory: (category: RecipeCategory | null) => void
 	onSort: (sort: Pick<RecipeFilters, 'sortBy' | 'order'>) => void
 }
 
-export function RecipeControls({ filters, counts, onCategory, onSort }: RecipeControlsProps) {
+export function RecipeControls({ filters, counts, loading, onCategory, onSort }: RecipeControlsProps) {
 	const categories = [{ label: 'All', value: undefined, total: counts?.total },
 		...RECIPE_CATEGORIES.map((value) => ({ label: value, value, total: counts?.categories[value] })),
 	]
 	return <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center">
-		<div role="group" aria-label="Recipe categories" className="flex min-w-0 gap-2 overflow-x-auto pb-1 xl:flex-1">
+		<div role="group" aria-label="Recipe categories" aria-busy={loading} className="flex min-w-0 gap-2 overflow-x-auto pb-1 xl:flex-1">
 			{categories.map((category) => <Button
 				key={category.label}
 				variant={filters.category === category.value ? 'default' : 'secondary'}
@@ -41,22 +44,25 @@ export function RecipeControls({ filters, counts, onCategory, onSort }: RecipeCo
 				className="h-10 shrink-0 gap-1.5 px-3"
 			>
 				{category.label}
-				<span className="rounded-full bg-foreground/10 px-1.5 text-xs tabular-nums">
-					{category.total ?? '…'}
-				</span>
+				{category.total !== undefined ? <span className="rounded-full bg-foreground/10 px-1.5 text-xs tabular-nums">
+					{category.total}
+				</span> : loading && <Skeleton aria-hidden="true" className="h-4 w-6 rounded-full" />}
 			</Button>)}
 		</div>
-		<DropdownMenu>
-			<DropdownMenuTrigger render={<Button variant="outline" className="h-10 self-end xl:self-auto" />} aria-label="Sort recipes">
-				{sortLabels[filters.sortBy][filters.order]} <ChevronDown aria-hidden="true" />
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align="end" className="min-w-44">
-				<DropdownMenuRadioGroup value={`${filters.sortBy}:${filters.order}`}>
-					{sorts.map((sort) => <DropdownMenuRadioItem key={sort.label} value={`${sort.sortBy}:${sort.order}`} onClick={() => onSort({ sortBy: sort.sortBy, order: sort.order })}>
-						{sort.label}
-					</DropdownMenuRadioItem>)}
-				</DropdownMenuRadioGroup>
-			</DropdownMenuContent>
-		</DropdownMenu>
+		<div role="group" aria-label="Recipe sorting" className="flex gap-2 self-end xl:self-auto">
+			<DropdownMenu>
+				<DropdownMenuTrigger render={<Button variant="outline" className="h-10" />} aria-label="Sort recipes">
+					{sortLabels[filters.sortBy][filters.order]} <ChevronDown aria-hidden="true" />
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end" className="min-w-44">
+					<DropdownMenuRadioGroup value={`${filters.sortBy}:${filters.order}`}>
+						{sorts.map((sort) => <DropdownMenuRadioItem key={sort.label} value={`${sort.sortBy}:${sort.order}`} onClick={() => onSort({ sortBy: sort.sortBy, order: sort.order })}>
+							{sort.label}
+						</DropdownMenuRadioItem>)}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuContent>
+			</DropdownMenu>
+			<RecipeSortDirection order={filters.order} onChange={(order) => onSort({ sortBy: filters.sortBy, order })} />
+		</div>
 	</div>
 }

@@ -7,6 +7,7 @@ import { Plus, Search } from 'lucide-react'
 import { Suspense } from 'react'
 import { RecipeGrid } from './_components/recipe-grid'
 import { RecipeErrorBoundary } from './_components/recipe-error'
+import { RecipeLoading } from './_components/recipe-loading'
 
 export default function RecipesPage({ searchParams }: PageProps<'/recipes'>) {
 	return (
@@ -29,7 +30,7 @@ export default function RecipesPage({ searchParams }: PageProps<'/recipes'>) {
 				</Button>
 			</header>
 			<RecipeErrorBoundary message="Please try again in a moment.">
-				<Suspense fallback={<p role="status">Loading recipes...</p>}>
+				<Suspense fallback={<RecipeLoading />}>
 					<RecipeGrid searchParams={searchParams} />
 				</Suspense>
 			</RecipeErrorBoundary>
