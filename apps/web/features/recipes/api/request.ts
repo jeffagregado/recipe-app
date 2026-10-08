@@ -2,6 +2,8 @@ import { recipeListResponseSchema } from '@recipe-app/contracts/schemas'
 import type { RecipeFilters, RecipeListResponse } from '@recipe-app/contracts/types'
 
 export const RECIPE_PAGE_SIZE = 20
+// Leave transport time beyond the API's 15-second request budget, including cold connections.
+const REQUEST_TIMEOUT_MS = 20_000
 
 export class RecipeApiError extends Error {
 	constructor(message: string, options?: ErrorOptions) {
@@ -26,7 +28,7 @@ function isTransportError(cause: unknown): boolean {
 
 function throwRequestError(cause: unknown, timeout: AbortSignal): never {
 	if (cause instanceof SyntaxError) throw new RecipeApiError('GET /recipes returned invalid JSON. Check the recipe API response.', { cause })
-	if (timeout.aborted) throw new RecipeApiError('GET /recipes timed out after 5 seconds. Check recipe API availability.', { cause })
+	if (timeout.aborted) throw new RecipeApiError(`GET /recipes timed out after ${REQUEST_TIMEOUT_MS / 1_000} seconds. Check recipe API availability.`, { cause })
 	if (isTransportError(cause)) throw new RecipeApiError('GET /recipes failed during transport. Check recipe API availability and allowed browser origin.', { cause })
 	throw cause
 }
@@ -45,7 +47,7 @@ async function readRecipePayload(url: URL, signal: AbortSignal): Promise<unknown
 }
 
 export async function fetchRecipePage(endpoint: string, filters: RecipeFilters, page: number, signal?: AbortSignal): Promise<RecipeListResponse> {
-	const timeout = AbortSignal.timeout(5_000)
+	const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
 	const combined = AbortSignal.any(signal ? [signal, timeout] : [timeout])
 	let payload: unknown
 	try {

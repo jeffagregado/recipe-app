@@ -184,7 +184,7 @@ test('validates later responses and exposes timeout errors with Retry', async ({
   await page.route(`${api}/recipes?*`, async (route) => {
     if (new URL(route.request().url()).searchParams.get('page') !== '2') { await route.continue(); return; }
     if (mode === 'invalid') { await route.fulfill({ status: 200, contentType: 'application/json', body: '{"data":[]}' }); return; }
-    await new Promise((resolve) => setTimeout(resolve, 5_500));
+    await new Promise((resolve) => setTimeout(resolve, 20_500));
     await route.abort();
   });
   await page.goto('/recipes');
@@ -193,11 +193,26 @@ test('validates later responses and exposes timeout errors with Retry', async ({
   await expect(requestAlert(page)).toContainText('invalid recipe list data');
   mode = 'slow';
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(requestAlert(page)).toContainText('timed out after 5 seconds', { timeout: 10_000 });
+  await expect(requestAlert(page)).toContainText('timed out after 20 seconds', { timeout: 25_000 });
   await expect(cards(page)).toHaveCount(20);
   await page.unrouteAll({ behavior: 'wait' });
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(cards(page)).toHaveCount(40);
+});
+
+test('accepts healthy filter responses beyond the former five-second client limit', async ({ page }) => {
+  await page.route(`${api}/recipes?*`, async (route) => {
+    if (new URL(route.request().url()).searchParams.get('category') === 'Breakfast') {
+      await new Promise((resolve) => setTimeout(resolve, 6_000));
+    }
+    await route.continue();
+  });
+  await page.goto('/recipes');
+  await expect(cards(page)).toHaveCount(20);
+  await category(page, 'Breakfast').click();
+  await expect(firstTitle(page)).toHaveText('Banana Oat Pancakes', { timeout: 15_000 });
+  await expect(cards(page)).toHaveCount(20);
+  await expect(requestAlert(page)).toHaveCount(0);
 });
 
 test('cancels obsolete category requests without mixing results', async ({ page }) => {

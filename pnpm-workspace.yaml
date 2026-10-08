@@ -30,3 +30,4 @@ minimumReleaseAgeExclude:
   - fallow-type-aware@3.32.0
   - fallow@3.32.0
   - neon@8.0.12
+  - "@nestjs/resilience@0.0.2"

@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { inArray } from 'drizzle-orm';
+import { inArray, sql, TransactionRollbackError } from 'drizzle-orm';
+import { ResilienceTimeoutError } from '@nestjs/resilience';
 import { recipeListResponseSchema } from '@recipe-app/contracts/schemas';
 import { RECIPE_CATEGORIES, RECIPE_SORT_FIELDS } from '@recipe-app/contracts/types';
 import type { RecipeListQuery, RecipeSummary } from '@recipe-app/contracts/types';
@@ -12,6 +13,7 @@ import { DatabaseService } from '../../src/database/database.service.js';
 import { DEMO_AUTHOR_ID, seedDatabase } from '../../src/database/seed.js';
 import { recipes } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
+import { createReadDeadline } from '../../src/recipes/recipe-read-deadline.js';
 import { getDevDatabaseUrl } from '../neon-dev.js';
 
 describe('Public SQL recipe pagination', () => {
@@ -112,4 +114,43 @@ describe('Public SQL recipe pagination', () => {
       }
     } finally { await db.delete(recipes).where(inArray(recipes.id, ids)); }
   }, 30_000);
+
+  it('cancels slow SQL, retains its cause and resets transaction-local deadlines', async () => {
+    const db = app.get(DatabaseService).db;
+    const signal = new AbortController().signal;
+    let before: Record<string, unknown>[] = [];
+    await db.transaction(async (tx) => {
+      before = (await tx.execute(sql`show statement_timeout`)).rows;
+      await expect(createReadDeadline(signal)(tx, async () => tx.execute(sql`select pg_sleep(4)`)))
+        .rejects.toMatchObject({ name: 'ResilienceTimeoutError', code: 'TIMEOUT', cause: { cause: { code: '57014' } } });
+      // A cancelled statement aborts the transaction; roll it back without masking that outcome.
+      tx.rollback();
+    }).catch((error: unknown) => {
+      if (!(error instanceof TransactionRollbackError)) throw error;
+    });
+    expect((await db.execute(sql`show statement_timeout`)).rows).toEqual(before);
+    expect((await list()).data).toHaveLength(20);
+  }, 15_000);
+
+  it('does not start SQL after its caller has already timed out', async () => {
+    const controller = new AbortController();
+    const reason = new ResilienceTimeoutError(4_000, 'recipeRead');
+    controller.abort(reason);
+    await app.get(DatabaseService).db.transaction(async (tx) => {
+      await expect(createReadDeadline(controller.signal)(tx, async () => tx.execute(sql`select pg_sleep(4)`))).rejects.toBe(reason);
+      expect(await tx.execute(sql`select 1 as ready`)).toMatchObject({ rows: [{ ready: 1 }] });
+    }, { accessMode: 'read only' });
+  }, 15_000);
+
+  it('stops subsequent statements when the cumulative read budget expires', async () => {
+    const db = app.get(DatabaseService).db;
+    const read = createReadDeadline(new AbortController().signal);
+    await db.transaction(async (tx) => {
+      await expect(async () => {
+        for (let query = 0; query < 6; query++) await read(tx, async () => tx.execute(sql`select pg_sleep(0.6)`));
+      }).rejects.toMatchObject({ code: 'TIMEOUT', timeoutMs: 3_000 });
+      await expect(read(tx, async () => tx.execute(sql`select 1 / 0`))).rejects.toMatchObject({ code: 'TIMEOUT' });
+      expect(await tx.execute(sql`select 1 as ready`)).toMatchObject({ rows: [{ ready: 1 }] });
+    }, { accessMode: 'read only' });
+  }, 15_000);
 });
