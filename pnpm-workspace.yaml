@@ -29,3 +29,4 @@ minimumReleaseAgeExclude:
   - "@fallow-cli/win32-x64-msvc@3.32.0"
   - fallow-type-aware@3.32.0
   - fallow@3.32.0
+  - neon@8.0.12

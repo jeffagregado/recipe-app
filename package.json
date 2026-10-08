@@ -2,6 +2,7 @@
   "name": "recipe-app",
   "private": true,
   "scripts": {
+    "neon": "neon --no-analytics",
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
@@ -20,6 +21,7 @@
     "@playwright/test": "1.63.0",
     "@types/node": "20.19.43",
     "fallow": "3.32.0",
+    "neon": "8.0.12",
     "turbo": "latest",
     "typescript": "5.9.3"
   },
