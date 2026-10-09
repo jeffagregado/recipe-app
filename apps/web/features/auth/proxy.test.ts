@@ -20,3 +20,14 @@ it('rewrites only allowed reads at runtime and refuses arbitrary backend paths/m
 	expect(proxy(new NextRequest('http://localhost:3000/backend/recipes', { method: 'POST' })).status).toBe(405)
 	expect(proxy(new NextRequest('http://localhost:3000/recipes')).headers.get('location')).toBe('http://localhost:3000/')
 })
+
+it('redirects cookie-less page navigations but lets other methods (Server Actions) through', () => {
+	for (const method of ['GET', 'HEAD']) {
+		expect(proxy(new NextRequest('http://localhost:3000/recipes/abc', { method })).headers.get('location')).toBe('http://localhost:3000/')
+	}
+	for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+		const response = proxy(new NextRequest('http://localhost:3000/recipes', { method }))
+		expect(response.status).toBe(200)
+		expect(response.headers.get('location')).toBeNull()
+	}
+})

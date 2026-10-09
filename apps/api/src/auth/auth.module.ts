@@ -22,6 +22,7 @@ export { AUTH } from './auth.tokens.js';
     useFactory: (db: DrizzleDb, config: ConfigService<Environment, true>) => createAuth(db, {
       BETTER_AUTH_SECRET: config.get('BETTER_AUTH_SECRET', { infer: true }),
       BETTER_AUTH_URL: config.get('BETTER_AUTH_URL', { infer: true }),
+      AUTH_TRUSTED_ORIGINS: config.get('AUTH_TRUSTED_ORIGINS', { infer: true }),
     }),
   }, AuthService, AuthRateLimiter, SessionGuard, OriginGuard],
   exports: [AUTH, AuthService, SessionGuard],

@@ -46,7 +46,7 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
     const pool = new pg.Pool({ connectionString: connection, ssl: { rejectUnauthorized: true }, max: 2, connectionTimeoutMillis: 10_000 });
     const db = drizzle(pool, { schema });
     const address = testAddress();
-    const client = apiClient(API_URL, address);
+    const client = apiClient(API_URL, address, WEB_URL);
     const usernames: string[] = [];
     const newUsername = () => { const username = testUsername(); usernames.push(username); return username; };
     try {

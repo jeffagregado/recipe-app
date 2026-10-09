@@ -18,14 +18,15 @@ function rewriteBackendRead(request: NextRequest, path: string) {
 	return NextResponse.rewrite(url, { request: { headers: forwarded }, headers: { 'Cache-Control': 'private, no-store' } })
 }
 
-const isPrivatePage = (path: string) => path === '/recipes' || path.startsWith('/recipes/')
+// Server Functions POST to the page they are used on; only navigations get the UX redirect.
+const isPrivatePage = (request: NextRequest, path: string) => (request.method === 'GET' || request.method === 'HEAD') && (path === '/recipes' || path.startsWith('/recipes/'))
 const hasSessionCookie = (request: NextRequest) => SESSION_COOKIE_NAMES.some((name) => request.cookies.get(name)?.value)
 
 export function proxy(request: NextRequest) {
 	const path = request.nextUrl.pathname
 	if (PUBLIC_ARTWORK.has(path)) return NextResponse.next()
 	if (path === '/backend' || path.startsWith('/backend/')) return rewriteBackendRead(request, path)
-	if (isPrivatePage(path) && !hasSessionCookie(request)) return NextResponse.redirect(new URL('/', request.url))
+	if (isPrivatePage(request, path) && !hasSessionCookie(request)) return NextResponse.redirect(new URL('/', request.url))
 	return NextResponse.next({ headers: { 'Cache-Control': 'private, no-store' } })
 }
 

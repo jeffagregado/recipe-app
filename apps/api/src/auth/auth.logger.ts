@@ -11,21 +11,28 @@ function* causes(start: unknown): Generator<Error> {
   }
 }
 
+const SQLSTATE = /^[0-9A-Z]{5}$/;
+const AUTH_CODE = /^[A-Z][A-Z0-9_]{1,63}$/;
+
+/** The value's `code` when it is a string of the given safe shape. */
+function codeMatching(value: unknown, pattern: RegExp): string[] {
+  const code = typeof value === 'object' && value !== null && 'code' in value ? value.code : undefined;
+  return typeof code === 'string' && pattern.test(code) ? [code] : [];
+}
+
 /** Only SQLSTATEs and Better Auth upper-case error codes are safe to log; messages and other values never are. */
 function safeCodes(start: unknown): string[] {
   const codes = new Set<string>();
   for (const cause of causes(start)) {
-    if ('code' in cause && typeof cause.code === 'string' && /^[0-9A-Z]{5}$/.test(cause.code)) codes.add(cause.code);
     const body = 'body' in cause ? cause.body : undefined;
-    const code = typeof body === 'object' && body !== null && 'code' in body ? body.code : undefined;
-    if (typeof code === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(code)) codes.add(code);
+    for (const code of [...codeMatching(cause, SQLSTATE), ...codeMatching(body, AUTH_CODE)]) codes.add(code);
   }
   return [...codes];
 }
 
 /** SQL errors can contain credential parameters; log only static event labels and SQLSTATE. */
 export function logAuthEvent(level: string, _message: string, ...args: unknown[]): void {
-  const codes = [...new Set(args.flatMap((arg) => safeCodes(arg).filter((code) => /^[0-9A-Z]{5}$/.test(code))))];
+  const codes = [...new Set(args.flatMap((arg) => safeCodes(arg).filter((code) => SQLSTATE.test(code))))];
   const message = `Better Auth ${level} event${codes.length ? ` (SQLSTATE ${codes.join(', ')})` : ''}.`;
   if (level === 'error') logger.error(message);
   else if (level === 'warn') logger.warn(message);

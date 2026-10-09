@@ -4,7 +4,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { eq, like } from 'drizzle-orm';
 import { authErrorResponseSchema, authSessionResponseSchema, recipeListResponseSchema } from '@recipe-app/contracts/schemas';
-import { authOrigins, createAuth } from '../../src/auth/auth.js';
+import { createAuth } from '../../src/auth/auth.js';
 import { AuthRateLimiter, rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import { validateEnvironment } from '../../src/config/environment.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
@@ -44,7 +44,11 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(response.headers.get('access-control-allow-credentials')).toBe('true');
     const rejected = await fetch(`${baseUrl}/api/auth/ok`, { headers: { Origin: 'https://untrusted.example.invalid' } });
     expect(rejected.headers.get('access-control-allow-origin')).toBeNull();
-    expect(authOrigins('production')).toEqual([]);
+    // The harness configures exactly TEST_ORIGIN: built-in local origins and other ports are not trusted.
+    for (const origin of ['http://127.0.0.1:4100', 'http://127.0.0.1:3000']) {
+      const other = await fetch(`${baseUrl}/api/auth/ok`, { headers: { Origin: origin } });
+      expect(other.headers.get('access-control-allow-origin'), origin).toBeNull();
+    }
     const email = `verify-${randomUUID()}@example.invalid`;
     for (const [path, body] of [
       ['sign-up/email', { name: 'Temporary verification', email, password }],
@@ -188,7 +192,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
 
   it('rejects absent, null and untrusted origins on every mutation', async () => {
     const body = { displayName: 'Temporary verification', username: track(), password: testPassword() };
-    for (const origin of [null, 'null', 'https://untrusted.example.invalid', `${TEST_ORIGIN}.evil.example.invalid`]) {
+    for (const origin of [null, 'null', 'https://untrusted.example.invalid', `${TEST_ORIGIN}.evil.example.invalid`, 'http://127.0.0.1:4100', 'http://127.0.0.1:3000']) {
       for (const [path, payload] of [['/auth/signup', body], ['/auth/login', { username, password }], ['/auth/logout', {}]] as const) {
         const response = await client.post(path, payload, { origin, cookie });
         expect(response.status, `${path} ${origin}`).toBe(403);
@@ -251,11 +255,19 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     } finally { await db.delete(authRateLimits).where(like(authRateLimits.key, `wrapper:${scope}%`)); }
   }, 30_000);
 
-  it('sets Secure prefixed cookies when the configured base URL uses HTTPS', async () => {
+  it('sets Secure prefixed cookies when the base URL or every trusted origin uses HTTPS, and not for HTTP-only trust', async () => {
     const config = app.get<ConfigService>(ConfigService);
-    const secureAuth = createAuth(db, { BETTER_AUTH_SECRET: config.getOrThrow<string>('BETTER_AUTH_SECRET'), BETTER_AUTH_URL: 'https://auth.example.invalid' });
-    const { headers } = await secureAuth.api.signInUsername({ body: { username, password }, headers: new Headers(), returnHeaders: true });
-    expect(headers.getSetCookie().some((value) => /^__Secure-better-auth\.session_token=/.test(value) && /; Secure/i.test(value) && /HttpOnly/i.test(value) && /SameSite=Lax/i.test(value))).toBe(true);
+    const issued = async (baseUrl: string, origins: string[]) => {
+      const auth = createAuth(db, { BETTER_AUTH_SECRET: config.getOrThrow<string>('BETTER_AUTH_SECRET'), BETTER_AUTH_URL: baseUrl, AUTH_TRUSTED_ORIGINS: origins });
+      const { headers } = await auth.api.signInUsername({ body: { username, password }, headers: new Headers(), returnHeaders: true });
+      return headers.getSetCookie();
+    };
+    const secure = (value: string) => /^__Secure-better-auth\.session_token=/.test(value) && /; Secure/i.test(value) && /HttpOnly/i.test(value) && /SameSite=Lax/i.test(value);
+    expect((await issued('https://auth.example.invalid', [TEST_ORIGIN])).some(secure)).toBe(true);
+    // An internal HTTP API URL behind a public HTTPS site still issues the Secure cookie.
+    expect((await issued('http://api.internal.invalid:3001', ['https://app.example.invalid'])).some(secure)).toBe(true);
+    const plain = await issued('http://api.internal.invalid:3001', ['https://app.example.invalid', TEST_ORIGIN]);
+    expect(plain.some((value) => /^better-auth\.session_token=/.test(value) && !/; Secure/i.test(value))).toBe(true);
   }, 30_000);
 
   it('requires a session for recipes and scopes rows, totals, counts and search to the owner', async () => {
@@ -324,7 +336,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     const config = app.get<ConfigService>(ConfigService);
     const keys = ['DATABASE_URL', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_ENDPOINT_URL_S3', 'AWS_REGION', 'S3_BUCKET', 'PORT', 'BETTER_AUTH_SECRET', 'BETTER_AUTH_URL'];
     const input: Record<string, unknown> = Object.fromEntries(keys.map((key) => [key, config.get<unknown>(key)]));
-    for (const [key, value] of [['BETTER_AUTH_SECRET', undefined], ['BETTER_AUTH_SECRET', 'short'], ['BETTER_AUTH_URL', undefined], ['BETTER_AUTH_URL', 'invalid']] as const) {
+    for (const [key, value] of [['BETTER_AUTH_SECRET', undefined], ['BETTER_AUTH_SECRET', 'short'], ['BETTER_AUTH_URL', undefined], ['BETTER_AUTH_URL', 'invalid'], ['AUTH_TRUSTED_ORIGINS', 'https://app.example.invalid/path']] as const) {
       let message = '';
       try { validateEnvironment({ ...input, [key]: value }); } catch (error) { message = error instanceof Error ? error.message : 'unknown'; }
       expect(message.includes(key)).toBe(true);

@@ -23,6 +23,8 @@ export const testPassword = () => randomBytes(24).toString('base64url');
 export async function startApi(): Promise<{ app: NestExpressApplication; baseUrl: string; db: DrizzleDb }> {
   process.env.DATABASE_URL = await getDevDatabaseUrl();
   process.env.BETTER_AUTH_URL = 'http://127.0.0.1:4101';
+  // Process environment overrides the env file, so the suite never depends on the developer's list.
+  process.env.AUTH_TRUSTED_ORIGINS = TEST_ORIGIN;
   const { AppModule } = await import('../src/app.module.js');
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: false, bodyParser: false, abortOnError: false });
   mountAuth(app);
@@ -33,8 +35,8 @@ export async function startApi(): Promise<{ app: NestExpressApplication; baseUrl
 
 type RequestOptions = { cookie?: string; origin?: string | null; address?: string };
 
-export function apiClient(baseUrl: string, defaultAddress: string) {
-  const headers = ({ cookie, origin = TEST_ORIGIN, address = defaultAddress }: RequestOptions) => ({
+export function apiClient(baseUrl: string, defaultAddress: string, defaultOrigin = TEST_ORIGIN) {
+  const headers = ({ cookie, origin = defaultOrigin, address = defaultAddress }: RequestOptions) => ({
     'X-Forwarded-For': address,
     ...(origin === null ? {} : { Origin: origin }),
     ...(cookie ? { Cookie: cookie } : {}),

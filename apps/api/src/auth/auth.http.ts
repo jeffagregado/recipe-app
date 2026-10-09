@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { ConfigService } from '@nestjs/config';
 import { toNodeHandler } from 'better-auth/node';
+import type { Environment } from '../config/environment.js';
 import { AUTH } from './auth.tokens.js';
-import { authOrigins } from './auth.js';
 import type { RecipeAuth } from './auth.js';
 
 /** Only native health remains public; wrappers own all credential and session operations. */
@@ -22,7 +23,7 @@ export function mountAuth(app: NestExpressApplication): void {
     response.setHeader('Content-Type', 'application/json');
     response.end(JSON.stringify({ message: 'Not found.' }));
   });
-  app.enableCors({ origin: authOrigins(process.env.NODE_ENV), credentials: true });
+  app.enableCors({ origin: app.get<ConfigService<Environment, true>>(ConfigService).get('AUTH_TRUSTED_ORIGINS', { infer: true }), credentials: true });
   express.get('/api/auth/ok', toNodeHandler(app.get<RecipeAuth>(AUTH)));
   app.useBodyParser('json', { limit: '8kb' });
   app.use((error: unknown, _request: IncomingMessage, response: ServerResponse, next: (error: unknown) => void) => {

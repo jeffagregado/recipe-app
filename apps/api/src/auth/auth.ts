@@ -8,24 +8,16 @@ import type { DrizzleDb } from '../database/database.service.js';
 import * as schema from '../database/schema.js';
 import { logAuthEvent } from './auth.logger.js';
 
-export const SESSION_LIFETIME_SECONDS = 60 * 60 * 24 * 7;
+const SESSION_LIFETIME_SECONDS = 60 * 60 * 24 * 7;
 
-/** Local frontend origins are never included in production trust. */
-export function authOrigins(nodeEnv: string | undefined): string[] {
-  return nodeEnv === 'production' ? [] : [
-    'http://localhost:3000', 'http://127.0.0.1:3000',
-    'http://localhost:4100', 'http://127.0.0.1:4100',
-  ];
-}
-
-export function createAuth(db: DrizzleDb, config: Pick<Environment, 'BETTER_AUTH_SECRET' | 'BETTER_AUTH_URL'>) {
+export function createAuth(db: DrizzleDb, config: Pick<Environment, 'BETTER_AUTH_SECRET' | 'BETTER_AUTH_URL' | 'AUTH_TRUSTED_ORIGINS'>) {
   return betterAuth({
     appName: 'Recipe App',
     baseURL: config.BETTER_AUTH_URL,
     secret: config.BETTER_AUTH_SECRET,
     logger: { log: logAuthEvent },
     database: drizzleAdapter(db, { provider: 'pg', schema, transaction: true }),
-    trustedOrigins: authOrigins(process.env.NODE_ENV),
+    trustedOrigins: config.AUTH_TRUSTED_ORIGINS,
     emailAndPassword: { enabled: true, minPasswordLength: PASSWORD_MIN_LENGTH, maxPasswordLength: PASSWORD_MAX_LENGTH },
     plugins: [username({
       displayUsername: false,
@@ -47,7 +39,13 @@ export function createAuth(db: DrizzleDb, config: Pick<Environment, 'BETTER_AUTH
     account: { modelName: 'authAccounts' },
     verification: { modelName: 'authVerifications' },
     rateLimit: { enabled: true, storage: 'database', modelName: 'authRateLimits' },
-    advanced: { disableCSRFCheck: false, disableOriginCheck: false, database: { generateId: 'uuid' } },
+    advanced: {
+      disableCSRFCheck: false,
+      disableOriginCheck: false,
+      database: { generateId: 'uuid' },
+      // HTTPS-only trust means a public HTTPS site: keep the Secure cookie even if the API's own URL is internal HTTP.
+      ...(config.AUTH_TRUSTED_ORIGINS.every((origin) => origin.startsWith('https://')) ? { useSecureCookies: true } : {}),
+    },
   });
 }
 
