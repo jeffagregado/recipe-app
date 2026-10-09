@@ -18,6 +18,9 @@ export class RecipeError extends HttpException {
 
 export const recipeNotFound = () => new RecipeError(404, 'NOT_FOUND', 'Recipe not found.');
 
+/** A key whose write is on record never writes again, even after that recipe was deleted. */
+export const recipeSaveDeleted = () => new RecipeError(409, 'IDEMPOTENCY_CONFLICT', 'This save already completed and the recipe has since been deleted.');
+
 /** Malformed IDs answer like unknown ones, before any query runs. */
 export function assertRecipeId(id: string): void {
   if (id.includes('\u0000') || id.length > 200) throw recipeNotFound();

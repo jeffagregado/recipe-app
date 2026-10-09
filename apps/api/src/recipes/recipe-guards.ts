@@ -6,8 +6,9 @@ import { AuthRateLimiter, rateLimitKey } from '../auth/auth.rate-limit.js';
 import type { AuthRequest } from '../auth/auth.request.js';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
-import { recipes } from '../database/schema.js';
-import { assertRecipeId, recipeNotFound, recipeUnavailable } from './recipe-errors.js';
+import { recipes, recipeWriteAttempts } from '../database/schema.js';
+import { assertRecipeId, recipeNotFound, recipeSaveDeleted, recipeUnavailable } from './recipe-errors.js';
+import { isCommitted } from './recipe-reconcile.js';
 import { consumeRecipeWrite } from './recipe-upload.js';
 
 export const RECIPE_FAVORITE_LIMIT = 120;
@@ -41,18 +42,28 @@ export class RecipeDeleteGuard implements CanActivate {
   }
 }
 
-/** Answers 404 for a recipe the session user does not own before any request body is read. */
+/** Answers 404 for a recipe the session user does not own before any request body is read.
+ * Once the recipe was deleted, a key whose update of it is on record answers 409 instead, like the replay of a create.
+ */
 @Injectable()
 export class RecipeOwnerGuard implements CanActivate {
   constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const userId = sessionUser(context).id;
-    const { id } = context.switchToHttp().getRequest<{ params: { id: string } }>().params;
+    const { params: { id }, headers } = context.switchToHttp().getRequest<AuthRequest & { params: { id: string } }>();
     assertRecipeId(id);
-    let owned: number;
-    try { owned = await this.db.$count(recipes, and(eq(recipes.id, id), eq(recipes.userId, userId))); }
-    catch (cause) { throw recipeUnavailable('update', cause); }
+    const key = headers['idempotency-key'];
+    let owned: number; let saved = false;
+    try {
+      owned = await this.db.$count(recipes, and(eq(recipes.id, id), eq(recipes.userId, userId)));
+      if (!owned && typeof key === 'string' && key.length <= 200) {
+        const attempt = await this.db.query.recipeWriteAttempts.findFirst({ where: and(eq(recipeWriteAttempts.userId, userId),
+          eq(recipeWriteAttempts.idempotencyKey, key.toLowerCase()), eq(recipeWriteAttempts.recipeId, id), eq(recipeWriteAttempts.operation, 'update')) });
+        saved = Boolean(attempt && isCommitted(attempt, false));
+      }
+    } catch (cause) { throw recipeUnavailable('update', cause); }
+    if (saved) throw recipeSaveDeleted();
     if (!owned) throw recipeNotFound();
     return true;
   }

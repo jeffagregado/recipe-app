@@ -108,25 +108,32 @@ export async function openRecipeSuite() {
     return count;
   }
 
-  async function close() {
-    try {
-      let deleted = 0;
-      for (const key of objectKeys) {
-        await storage.deleteObject(key); deleted++;
-        if (await stored(key)) throw new Error('Disposable storage cleanup verification failed.');
-      }
-      await db.delete(authRateLimits).where(inArray(authRateLimits.key, limitKeys));
-      await removeTestData(db, { usernames, addresses });
-      await db.delete(ingredients).where(like(sql`lower(${ingredients.name})`, `${name}%`));
+  /** Every stage runs even when an earlier one threw, so one failure cannot strand the rest; the first failure is rethrown at the end. */
+  async function cleanup() {
+    const failures: unknown[] = [];
+    const stage = async (run: () => Promise<unknown>) => { try { await run(); } catch (cause) { failures.push(cause); } };
+    let deleted = 0;
+    for (const key of objectKeys) await stage(async () => {
+      await storage.deleteObject(key); deleted++;
+      if (await stored(key)) throw new Error('Disposable storage cleanup verification failed.');
+    });
+    await stage(() => db.delete(authRateLimits).where(inArray(authRateLimits.key, limitKeys)));
+    await stage(() => removeTestData(db, { usernames, addresses }));
+    await stage(() => db.delete(ingredients).where(like(sql`lower(${ingredients.name})`, `${name}%`)));
+    await stage(async () => {
       expect(await db.$count(users, inArray(users.username, usernames))).toBe(0);
       expect(await db.$count(recipes, inArray(recipes.userId, userIds))).toBe(0);
       expect(await db.$count(recipeWriteAttempts, inArray(recipeWriteAttempts.userId, userIds))).toBe(0);
       expect(await db.$count(favorites, inArray(favorites.userId, userIds))).toBe(0);
       expect(await db.$count(ingredients, like(sql`lower(${ingredients.name})`, `${name}%`))).toBe(0);
-      console.log(`Recipe suite cleanup verified: users ${userIds.length}, objects ${deleted}.`);
-    } finally { vi.restoreAllMocks(); await app.close(); }
+    });
+    if (failures.length) throw failures[0];
+    console.log(`Recipe suite cleanup verified: users ${userIds.length}, objects ${deleted}.`);
+  }
+  async function close() {
+    try { await cleanup(); } finally { vi.restoreAllMocks(); await app.close(); }
   }
 
   return { app, db, baseUrl, storage, name, owner, other, upload, send, call, expectError, expectEmpty, savedId, detail, list, stored, bytesAt,
-    imageRows, resetLimits, fillLimit, orphans, uploadedKeys: () => new Set(objectKeys), close };
+    imageRows, resetLimits, fillLimit, orphans, uploadedKeys: () => new Set(objectKeys), cleanup, close };
 }

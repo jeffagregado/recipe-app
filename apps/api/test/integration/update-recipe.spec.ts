@@ -3,11 +3,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { eq } from 'drizzle-orm';
 import { updateRecipeMetadataSchema } from '@recipe-app/contracts/schemas';
 import type { CreateRecipeMetadata, RecipeDetail, UpdateRecipeMetadata } from '@recipe-app/contracts/types';
-import { recipeWriteAttempts } from '../../src/database/schema.js';
-import { reconcileRecipeWrites } from '../../src/recipes/recipe-reconcile.js';
+import { recipes, recipeWriteAttempts } from '../../src/database/schema.js';
+import { RECIPE_CLEANUP_BUDGET_MS, reconcileRecipeWrites } from '../../src/recipes/recipe-reconcile.js';
 import { RecipeUpdateService } from '../../src/recipes/recipe-update.service.js';
 import { recipeRequestHash } from '../../src/recipes/recipe-metadata.js';
-import { RECIPE_WRITE_LIMIT } from '../../src/recipes/recipe-upload.js';
+import { RECIPE_WRITE_LIMIT, RecipeWriteGuard } from '../../src/recipes/recipe-upload.js';
 import type { RecipeUploadRequest } from '../../src/recipes/recipe-upload.js';
 import { RecipeWriteHook } from '../../src/recipes/recipe-write-hook.js';
 import { TEST_ORIGIN } from '../auth-harness.js';
@@ -218,6 +218,82 @@ describe('Update recipe HTTP', () => {
     expect(await s.stored(rows[0].objectKey)).toBe(false); expect((await attemptFor(key))?.state).toBe('completed');
     expect(await s.savedId(await patch(id, metadata, [], { key }), 200)).toBe(id);
     for (const row of rows.slice(1)) expect(await s.stored(row.objectKey)).toBe(true);
+  }, 90_000);
+
+  it('answers 200 inside a short deadline while replaced-object deletion hangs, then reconciles', async () => {
+    const { id, value, rows } = await seed(); const key = randomUUID(); const deadlineMs = 8000;
+    const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: 'Slow cleanup', cover: 'replace',
+      instructions: unchanged(value).instructions.map((step) => ({ ...step, image: 'remove' })) };
+    const photos = [{ field: 'cover', bytes: jpeg(100) }];
+    const guard = s.app.get(RecipeWriteGuard); const admit = guard.canActivate.bind(guard);
+    const admission = vi.spyOn(guard, 'canActivate').mockImplementationOnce(async (context) => {
+      const result = await admit(context); context.switchToHttp().getRequest<RecipeUploadRequest>().writeDeadline = Date.now() + deadlineMs; return result;
+    });
+    let fail!: () => void; const held = new Promise<void>((resolve) => { fail = resolve; });
+    const deletion = vi.spyOn(s.storage, 'deleteObject').mockImplementation(async () => { await held; throw new Error('Forced slow stale deletion failure'); });
+    const started = Date.now(); const request = patch(id, metadata, photos, { key });
+    try {
+      // A committed update is never reported as timed out because its cleanup is slow.
+      expect(await s.savedId(await request, 200)).toBe(id);
+      expect(Date.now() - started < Math.min(deadlineMs, RECIPE_CLEANUP_BUDGET_MS) + 4000).toBe(true);
+      const committed = await s.detail(id);
+      expect(committed.title).toBe('Slow cleanup'); expect((await s.bytesAt(committed.imageUrl))?.equals(jpeg(100))).toBe(true);
+      const attempt = await attemptFor(key);
+      expect([attempt?.state, attempt?.staleObjectKeys.length]).toEqual(['cleanup_pending', 4]);
+      // The upload slot is free again: the replay is admitted and answers without waiting for cleanup.
+      expect(await s.savedId(await patch(id, metadata, photos, { key }), 200)).toBe(id);
+      expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds: [attempt!.id] })).toEqual({ completed: 0, removed: 0, deletedObjects: 0, failed: 0 });
+      fail(); deletion.mockRestore();
+      await vi.waitFor(async () => {
+        expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds: [attempt!.id] })).toEqual({ completed: 1, removed: 0, deletedObjects: 4, failed: 0 });
+      }, { timeout: 20_000, interval: 500 });
+      for (const row of rows) expect(await s.stored(row.objectKey)).toBe(false);
+      expect((await attemptFor(key))?.state).toBe('completed'); expect((await s.bytesAt((await s.detail(id)).imageUrl))?.equals(jpeg(100))).toBe(true);
+    } finally { fail(); deletion.mockRestore(); admission.mockRestore(); await request.catch(() => undefined); }
+  }, 90_000);
+
+  it('answers a replay of a finished update with a conflict once its recipe was deleted', async () => {
+    const { id, value, rows } = await seed(); const finished = randomUUID(); const cleaning = randomUUID();
+    const first: UpdateRecipeMetadata = { ...unchanged(value), title: 'Finished edit' };
+    expect(await s.savedId(await patch(id, first, [], { key: finished }), 200)).toBe(id);
+    // A second edit commits but leaves its replaced cover to reconciliation.
+    const second: UpdateRecipeMetadata = { ...first, title: 'Edit with cleanup left', cover: 'remove' };
+    const deletion = vi.spyOn(s.storage, 'deleteObject').mockRejectedValueOnce(new Error('Forced stale deletion failure'));
+    try { expect(await s.savedId(await patch(id, second, [], { key: cleaning }), 200)).toBe(id); } finally { deletion.mockRestore(); }
+    expect((await attemptFor(cleaning))?.state).toBe('cleanup_pending');
+    await s.expectEmpty(await s.call('DELETE', `/recipes/${id}`));
+    const owned = await s.db.$count(recipes, eq(recipes.userId, s.owner.user.id)); const calls = s.upload.mock.calls.length;
+    for (const [key, metadata] of [[finished, first], [cleaning, second], [finished, { ...first, title: 'Changed' }]] as const) {
+      await s.expectError(await patch(id, metadata, [], { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    }
+    // A key that never wrote this recipe, and another account, still answer like any unknown recipe.
+    await s.expectError(await patch(id, first), 404, 'NOT_FOUND');
+    await s.expectError(await patch(id, first, [], { key: finished, cookie: s.other.cookie }), 404, 'NOT_FOUND');
+    const attemptIds = [(await attemptFor(finished))!.id, (await attemptFor(cleaning))!.id];
+    expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), ageMs: 0, attemptIds })).toEqual({ completed: 1, removed: 0, deletedObjects: 1, failed: 0 });
+    expect([(await attemptFor(finished))?.state, (await attemptFor(cleaning))?.state]).toEqual(['completed', 'completed']);
+    for (const [key, metadata] of [[finished, first], [cleaning, second]] as const) await s.expectError(await patch(id, metadata, [], { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    expect(await s.db.$count(recipes, eq(recipes.userId, s.owner.user.id))).toBe(owned); expect(s.upload.mock.calls.length).toBe(calls);
+    for (const row of rows) expect(await s.stored(row.objectKey)).toBe(false);
+  }, 90_000);
+
+  it('lets an update racing a delete of the same recipe commit first or fail with 404, leaving no objects or open attempts', async () => {
+    const { id, value, rows } = await seed(); const uploaded = s.uploadedKeys(); const key = randomUUID();
+    const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: 'Racing edit', cover: 'replace' };
+    const cover = [{ field: 'cover', bytes: jpeg(110) }];
+    const [updated, removed] = await Promise.all([patch(id, metadata, cover, { key }), s.call('DELETE', `/recipes/${id}`)]);
+    await s.expectEmpty(removed);
+    if (updated.status === 200) expect(await s.savedId(updated, 200)).toBe(id); else await s.expectError(updated, 404, 'NOT_FOUND');
+    expect(await s.db.$count(recipes, eq(recipes.id, id))).toBe(0); expect(await s.imageRows(id)).toEqual([]);
+    for (const row of rows) expect(await s.stored(row.objectKey)).toBe(false);
+    expect(await s.orphans(uploaded)).toBe(0);
+    const attempts = await s.db.select().from(recipeWriteAttempts).where(eq(recipeWriteAttempts.recipeId, id));
+    expect(attempts.filter(({ state }) => state !== 'completed')).toEqual([]);
+    expect(attempts.filter(({ operation }) => operation === 'delete')).toEqual([]);
+    // The recipe is gone for good: a second delete and a fresh edit answer 404, and the key that already wrote answers a conflict.
+    await s.expectError(await s.call('DELETE', `/recipes/${id}`), 404, 'NOT_FOUND');
+    await s.expectError(await patch(id, metadata, cover), 404, 'NOT_FOUND');
+    if (updated.status === 200) await s.expectError(await patch(id, metadata, cover, { key }), 409, 'IDEMPOTENCY_CONFLICT');
   }, 90_000);
 
   it('reconciles an abandoned pending update by deleting only its unreferenced uploads', async () => {

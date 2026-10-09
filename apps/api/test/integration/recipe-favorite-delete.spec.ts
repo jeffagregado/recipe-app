@@ -4,7 +4,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { CreateRecipeMetadata } from '@recipe-app/contracts/types';
 import { favorites, ingredients, recipeCategories, recipeImages, recipeIngredients, recipeInstructions, recipes, recipeWriteAttempts } from '../../src/database/schema.js';
 import { RECIPE_FAVORITE_LIMIT } from '../../src/recipes/recipe-guards.js';
-import { reconcileRecipeWrites } from '../../src/recipes/recipe-reconcile.js';
+import { RECIPE_CLEANUP_BUDGET_MS, reconcileRecipeWrites } from '../../src/recipes/recipe-reconcile.js';
 import { RECIPE_WRITE_LIMIT } from '../../src/recipes/recipe-upload.js';
 import { jpeg, minimalRecipe, openRecipeSuite } from '../recipe-suite.js';
 import type { Photo, RecipeSuite } from '../recipe-suite.js';
@@ -33,6 +33,8 @@ describe('Recipe favorites and delete HTTP', () => {
     instructions: [{ description: 'First', hasImage: true }, { description: 'Second', hasImage: false }] });
   const richPhotos = [{ field: 'cover', bytes: jpeg(1) }, { field: 'step-0', bytes: jpeg(2) }];
   const objectKeysOf = async (id: string) => (await s.imageRows(id)).map(({ objectKey }) => objectKey);
+  const attemptsOf = (id: string, operation?: 'create' | 'delete') => s.db.select().from(recipeWriteAttempts)
+    .where(and(eq(recipeWriteAttempts.recipeId, id), operation ? eq(recipeWriteAttempts.operation, operation) : undefined));
 
   it('reports favorites as false by default and toggles them idempotently in list and detail', async () => {
     const id = await create();
@@ -92,7 +94,8 @@ describe('Recipe favorites and delete HTTP', () => {
     await s.expectEmpty(await remove(id));
     expect(await rowCounts(id)).toEqual([0, 0, 0, 0, 0, 0]);
     for (const key of keys) expect(await s.stored(key)).toBe(false);
-    expect(await s.db.$count(recipeWriteAttempts, eq(recipeWriteAttempts.recipeId, id))).toBe(0);
+    // The delete's own cleanup record is gone; the finished create stays on record so its key can never write again.
+    expect((await attemptsOf(id)).map(({ operation, state }) => [operation, state])).toEqual([['create', 'completed']]);
     expect(await s.db.$count(ingredients, sql`lower(${ingredients.name}) in (${`${s.name} flour`}, ${`${s.name} salt`})`)).toBe(2);
     await s.expectError(await remove(id), 404, 'NOT_FOUND');
     await s.expectError(await s.call('GET', `/recipes/${id}`), 404, 'NOT_FOUND');
@@ -118,13 +121,57 @@ describe('Recipe favorites and delete HTTP', () => {
     const deletion = vi.spyOn(s.storage, 'deleteObject').mockRejectedValueOnce(new Error('Forced storage deletion failure'));
     try { await s.expectEmpty(await remove(id)); } finally { deletion.mockRestore(); }
     expect(await rowCounts(id)).toEqual([0, 0, 0, 0, 0, 0]);
-    const attempts = await s.db.select().from(recipeWriteAttempts).where(eq(recipeWriteAttempts.recipeId, id));
+    const attempts = await attemptsOf(id, 'delete');
     expect(attempts.map(({ operation, state, staleObjectKeys }) => [operation, state, staleObjectKeys.length])).toEqual([['delete', 'cleanup_pending', 2]]);
     expect((await Promise.all(keys.map((key) => s.stored(key)))).some(Boolean)).toBe(true);
     const attemptIds = attempts.map((attempt) => attempt.id);
     expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds })).toEqual({ completed: 0, removed: 1, deletedObjects: 2, failed: 0 });
     for (const key of keys) expect(await s.stored(key)).toBe(false);
-    expect(await s.db.$count(recipeWriteAttempts, eq(recipeWriteAttempts.recipeId, id))).toBe(0);
+    expect(await attemptsOf(id, 'delete')).toEqual([]);
     expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds })).toEqual({ completed: 0, removed: 0, deletedObjects: 0, failed: 0 });
+  }, 60_000);
+
+  it('answers 204 within the cleanup budget while object deletion hangs, and leaves the objects to reconciliation', async () => {
+    const metadata = { ...rich(), instructions: Array.from({ length: 7 }, (_, index) => ({ description: `Step ${index}`, hasImage: true })) };
+    const id = await create(metadata, [{ field: 'cover', bytes: jpeg(1) }, ...metadata.instructions.map((_, index) => ({ field: `step-${index}`, bytes: jpeg(index + 2) }))]);
+    const keys = await objectKeysOf(id); expect(keys).toHaveLength(8);
+    let fail!: () => void; const held = new Promise<void>((resolve) => { fail = resolve; });
+    const deletion = vi.spyOn(s.storage, 'deleteObject').mockImplementation(async () => { await held; throw new Error('Forced slow storage deletion failure'); });
+    const started = Date.now(); const request = remove(id);
+    try {
+      const response = await Promise.race([request, new Promise<null>((resolve) => { setTimeout(resolve, RECIPE_CLEANUP_BUDGET_MS + 5000, null); })]);
+      expect(response === null, 'DELETE waited for object cleanup').toBe(false);
+      await s.expectEmpty(response!); expect(Date.now() - started < RECIPE_CLEANUP_BUDGET_MS + 3000).toBe(true);
+      expect(await rowCounts(id)).toEqual([0, 0, 0, 0, 0, 0]);
+      // Deletions run a few at a time, and none starts once the budget is spent.
+      expect(deletion.mock.calls.length > 1 && deletion.mock.calls.length < keys.length).toBe(true);
+      const attempts = await attemptsOf(id, 'delete'); const attemptIds = attempts.map((attempt) => attempt.id);
+      expect(attempts.map(({ state, staleObjectKeys }) => [state, staleObjectKeys.length])).toEqual([['cleanup_pending', 8]]);
+      // The request's deletions are still in flight under its lease, so reconciliation leaves the attempt alone.
+      expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds })).toEqual({ completed: 0, removed: 0, deletedObjects: 0, failed: 0 });
+      fail(); deletion.mockRestore();
+      // Once they settle the lease is released, and reconciliation finishes the job.
+      await vi.waitFor(async () => {
+        expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds })).toEqual({ completed: 0, removed: 1, deletedObjects: 8, failed: 0 });
+      }, { timeout: 20_000, interval: 500 });
+      for (const key of keys) expect(await s.stored(key)).toBe(false);
+      expect(await attemptsOf(id, 'delete')).toEqual([]);
+    } finally { fail(); deletion.mockRestore(); await request.catch(() => undefined); }
+  }, 90_000);
+
+  it('answers a replay of a finished create with a conflict once its recipe was deleted, and never creates it again', async () => {
+    const key = randomUUID(); const photos = [{ field: 'cover', bytes: jpeg(3) }];
+    const id = await s.savedId(await s.send('/recipes', minimalRecipe(s.name), photos, { key }), 201);
+    await s.expectEmpty(await remove(id));
+    const owned = await s.db.$count(recipes, eq(recipes.userId, s.owner.user.id)); const calls = s.upload.mock.calls.length; const before = s.uploadedKeys();
+    await s.expectError(await s.send('/recipes', minimalRecipe(s.name), photos, { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    await s.expectError(await s.send('/recipes', { ...minimalRecipe(s.name), title: 'Changed' }, photos, { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    expect(await s.db.$count(recipes, eq(recipes.userId, s.owner.user.id))).toBe(owned);
+    expect(s.upload.mock.calls.length).toBe(calls); expect(await s.orphans(before)).toBe(0);
+    const attempts = await attemptsOf(id);
+    expect(attempts.map(({ operation, state, idempotencyKey }) => [operation, state, idempotencyKey === key])).toEqual([['create', 'completed', true]]);
+    // Reconciliation never takes a finished attempt, so the key stays spent.
+    expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), ageMs: 0, attemptIds: attempts.map((attempt) => attempt.id) })).toEqual({ completed: 0, removed: 0, deletedObjects: 0, failed: 0 });
+    await s.expectError(await s.send('/recipes', minimalRecipe(s.name), photos, { key }), 409, 'IDEMPOTENCY_CONFLICT');
   }, 60_000);
 });

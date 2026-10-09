@@ -7,7 +7,7 @@ import { StorageService } from '../storage/storage.service.js';
 import { RecipeError, logRecipeFailure, recipeCleanupFailure, recipeUnavailable } from './recipe-errors.js';
 import type { RecipeFile } from './recipe-images.js';
 import { completeRecipeAttempt } from './recipe-persist.js';
-import { resolveRecipeAttempt } from './recipe-reconcile.js';
+import { RECIPE_CLEANUP_BUDGET_MS, resolveRecipeAttempt } from './recipe-reconcile.js';
 import type { RecipeUploadRequest } from './recipe-upload.js';
 import { RECIPE_WRITE_TIMEOUT_MS } from './recipe-upload.js';
 import { RecipeWriteHook, setStatementTimeout } from './recipe-write-hook.js';
@@ -16,10 +16,13 @@ import type { RecipeTransaction } from './recipe-write-hook.js';
 const RECIPE_ATTEMPT_STALE_MS = 2 * RECIPE_WRITE_TIMEOUT_MS;
 
 export type RecipeWriteResult = { id: string; replay: boolean };
-type WriteBudget = { deadline: number; transactionStarted: boolean };
+/** `committed` is set as soon as the rows are known to be committed; from then on the write only ever answers with it. */
+type WriteBudget = { deadline: number; transactionStarted: boolean; committed?: RecipeWriteResult };
 type WriteAttempt = Pick<typeof recipeWriteAttempts.$inferSelect, 'id' | 'userId' | 'idempotencyKey' | 'requestHash' | 'recipeId' | 'objectKeys'>
   & { operation: 'create' | 'update' };
 type WriteClaim = { owned: boolean };
+/** Post-commit object cleanup gets the cleanup budget or what is left of the request deadline, whichever is smaller. */
+const cleanupBudget = (deadline: number) => Math.max(0, Math.min(RECIPE_CLEANUP_BUDGET_MS, deadline - Date.now()));
 /** One idempotent recipe write: the claim to record, the objects to store first, and the rows to change in one transaction. */
 export type RecipeWritePlan = {
   attempt: WriteAttempt;
@@ -35,7 +38,9 @@ export type RecipeWritePlan = {
 export class RecipeAttempts {
   constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb, private readonly storage: StorageService, private readonly hook: RecipeWriteHook) {}
 
-  /** Races the write against the request deadline; the write keeps settling behind a timed-out response. */
+  /** Races the write against the request deadline; the write keeps settling behind a timed-out response.
+   * A committed write whose object cleanup outlasts the deadline still answers as saved.
+   */
   execute(request: RecipeUploadRequest, plan: RecipeWritePlan): Promise<RecipeWriteResult> {
     const budget: WriteBudget = { deadline: request.writeDeadline!, transactionStarted: false };
     const deadline = budget.deadline;
@@ -43,17 +48,26 @@ export class RecipeAttempts {
     const work = this.write(plan, checkDeadline, budget);
     request.writeSettled = work;
     return new Promise<RecipeWriteResult>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new RecipeError(504, 'TIMEOUT', budget.transactionStarted
-        ? 'Recipe save outcome is unknown. Retry with the same key and unchanged payload.'
-        : 'Recipe write timed out before persistence. Recipe was not saved; cleanup may still be running. Retry with the same key and payload.')), Math.max(1, deadline - Date.now()));
+      const timer = setTimeout(() => {
+        if (budget.committed) { resolve(budget.committed); return; }
+        reject(new RecipeError(504, 'TIMEOUT', budget.transactionStarted
+          ? 'Recipe save outcome is unknown. Retry with the same key and unchanged payload.'
+          : 'Recipe write timed out before persistence. Recipe was not saved; cleanup may still be running. Retry with the same key and payload.'));
+      }, Math.max(1, deadline - Date.now()));
       work.then(resolve, reject).finally(() => clearTimeout(timer));
     });
   }
 
-  /** The rows are already committed; objects that survive this stay recorded for a replay or the reconciliation command. */
-  async cleanCommitted(attemptId: string): Promise<void> {
-    try { await resolveRecipeAttempt(this.db, this.storage, attemptId, { now: new Date() }); }
-    catch (cause) { logRecipeFailure('cleanup', cause); }
+  /** The rows are already committed, so this never fails and returns within `budgetMs`. Objects that survive it stay recorded
+   * for a replay or the reconciliation command; deletions still in flight then settle under the attempt's cleanup lease.
+   */
+  async cleanCommitted(attemptId: string, budgetMs: number): Promise<void> {
+    const stopAt = Date.now() + budgetMs;
+    const cleanup = resolveRecipeAttempt(this.db, this.storage, attemptId, { now: new Date(), stopAt: () => stopAt })
+      .then(() => undefined, (cause: unknown) => { logRecipeFailure('cleanup', cause); });
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([cleanup, new Promise<void>((resolve) => { timer = setTimeout(resolve, budgetMs); })]);
+    clearTimeout(timer);
   }
 
   private async write({ attempt, uploads, prepare, apply }: RecipeWritePlan, checkDeadline: () => void, budget: WriteBudget): Promise<RecipeWriteResult> {
@@ -69,15 +83,16 @@ export class RecipeAttempts {
       checkDeadline();
       budget.transactionStarted = true;
       stale = await this.commit(attempt.id, budget.deadline, checkDeadline, apply);
+      budget.committed = { id: attempt.recipeId, replay: false };
     } catch (cause) {
       if (claim.owned) {
-        const committed = await this.compensate(attempt, startedKeys, cause, budget.transactionStarted);
+        const committed = await this.compensate(attempt, startedKeys, cause, budget);
         if (committed) return { id: committed, replay: false };
       }
       if (cause instanceof RecipeError) throw cause;
       throw recipeUnavailable(attempt.operation, cause);
     }
-    if (stale) await this.cleanCommitted(attempt.id);
+    if (stale) await this.cleanCommitted(attempt.id, cleanupBudget(budget.deadline));
     return { id: attempt.recipeId, replay: false };
   }
 
@@ -118,11 +133,16 @@ export class RecipeAttempts {
   }
 
   /** Called only after the transaction Promise settles; a failed COMMIT acknowledgement does not prove rollback. */
-  private async compensate(attempt: WriteAttempt, startedKeys: string[], cause: unknown, transactionStarted: boolean): Promise<string | undefined> {
+  private async compensate(attempt: WriteAttempt, startedKeys: string[], cause: unknown, budget: WriteBudget): Promise<string | undefined> {
     const outcome: { resolved: boolean; committed?: string } = { resolved: false };
     try {
       const result = await resolveRecipeAttempt(this.db, this.storage, attempt.id, {
-        now: new Date(), onResolved: (committed) => { outcome.resolved = true; outcome.committed = committed; },
+        now: new Date(), onResolved: (committed) => {
+          outcome.resolved = true; outcome.committed = committed;
+          if (committed) budget.committed = { id: committed, replay: false };
+        },
+        // A rolled-back write waits for its uploads to be removed; a committed one only spends the cleanup budget.
+        stopAt: (committed) => committed ? Date.now() + cleanupBudget(budget.deadline) : undefined,
       });
       if (result.recipeId) { logRecipeFailure(attempt.operation, cause); return result.recipeId; }
       if (!result.removed && startedKeys.length) {
@@ -136,7 +156,7 @@ export class RecipeAttempts {
       // Rows that committed stay committed: only the objects they replaced are left, recorded for reconciliation.
       if (outcome.committed) return outcome.committed;
       // Keep the pending claim and recorded keys reconcilable when any cleanup operation fails.
-      throw recipeCleanupFailure(cause, cleanupCause, !outcome.resolved && transactionStarted);
+      throw recipeCleanupFailure(cause, cleanupCause, !outcome.resolved && budget.transactionStarted);
     }
   }
 }
