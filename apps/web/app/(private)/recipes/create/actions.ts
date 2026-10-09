@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { getApiOrigin } from '@/features/auth/api'
 import { getSession } from '@/features/auth/queries'
 import { sessionCookieHeader } from '@/features/auth/session-cookie'
+import { withNotice } from '@/lib/notice'
 import { checkRecipeImage } from './_lib/recipe-files'
 import { SAVE_MESSAGES, type SaveRecipeFieldErrors, type SaveRecipeResult } from './_lib/save-recipe-result'
 
@@ -177,5 +178,5 @@ export async function saveRecipe(formData: FormData): Promise<SaveRecipeResult> 
 	const outcome = await send(read.submission, origin, cookie, incoming.get('x-forwarded-for'))
 	if (typeof outcome !== 'string') return outcome
 	// The recipe list and detail are read per request (no 'use cache' or cacheTag), so there is no tag to update here.
-	redirect(`/recipes/${encodeURIComponent(outcome)}?notice=recipe-saved`)
+	redirect(withNotice(`/recipes/${encodeURIComponent(outcome)}`, 'recipe-saved'))
 }

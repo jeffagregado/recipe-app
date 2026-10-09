@@ -12,6 +12,7 @@ export function recipeDetailFixture(overrides: Partial<RecipeDetail> = {}): Reci
 		servings: null,
 		prepTimeMinutes: null,
 		cookTimeMinutes: null,
+		isFavorite: false,
 		notes: null,
 		videoUrl: null,
 		ingredients: [{ id: 'ing-1', ingredientId: 'base-1', name: 'Tomatoes', quantity: 2, unit: 'piece', preparation: null, note: null, sortOrder: 0 }],

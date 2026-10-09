@@ -3,7 +3,7 @@ import { RecipeDetailLoading } from './_components/recipe-detail-loading'
 
 export default function LoadingRecipe() {
 	return (
-		<PageContainer size="default">
+		<PageContainer>
 			<RecipeDetailLoading />
 		</PageContainer>
 	)

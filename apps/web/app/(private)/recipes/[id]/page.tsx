@@ -12,9 +12,9 @@ import { RecipeDetailSession } from './_components/recipe-detail-session'
 
 export const metadata: Metadata = { title: 'Recipe' }
 
-export default function RecipePage({ params, searchParams }: PageProps<'/recipes/[id]'>) {
+export default function RecipePage({ params }: PageProps<'/recipes/[id]'>) {
 	return (
-		<PageContainer size="default" className="space-y-6">
+		<PageContainer className="space-y-4 sm:space-y-5">
 			<Link href="/recipes" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium underline-offset-4 hover:underline">
 				<ArrowLeft aria-hidden="true" className="size-4" />
 				Back to Recipes
@@ -23,7 +23,7 @@ export default function RecipePage({ params, searchParams }: PageProps<'/recipes
 				<Suspense fallback={<RecipeDetailLoading />}>
 					<RecipeDetailSession>
 						<RecipeDetailErrorBoundary>
-							<RecipeDetailContent params={params} searchParams={searchParams} />
+							<RecipeDetailContent params={params} />
 						</RecipeDetailErrorBoundary>
 					</RecipeDetailSession>
 				</Suspense>

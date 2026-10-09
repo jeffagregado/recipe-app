@@ -17,29 +17,35 @@ vi.mock('next/image', () => ({
 
 import { RecipeDetailContent } from './recipe-detail-content'
 
-async function renderRecipe(recipe: RecipeDetail | null, searchParams: Record<string, string | string[] | undefined> = {}) {
+async function renderRecipe(recipe: RecipeDetail | null) {
 	read.getRecipe.mockResolvedValue(recipe)
-	render(await RecipeDetailContent({ params: Promise.resolve({ id: 'recipe-1' }), searchParams: Promise.resolve(searchParams) }))
+	render(await RecipeDetailContent({ params: Promise.resolve({ id: 'recipe-1' }) }))
 }
 
 beforeEach(() => read.getRecipe.mockReset())
 
-it('renders a minimal recipe without optional sections', async () => {
+const sections = () => screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
+
+it('renders a minimal recipe without cover, video, notes, scaler or meta', async () => {
 	await renderRecipe(recipeDetailFixture())
 	expect(read.getRecipe).toHaveBeenCalledWith('recipe-1')
 	expect(screen.getByRole('heading', { level: 1, name: 'Tomato Soup' })).toBeInTheDocument()
-	expect(screen.getByRole('heading', { name: 'Ingredients' })).toBeInTheDocument()
-	expect(screen.getByRole('heading', { name: 'Instructions' })).toBeInTheDocument()
+	expect(sections()).toEqual(['Ingredients', 'Instructions'])
 	expect(screen.queryByRole('img')).not.toBeInTheDocument()
-	expect(screen.queryByRole('heading', { name: 'Notes' })).not.toBeInTheDocument()
-	expect(screen.queryByRole('heading', { name: 'Video' })).not.toBeInTheDocument()
-	expect(screen.queryByTitle(/video/i)).not.toBeInTheDocument()
-	expect(screen.queryByText(/min$|serving/)).not.toBeInTheDocument()
+	expect(screen.queryByRole('group', { name: 'Servings' })).not.toBeInTheDocument()
 	expect(screen.queryByRole('list', { name: 'Categories' })).not.toBeInTheDocument()
+	expect(screen.queryByRole('list', { name: 'Recipe details' })).not.toBeInTheDocument()
+	expect(screen.queryByRole('button', { name: 'Play video' })).not.toBeInTheDocument()
 	expect(screen.queryByRole('status')).not.toBeInTheDocument()
+	expect(within(screen.getByRole('list', { name: 'Ingredients' })).getByRole('checkbox', { name: /Tomatoes/ })).toBeInTheDocument()
 })
 
-it('renders every detail of a rich recipe in order', async () => {
+it('starts at the title when there is no cover', async () => {
+	await renderRecipe(recipeDetailFixture())
+	expect(screen.getByRole('article').firstElementChild?.tagName).toBe('HEADER')
+})
+
+it('renders every detail of a rich recipe, with the sections in mobile order', async () => {
 	await renderRecipe(recipeDetailFixture({
 		title: 'Layered Cake',
 		categories: ['Desserts', 'Breakfast', 'Snacks'],
@@ -61,73 +67,50 @@ it('renders every detail of a rich recipe in order', async () => {
 		],
 	}))
 
-	expect(screen.getByRole('img', { name: 'Layered Cake' })).toHaveAttribute('src', 'https://storage.example/cover.jpg')
+	const cover = screen.getByRole('img', { name: 'Layered Cake' })
+	expect(cover).toHaveAttribute('src', 'https://storage.example/cover.jpg')
+	expect(screen.getByRole('article').firstElementChild).toContainElement(cover)
 	const categories = within(screen.getByRole('list', { name: 'Categories' })).getAllByRole('listitem')
 	expect(categories.map((item) => item.textContent)).toEqual(['Desserts', 'Breakfast', 'Snacks'])
-	expect(screen.getByText('Prep 20 min')).toBeInTheDocument()
-	expect(screen.getByText('Cook 40 min')).toBeInTheDocument()
-	expect(screen.getByText('Total 60 min')).toBeInTheDocument()
-	expect(screen.getByText('8 servings')).toBeInTheDocument()
+	const details = screen.getByRole('list', { name: 'Recipe details' })
+	expect(details).toHaveTextContent(/Prep 20 min.*Cook 40 min.*Total 60 min/)
+	expect(details).toHaveTextContent('8 servings')
 	expect(screen.getByText('Sweet and soft.')).toBeInTheDocument()
 
+	expect(sections()).toEqual(['Ingredients', 'Video', 'Instructions', 'Notes'])
 	const ingredients = within(screen.getByRole('list', { name: 'Ingredients' })).getAllByRole('listitem')
-	expect(ingredients.map((item) => item.textContent)).toEqual(['200 g Flour', '1.5 cup Sugar', 'Salt, to taste'])
+	expect(ingredients.map((item) => item.textContent)).toEqual(['Flour200 g', 'Sugar1.5 cup', 'Saltto taste'])
+	expect(screen.getByRole('group', { name: 'Servings' })).toBeInTheDocument()
 
-	const video = screen.getByTitle(/video/i)
-	expect(video).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ')
-	expect(video).toHaveAttribute('loading', 'lazy')
-	expect(video).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin')
-	// Chromium warns when both are present, and allow already grants fullscreen.
-	expect(video.getAttribute('allow')).toContain('fullscreen')
-	expect(video).not.toHaveAttribute('allowfullscreen')
+	expect(screen.getByRole('button', { name: 'Play video' })).toBeInTheDocument()
+	expect(document.querySelector('iframe')).toBeNull()
 
 	const steps = within(screen.getByRole('list', { name: 'Instructions' })).getAllByRole('listitem')
 	expect(steps).toHaveLength(2)
-	expect(within(steps[0]).queryByRole('img')).not.toBeInTheDocument()
-	expect(within(steps[1]).getByRole('img', { name: 'Step 2 photo' })).toHaveAttribute('src', 'https://storage.example/step2.jpg')
+	expect(within(steps[0]).queryByRole('button')).not.toBeInTheDocument()
+	expect(within(steps[1]).getByRole('button', { name: 'Open step 2 photo' })).toBeInTheDocument()
 
 	const notes = screen.getByText(/Line one/)
 	expect(notes).toHaveTextContent('Line one Line two')
 	expect(notes).toHaveClass('whitespace-pre-line')
 })
 
-it('formats singular servings and keeps zero minutes as a value', async () => {
-	await renderRecipe(recipeDetailFixture({ servings: 1, prepTimeMinutes: 0, cookTimeMinutes: 15 }))
-	expect(screen.getByText('1 serving')).toBeInTheDocument()
-	expect(screen.getByText('Prep 0 min')).toBeInTheDocument()
-	expect(screen.getByText('Total 15 min')).toBeInTheDocument()
+it('shows only the times and servings the recipe has', async () => {
+	await renderRecipe(recipeDetailFixture({ servings: 1, prepTimeMinutes: 0, cookTimeMinutes: null }))
+	const details = screen.getByRole('list', { name: 'Recipe details' })
+	expect(details).toHaveTextContent('Prep 0 min')
+	expect(details).toHaveTextContent('1 serving')
+	expect(details).not.toHaveTextContent(/Cook|Total/)
 })
 
-it('omits the total when only one time exists', async () => {
-	await renderRecipe(recipeDetailFixture({ prepTimeMinutes: 10 }))
-	expect(screen.getByText('Prep 10 min')).toBeInTheDocument()
-	expect(screen.queryByText(/Total/)).not.toBeInTheDocument()
-	expect(screen.queryByText(/Cook/)).not.toBeInTheDocument()
+it('does not show the saved notice inline any more; the toast replaces it', async () => {
+	await renderRecipe(recipeDetailFixture())
+	expect(screen.queryByText('Recipe saved')).not.toBeInTheDocument()
 })
 
-it('links to other video hosts in a new tab instead of embedding them', async () => {
-	await renderRecipe(recipeDetailFixture({ videoUrl: 'https://videos.example/cook' }))
-	const link = screen.getByRole('link', { name: /watch video/i })
-	expect(link).toHaveAttribute('href', 'https://videos.example/cook')
-	expect(link).toHaveAttribute('target', '_blank')
-	expect(link).toHaveAttribute('rel', 'noopener noreferrer')
-	expect(screen.queryByTitle(/video/i)).not.toBeInTheDocument()
-})
-
-it('renders nothing for an unsafe stored video link', async () => {
+it('renders no video section for an unsafe stored video link', async () => {
 	await renderRecipe(recipeDetailFixture({ videoUrl: 'javascript:alert(1)' }))
 	expect(screen.queryByRole('heading', { name: 'Video' })).not.toBeInTheDocument()
-	expect(screen.queryByRole('link', { name: /watch video/i })).not.toBeInTheDocument()
-})
-
-it('shows the saved notice only for the recipe-saved search param', async () => {
-	await renderRecipe(recipeDetailFixture(), { notice: 'recipe-saved' })
-	expect(screen.getByRole('status')).toHaveTextContent('Recipe saved')
-})
-
-it.each([{ notice: 'other' }, {}, { notice: ['recipe-saved', 'x'] }])('hides the saved notice for %j', async (searchParams) => {
-	await renderRecipe(recipeDetailFixture(), searchParams)
-	expect(screen.queryByRole('status')).not.toBeInTheDocument()
 })
 
 it('calls notFound for an unknown or foreign recipe', async () => {

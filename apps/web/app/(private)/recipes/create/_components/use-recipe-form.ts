@@ -5,6 +5,7 @@ import { createRecipeMetadataSchema } from '@recipe-app/contracts/schemas'
 import { unstable_rethrow } from 'next/navigation'
 import { useEffect, useLayoutEffect, useRef, useState, useTransition, type BaseSyntheticEvent } from 'react'
 import { useForm, useFormState, type FieldPath } from 'react-hook-form'
+import { useAppToast } from '@/lib/use-app-toast'
 import { buildRecipeFormData } from '../_lib/build-recipe-form-data'
 import { mapSaveFieldErrors } from '../_lib/map-save-errors'
 import { createEmptyRecipeValues, recipeFormSchema, toCreateRecipeMetadata, type RecipeFormValues } from '../_lib/recipe-form-schema'
@@ -25,6 +26,7 @@ const fileSignature = (file: File | null) => (file ? `${file.name}:${file.size}:
 
 export function useRecipeForm({ initialValues, onSave }: UseRecipeFormOptions) {
 	const defaultValues = initialValues ?? createEmptyRecipeValues()
+	const toast = useAppToast()
 	const form = useForm<RecipeFormValues>({ resolver: zodResolver(recipeFormSchema), defaultValues, shouldFocusError: false })
 	const formRef = useRef<HTMLFormElement>(null)
 	const [pending, startTransition] = useTransition()
@@ -65,6 +67,8 @@ export function useRecipeForm({ initialValues, onSave }: UseRecipeFormOptions) {
 	}, [form])
 
 	function showResult(result: SaveRecipeResult) {
+		// The alert above the form keeps Retry and details; the toast reports the outcome wherever the user is looking.
+		toast.error(result.status === 'session-expired' ? result.message : SAVE_MESSAGES.failed)
 		if (result.status !== 'unknown') attempt.current = null
 		if (result.status !== 'invalid') {
 			setAlert({ status: result.status, message: result.message, details: [] })
@@ -80,6 +84,7 @@ export function useRecipeForm({ initialValues, onSave }: UseRecipeFormOptions) {
 		if (inFlight.current) return
 		const parsed = createRecipeMetadataSchema.safeParse(toCreateRecipeMetadata(values))
 		if (!parsed.success) {
+			toast.error(SAVE_MESSAGES.failed)
 			setAlert({ status: 'invalid', message: SAVE_MESSAGES.invalid, details: [] })
 			return
 		}

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { Component, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SaveRecipeResult } from '../_lib/save-recipe-result'
+import { AppToaster } from '@/components/layout/app-toaster'
 import { RecipeForm } from './recipe-form'
 
 const router = vi.hoisted(() => ({ push: vi.fn() }))
@@ -21,8 +22,11 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks() })
 
 function renderForm() {
-	return render(<RecipeForm title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} />)
+	return render(<AppToaster><RecipeForm title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></AppToaster>)
 }
+// The toast region also exposes alerts, so the form's own alert is looked up inside the form.
+const formElement = () => screen.getByRole('form', { name: 'Create Recipe' })
+const findFormAlert = () => within(formElement()).findByRole('alert')
 const save = () => screen.getByRole('button', { name: /^Save Recipe$|^Saving/ })
 const image = (name: string, size = 1024, type = 'image/jpeg') => {
 	const file = new File(['x'], name, { type })
@@ -187,7 +191,7 @@ it('keeps every value after a confirmed failure and uses a new key for the next 
 	renderForm()
 	await fillMinimum(user)
 	await user.click(save())
-	expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save recipe. Try again.')
+	expect(await findFormAlert()).toHaveTextContent('Couldn’t save recipe. Try again.')
 	expect(screen.getByLabelText('Title')).toHaveValue('Creamy Garlic Pasta')
 	expect(screen.getByLabelText('Ingredient 1 name')).toHaveValue('Spaghetti')
 	expect(screen.getByLabelText('Step 1 instructions')).toHaveValue('Boil the pasta.')
@@ -203,7 +207,7 @@ it('reuses the same submission key and payload when retrying after an unknown ou
 	renderForm()
 	await fillMinimum(user)
 	await user.click(save())
-	const alert = await screen.findByRole('alert')
+	const alert = await findFormAlert()
 	await user.click(within(alert).getByRole('button', { name: 'Retry save' }))
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
 	const [first, second] = onSave.mock.calls.map(([data]) => data)
@@ -217,7 +221,7 @@ it('asks a new key once the user edits after an unknown outcome', async () => {
 	renderForm()
 	await fillMinimum(user)
 	await user.click(save())
-	await screen.findByRole('alert')
+	await findFormAlert()
 	await user.type(screen.getByLabelText('Title'), ' v2')
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
@@ -230,7 +234,7 @@ it('keeps values and explains an expired session', async () => {
 	renderForm()
 	await fillMinimum(user)
 	await user.click(save())
-	expect(await screen.findByRole('alert')).toHaveTextContent('Sign in again in another tab')
+	expect(await findFormAlert()).toHaveTextContent('Sign in again in another tab')
 	expect(screen.getByRole('link', { name: 'Open sign in in a new tab' })).toHaveAttribute('target', '_blank')
 	expect(screen.getByLabelText('Title')).toHaveValue('Creamy Garlic Pasta')
 })
@@ -249,25 +253,96 @@ it('maps server field errors onto their rows and fields, focuses the first and s
 	expect(screen.getByLabelText('Ingredient 1 amount')).toHaveAccessibleDescription('Too precise.')
 	expect(screen.getByLabelText('Step 1 instructions')).toHaveAccessibleDescription('Step is too long.')
 	expect(screen.getByLabelText('Replace photo for step 1')).toHaveAccessibleDescription('Photo rejected.')
-	expect(within(screen.getByRole('alert')).getByText('Key problem.')).toBeInTheDocument()
+	expect(within(within(formElement()).getByRole('alert')).getByText('Key problem.')).toBeInTheDocument()
 })
 
-it('confirms before leaving a dirty form and leaves a clean one straight away', async () => {
+it.each([
+	['failed', { status: 'failed', message: 'Couldn’t save recipe. Try again.' }],
+	['unknown', { status: 'unknown', message: 'We couldn’t confirm that the recipe was saved.' }],
+] as const)('toasts "Couldn’t save recipe. Try again." and keeps the inline alert after a %s save', async (_status, result) => {
 	const user = userEvent.setup()
-	const confirm = vi.spyOn(window, 'confirm')
+	onSave.mockResolvedValue(result)
+	renderForm()
+	await fillMinimum(user)
+	await user.click(save())
+
+	expect(await findFormAlert()).toHaveTextContent(result.message)
+	const toasts = screen.getAllByRole('alert').filter((element) => !formElement().contains(element))
+	expect(toasts.map((toast) => toast.textContent)).toContain('Couldn’t save recipe. Try again.')
+})
+
+it('toasts the same message for invalid results while the field errors stay inline', async () => {
+	const user = userEvent.setup()
+	onSave.mockResolvedValue({ status: 'invalid', message: 'Check the highlighted fields and try again.', fieldErrors: { title: ['Title is taken.'] } })
+	renderForm()
+	await fillMinimum(user)
+	await user.click(save())
+
+	await waitFor(() => expect(screen.getByLabelText('Title')).toHaveAccessibleDescription('Title is taken.'))
+	const toasts = screen.getAllByRole('alert').filter((element) => !formElement().contains(element))
+	expect(toasts.map((toast) => toast.textContent)).toContain('Couldn’t save recipe. Try again.')
+})
+
+it('toasts the session message when the session has expired', async () => {
+	const user = userEvent.setup()
+	const message = 'Your session has expired. Sign in again in another tab, then come back here and try again.'
+	onSave.mockResolvedValue({ status: 'session-expired', message })
+	renderForm()
+	await fillMinimum(user)
+	await user.click(save())
+
+	await findFormAlert()
+	const toasts = screen.getAllByRole('alert').filter((element) => !formElement().contains(element))
+	expect(toasts.map((toast) => toast.textContent)).toContain(message)
+})
+
+it('does not toast for blank fields that fail client-side validation', async () => {
+	const user = userEvent.setup()
+	renderForm()
+	await user.click(save())
+	await waitFor(() => expect(screen.getByLabelText('Title')).toHaveFocus())
+	expect(screen.queryAllByRole('alert')).toHaveLength(0)
+})
+
+it('leaves a clean form straight away without asking', async () => {
+	const user = userEvent.setup()
 	renderForm()
 	await user.click(screen.getAllByRole('button', { name: 'Cancel' })[0])
-	expect(confirm).not.toHaveBeenCalled()
+	expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
 	expect(router.push).toHaveBeenCalledWith('/recipes')
+})
 
-	router.push.mockClear()
+it('asks before leaving a dirty form and keeps editing when told to', async () => {
+	const user = userEvent.setup()
+	renderForm()
 	await user.type(screen.getByLabelText('Title'), 'Draft')
-	confirm.mockReturnValueOnce(false)
 	await user.click(screen.getAllByRole('button', { name: 'Cancel' })[0])
-	expect(confirm).toHaveBeenCalledOnce()
+
+	const dialog = await screen.findByRole('alertdialog', { name: 'Discard changes?' })
+	expect(dialog).toHaveAccessibleDescription('Your changes to this recipe will be lost.')
+	await user.click(within(dialog).getByRole('button', { name: 'Keep editing' }))
+	await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
 	expect(router.push).not.toHaveBeenCalled()
-	confirm.mockReturnValueOnce(true)
+	expect(screen.getByLabelText('Title')).toHaveValue('Draft')
+})
+
+it('keeps editing when the discard question is dismissed with Escape', async () => {
+	const user = userEvent.setup()
+	renderForm()
+	await user.type(screen.getByLabelText('Title'), 'Draft')
 	await user.click(screen.getByRole('button', { name: 'Back' }))
+	await screen.findByRole('alertdialog', { name: 'Discard changes?' })
+	await user.keyboard('{Escape}')
+	await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+	expect(router.push).not.toHaveBeenCalled()
+})
+
+it('leaves for the cancel destination once the discard is confirmed', async () => {
+	const user = userEvent.setup()
+	renderForm()
+	await user.type(screen.getByLabelText('Title'), 'Draft')
+	await user.click(screen.getByRole('button', { name: 'Back' }))
+	await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Discard' }))
 	expect(router.push).toHaveBeenCalledWith('/recipes')
 })
 
@@ -294,7 +369,7 @@ it('hands a successful save’s redirect to Next instead of reporting a failure,
 		render() { return this.state.error ? <p>navigating: {this.state.error.digest}</p> : this.props.children }
 	}
 	vi.spyOn(console, 'error').mockImplementation(() => undefined)
-	render(<Boundary><RecipeForm title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></Boundary>)
+	render(<AppToaster><Boundary><RecipeForm title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></Boundary></AppToaster>)
 	await fillMinimum(user)
 	await user.click(save())
 	expect(await screen.findByText(/navigating: NEXT_REDIRECT/)).toBeInTheDocument()
