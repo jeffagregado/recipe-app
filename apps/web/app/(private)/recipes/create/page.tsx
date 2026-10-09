@@ -1,15 +1,17 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
-import PageContainer from '@/components/layout/page-container'
-import { requireSession } from '@/features/auth/queries'
 import { SessionErrorBoundary } from '@/features/auth/session-error'
+import { CreateRecipeContent } from './_components/create-recipe-content'
+import { CreateRecipeLoading } from './_components/create-recipe-loading'
 
-async function CreateUnavailable() {
-	await requireSession()
-	return <p>Create Recipe is unavailable for now.</p>
-}
+export const metadata: Metadata = { title: 'Create Recipe' }
 
 export default function CreateRecipePage() {
-	return <PageContainer><h1 className="mb-4 text-3xl font-bold">Create Recipe</h1>
-		<SessionErrorBoundary><Suspense fallback={<p role="status">Checking session...</p>}><CreateUnavailable /></Suspense></SessionErrorBoundary>
-	</PageContainer>
+	return (
+		<SessionErrorBoundary>
+			<Suspense fallback={<CreateRecipeLoading />}>
+				<CreateRecipeContent />
+			</Suspense>
+		</SessionErrorBoundary>
+	)
 }

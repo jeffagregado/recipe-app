@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 import { Plus } from 'lucide-react'
+import Link from 'next/link'
 import { RecipeSearch } from '@/features/recipes/components/recipe-search'
 
 import { Suspense } from 'react'
@@ -20,7 +21,7 @@ export default function RecipesPage({ searchParams }: PageProps<'/recipes'>) {
 						<RecipeSearch />
 					</Suspense>
 				</div>
-				<Button className="justify-self-end" size="lg">
+				<Button className="justify-self-end" size="lg" nativeButton={false} render={<Link href="/recipes/create" />}>
 					<Plus /> New Recipe
 				</Button>
 			</header>
