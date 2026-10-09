@@ -9,7 +9,7 @@ import type { DrizzleDb } from '../database/database.service.js';
 import { recipes } from '../database/schema.js';
 import { StorageService } from '../storage/storage.service.js';
 import { createReadDeadline } from './recipe-read-deadline.js';
-import { RecipeError, recipeUnavailable } from './recipe-errors.js';
+import { assertRecipeId, recipeNotFound, recipeUnavailable } from './recipe-errors.js';
 
 @Injectable()
 export class RecipeDetailService {
@@ -19,7 +19,7 @@ export class RecipeDetailService {
   }
 
   findOne(id: string, userId: string): Promise<RecipeDetail> {
-    if (id.includes('\u0000') || id.length > 200) return Promise.reject(new RecipeError(404, 'NOT_FOUND', 'Recipe not found.'));
+    try { assertRecipeId(id); } catch (cause) { return Promise.reject(cause); }
     return this.policies.read.execute(async ({ signal }) => {
       const recipe = await this.policies.database.execute(() => this.db.transaction(async (tx) => {
         const read = createReadDeadline(signal);
@@ -28,10 +28,11 @@ export class RecipeDetailService {
           ingredients: { orderBy: (row, { asc }) => [asc(row.sortOrder)] },
           instructions: { orderBy: (row, { asc }) => [asc(row.stepNumber)], with: { image: true } },
           images: { where: (row, { eq }) => eq(row.sortOrder, 0), limit: 1 },
+          favorites: { where: (row, { eq }) => eq(row.userId, userId), limit: 1 },
         } }));
       }, { isolationLevel: 'repeatable read', accessMode: 'read only' }), { signal, source: 'RecipeDetailService.findOne' });
       signal.throwIfAborted();
-      if (!recipe) throw new RecipeError(404, 'NOT_FOUND', 'Recipe not found.');
+      if (!recipe) throw recipeNotFound();
       try {
         const imageUrl = recipe.images[0] ? await this.storage.signedDownloadUrl(recipe.images[0].objectKey) : null;
         const instructions = await Promise.all(recipe.instructions.map(async (step) => ({
@@ -43,7 +44,7 @@ export class RecipeDetailService {
           notes: recipe.notes, videoUrl: recipe.videoUrl, servings: recipe.servings, prepTimeMinutes: recipe.prepTimeMinutes,
           cookTimeMinutes: recipe.cookTimeMinutes, categories: recipe.categories.map(({ category }) => category.name),
           ingredients: recipe.ingredients.map((row) => ({ ...row, quantity: row.quantity === null ? null : Number(row.quantity) })),
-          instructions, imageUrl, createdAt: recipe.createdAt.toISOString(), updatedAt: recipe.updatedAt.toISOString(),
+          instructions, imageUrl, isFavorite: recipe.favorites.length > 0, createdAt: recipe.createdAt.toISOString(), updatedAt: recipe.updatedAt.toISOString(),
         });
       } catch (cause) { signal.throwIfAborted(); throw recipeUnavailable('detail', cause); }
     }, { source: 'RecipeDetailService.findOne' });

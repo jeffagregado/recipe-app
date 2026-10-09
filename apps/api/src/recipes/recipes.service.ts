@@ -55,6 +55,8 @@ export class RecipesService {
             with: {
               categories: { orderBy: (category, { asc }) => [asc(category.sortOrder)], with: { category: true } },
               images: { where: (image, { eq }) => eq(image.sortOrder, 0), limit: 1 },
+              // Same statement as the page of recipes; only the session user's row can match.
+              favorites: { where: (favorite, { eq }) => eq(favorite.userId, userId), limit: 1 },
             },
           }));
           return { rows, total, counts };
@@ -66,6 +68,7 @@ export class RecipesService {
         servings: recipe.servings, prepTimeMinutes: recipe.prepTimeMinutes, cookTimeMinutes: recipe.cookTimeMinutes,
         categories: recipe.categories.map(({ category }) => category.name),
         imageUrl: recipe.images[0] ? await this.storage.signedDownloadUrl(recipe.images[0].objectKey) : null,
+        isFavorite: recipe.favorites.length > 0,
         createdAt: recipe.createdAt.toISOString(), updatedAt: recipe.updatedAt.toISOString(),
       })));
       signal.throwIfAborted();

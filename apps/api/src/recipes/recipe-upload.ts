@@ -17,6 +17,9 @@ const RECIPE_UPLOAD_CONCURRENCY = 4;
 export const RECIPE_WRITE_TIMEOUT_MS = 30_000;
 const RECIPE_BACKGROUND_TIMEOUT_MS = 30_000;
 
+export const consumeRecipeWrite = (rateLimiter: AuthRateLimiter, userId: string) =>
+  rateLimiter.consume(rateLimitKey('recipe-write:user', userId), { limit: RECIPE_WRITE_LIMIT, windowMs: RECIPE_WRITE_WINDOW_MS });
+
 export type RecipeUploadRequest = AuthRequest & {
   body?: Record<string, unknown>; files?: RecipeFile[]; idempotencyKey?: string;
   writeDeadline?: number; writeSettled?: Promise<unknown>;
@@ -42,7 +45,7 @@ export class RecipeWriteGuard implements CanActivate {
       throw new RecipeError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Use multipart/form-data.');
     }
     request.writeDeadline = Date.now() + RECIPE_WRITE_TIMEOUT_MS;
-    await this.rateLimiter.consume(rateLimitKey('recipe-write:user', request.user.id), { limit: RECIPE_WRITE_LIMIT, windowMs: RECIPE_WRITE_WINDOW_MS });
+    await consumeRecipeWrite(this.rateLimiter, request.user.id);
     return true;
   }
 }

@@ -16,15 +16,25 @@ export class RecipeError extends HttpException {
   }
 }
 
+export const recipeNotFound = () => new RecipeError(404, 'NOT_FOUND', 'Recipe not found.');
+
+/** Malformed IDs answer like unknown ones, before any query runs. */
+export function assertRecipeId(id: string): void {
+  if (id.includes('\u0000') || id.length > 200) throw recipeNotFound();
+}
+
 export function fieldError(field: string, message: string, status = 400, code: RecipeErrorCode = 'VALIDATION_FAILED'): RecipeError {
   const fieldErrors: Record<string, string[]> = Object.create(null);
   fieldErrors[field] = [message];
   return new RecipeError(status, code, message, { fieldErrors });
 }
 
+type RecipeOperation = 'create' | 'update' | 'delete' | 'favorite' | 'cleanup' | 'detail' | 'reconcile';
+const METHOD_OPERATIONS: Record<string, RecipeOperation> = { GET: 'detail', PATCH: 'update', DELETE: 'delete', PUT: 'favorite' };
+
 const logger = new Logger('RecipeOperations');
 /** Static labels, locally generated correlation IDs and safe SQLSTATEs only; never error messages or request values. */
-export function logRecipeFailure(operation: 'create' | 'cleanup' | 'detail' | 'reconcile', start: unknown): void {
+export function logRecipeFailure(operation: RecipeOperation, start: unknown): void {
   const seen = new Set<Error>(); const codes = new Set<string>(); const classes = new Set<string>();
   for (let error = start; error instanceof Error && !seen.has(error); error = error.cause) {
     seen.add(error);
@@ -34,7 +44,7 @@ export function logRecipeFailure(operation: 'create' | 'cleanup' | 'detail' | 'r
   logger.error(`Recipe ${operation} failed (${randomUUID()}): ${[...classes].join(' <- ') || 'unknown'}${codes.size ? ` SQLSTATE ${[...codes].join(',')}` : ''}.`);
 }
 
-export function recipeUnavailable(operation: 'create' | 'cleanup' | 'detail' | 'reconcile', cause: unknown): RecipeError {
+export function recipeUnavailable(operation: RecipeOperation, cause: unknown): RecipeError {
   logRecipeFailure(operation, cause);
   return new RecipeError(503, 'SERVICE_UNAVAILABLE', 'Recipe service unavailable. Try again.', { cause });
 }
@@ -51,7 +61,7 @@ export class RecipeFilter implements ExceptionFilter {
     const error = cause instanceof RecipeError || cause instanceof AuthError ? cause
       : cause instanceof ResilienceTimeoutError ? new RecipeError(504, 'TIMEOUT', 'Recipe read timed out. Try again.', { cause })
         : cause instanceof ResilienceError ? new RecipeError(503, 'SERVICE_UNAVAILABLE', 'Recipe service busy. Try again.', { cause })
-          : recipeUnavailable(host.switchToHttp().getRequest<{ method?: string }>().method === 'GET' ? 'detail' : 'create', cause);
+          : recipeUnavailable(METHOD_OPERATIONS[host.switchToHttp().getRequest<{ method?: string }>().method ?? ''] ?? 'create', cause);
     const response = host.switchToHttp().getResponse<ServerResponse>();
     response.statusCode = error.getStatus();
     response.setHeader('Cache-Control', 'private, no-store');

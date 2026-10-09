@@ -11,11 +11,19 @@ import { RecipeUploadInterceptor, RecipeUploadSlots, RecipeWriteGuard } from './
 import { RecipeWriteHook } from './recipe-write-hook.js';
 import { RecipeCreateController } from './recipe-create.controller.js';
 import { RecipeDetailController } from './recipe-detail.controller.js';
+import { RecipeAttempts } from './recipe-attempts.js';
+import { RecipeDeleteService } from './recipe-delete.service.js';
+import { RecipeFavoriteService } from './recipe-favorite.service.js';
+import { RecipeDeleteGuard, RecipeFavoriteGuard, RecipeOwnerGuard } from './recipe-guards.js';
+import { RecipeMutationController } from './recipe-mutation.controller.js';
+import { RecipeUpdateService } from './recipe-update.service.js';
 
 @Module({
   imports: [DatabaseModule, StorageModule, AuthModule],
-  controllers: [RecipesController, RecipeCreateController, RecipeDetailController],
+  controllers: [RecipesController, RecipeCreateController, RecipeDetailController, RecipeMutationController],
   providers: [RecipesService, RecipesResilienceLogger, RecipeCreateService, RecipeDetailService,
-    RecipeUploadInterceptor, RecipeUploadSlots, RecipeWriteGuard, RecipeWriteHook],
+    RecipeUploadInterceptor, RecipeUploadSlots, RecipeWriteGuard, RecipeWriteHook,
+    RecipeAttempts, RecipeUpdateService, RecipeDeleteService, RecipeFavoriteService,
+    RecipeOwnerGuard, RecipeDeleteGuard, RecipeFavoriteGuard],
 })
 export class RecipesModule {}
