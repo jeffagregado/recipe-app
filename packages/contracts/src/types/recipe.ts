@@ -61,9 +61,27 @@ export type CreateRecipeMetadata = {
 
 export type CreateRecipeResult = { id: EntityId };
 
+/** What an update does with an existing image slot (cover or one step photo). */
+export const RECIPE_IMAGE_SLOTS = ["keep", "replace", "remove"] as const;
+
+export type RecipeImageSlot = (typeof RECIPE_IMAGE_SLOTS)[number];
+
+export type UpdateRecipeMetadataInstruction = {
+  /** Existing instruction this row continues, or null for a new row. `keep` keeps that instruction's photo. */
+  id: EntityId | null;
+  description: string;
+  image: RecipeImageSlot;
+};
+
+export type UpdateRecipeMetadata = Omit<CreateRecipeMetadata, "instructions"> & {
+  cover: RecipeImageSlot;
+  instructions: UpdateRecipeMetadataInstruction[];
+};
+
 export type RecipeDetailInstruction = RecipeInstruction & { imageUrl: string | null };
 
 export type RecipeDetail = Omit<Recipe, "instructions"> & {
+  isFavorite: boolean;
   notes: string | null;
   videoUrl: string | null;
   instructions: RecipeDetailInstruction[];
@@ -162,7 +180,9 @@ export type RecipeCounts = {
   categories: Record<RecipeCategory, number>;
 };
 
-export type RecipeListResponse = PaginatedResult<RecipeSummary> & {
+export type RecipeListItem = RecipeSummary & { isFavorite: boolean };
+
+export type RecipeListResponse = PaginatedResult<RecipeListItem> & {
   counts: RecipeCounts;
 };
 

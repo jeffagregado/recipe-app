@@ -5,7 +5,10 @@ import {
   createRecipeMetadataSchema,
   createRecipeResultSchema,
   expectedRecipeFileFields,
+  expectedRecipeUpdateFileFields,
   recipeDetailSchema,
+  recipeListItemSchema,
+  updateRecipeMetadataSchema,
 } from "./recipe.schema.js";
 import { apiErrorEnvelopeSchema } from "./common.schema.js";
 
@@ -143,11 +146,49 @@ describe("recipe files and responses", () => {
   });
 
   it("validates nullable detail fields and per-instruction image URLs", () => {
-    const detail = { id: "r1", userId: "u1", title: "Soup", categories: [], description: null, imageUrl: null, servings: null, prepTimeMinutes: null, cookTimeMinutes: null, ingredients: [], instructions: [{ id: "s1", stepNumber: 1, description: "Stir", imageUrl: null }], notes: null, videoUrl: null, createdAt: "2026-10-09T00:00:00.000Z", updatedAt: "2026-10-09T00:00:00.000Z" };
+    const detail = { id: "r1", userId: "u1", title: "Soup", categories: [], description: null, imageUrl: null, servings: null, prepTimeMinutes: null, cookTimeMinutes: null, ingredients: [], instructions: [{ id: "s1", stepNumber: 1, description: "Stir", imageUrl: null }], isFavorite: false, notes: null, videoUrl: null, createdAt: "2026-10-09T00:00:00.000Z", updatedAt: "2026-10-09T00:00:00.000Z" };
     expect(recipeDetailSchema.safeParse(detail).success).toBe(true);
+    expect(recipeDetailSchema.safeParse({ ...detail, isFavorite: undefined }).success).toBe(false);
     expect(recipeDetailSchema.safeParse({ ...detail, notes: "x".repeat(5000), videoUrl: "x".repeat(2048), instructions: [{ ...detail.instructions[0], imageUrl: "https://example.com/step.png" }] }).success).toBe(true);
     for (const invalid of [{ ...detail, notes: "x".repeat(5001) }, { ...detail, videoUrl: "x".repeat(2049) }, { ...detail, instructions: [{ ...detail.instructions[0], imageUrl: "invalid" }] }]) {
       expect(recipeDetailSchema.safeParse(invalid).success).toBe(false);
     }
+  });
+});
+
+describe("recipe update metadata", () => {
+  const update = { ...metadata, cover: "keep", instructions: [{ id: "step-a", description: " Stir ", image: "keep" }] };
+
+  it("accepts keep, replace and remove slots and applies the creation rules", () => {
+    expect(updateRecipeMetadataSchema.parse(update)).toMatchObject({ title: "Soup", cover: "keep", instructions: [{ id: "step-a", description: "Stir", image: "keep" }] });
+    for (const slot of ["replace", "remove"]) {
+      expect(updateRecipeMetadataSchema.safeParse({ ...update, cover: slot, instructions: [{ id: null, description: "New", image: slot }] }).success, slot).toBe(true);
+    }
+    expect(updateRecipeMetadataSchema.safeParse({ ...update, title: " " }).success).toBe(false);
+    expect(updateRecipeMetadataSchema.safeParse({ ...update, cover: "delete" }).success).toBe(false);
+  });
+
+  it("rejects keeping a photo on a new step, reused step ids and unknown keys", () => {
+    expect(updateRecipeMetadataSchema.safeParse({ ...update, instructions: [{ id: null, description: "New", image: "keep" }] }).success).toBe(false);
+    const twice = { id: "step-a", description: "Stir", image: "keep" };
+    expect(updateRecipeMetadataSchema.safeParse({ ...update, instructions: [twice, twice] }).success).toBe(false);
+    expect(updateRecipeMetadataSchema.safeParse({ ...update, userId: "other" }).success).toBe(false);
+    expect(updateRecipeMetadataSchema.safeParse({ ...update, instructions: [{ ...twice, hasImage: true }] }).success).toBe(false);
+  });
+
+  it("names one file field per replaced slot", () => {
+    const parsed = updateRecipeMetadataSchema.parse({ ...update, cover: "replace", instructions: [
+      { id: "step-a", description: "One", image: "keep" }, { id: null, description: "Two", image: "replace" }, { id: "step-b", description: "Three", image: "remove" },
+    ] });
+    expect(expectedRecipeUpdateFileFields(parsed)).toEqual(["cover", "step-1"]);
+    expect(expectedRecipeUpdateFileFields(updateRecipeMetadataSchema.parse(update))).toEqual([]);
+  });
+});
+
+describe("favorite state in recipe responses", () => {
+  it("requires isFavorite on list items", () => {
+    const item = { id: "r1", title: "Soup", categories: [], description: null, imageUrl: null, servings: null, prepTimeMinutes: null, cookTimeMinutes: null, createdAt: "2026-10-09T00:00:00.000Z", updatedAt: "2026-10-09T00:00:00.000Z" };
+    expect(recipeListItemSchema.safeParse({ ...item, isFavorite: true }).success).toBe(true);
+    expect(recipeListItemSchema.safeParse(item).success).toBe(false);
   });
 });

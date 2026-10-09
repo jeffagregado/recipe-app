@@ -3,7 +3,10 @@ import { z } from "zod";
 import {
   RECIPE_CATEGORIES,
   RECIPE_SORT_FIELDS,
+  RECIPE_IMAGE_SLOTS,
   RECIPE_LIMITS,
+  type RecipeListItem,
+  type UpdateRecipeMetadata,
   type CreateRecipeMetadata,
   type CreateRecipeMetadataIngredient,
   type CreateRecipeResult,
@@ -138,6 +141,8 @@ export const updateRecipeSchema: z.ZodType<UpdateRecipeInput> = z.object({
   instructions: z.array(createRecipeInstructionSchema).min(1).optional(),
 });
 
+export const recipeListItemSchema: z.ZodType<RecipeListItem> = recipeSummarySchema.and(z.object({ isFavorite: z.boolean() }));
+
 export const recipeSortFieldSchema: z.ZodType<RecipeSortField> = z.enum(
   RECIPE_SORT_FIELDS,
 );
@@ -160,7 +165,7 @@ export const recipeListQuerySchema: z.ZodType<RecipeListQuery> = z.object({
 });
 
 export const recipeListResponseSchema: z.ZodType<RecipeListResponse> = z.object({
-  data: z.array(recipeSummarySchema),
+  data: z.array(recipeListItemSchema),
   meta: paginationMetaSchema,
   counts: z.object({
     total: z.number().int().nonnegative(),
@@ -204,7 +209,7 @@ const videoUrlSchema = nullableText(RECIPE_LIMITS.videoUrl).refine((value) => {
   try { return new URL(value).protocol === "https:"; } catch { return false; }
 }, "Enter a valid HTTPS URL.");
 
-export const createRecipeMetadataSchema: z.ZodType<CreateRecipeMetadata> = z.strictObject({
+const metadataFields = {
   title: metadataText().min(1).max(RECIPE_LIMITS.title),
   description: nullableText(RECIPE_LIMITS.description),
   categories: z.array(recipeCategorySchema).max(RECIPE_LIMITS.categories)
@@ -215,10 +220,33 @@ export const createRecipeMetadataSchema: z.ZodType<CreateRecipeMetadata> = z.str
   videoUrl: videoUrlSchema,
   notes: nullableText(RECIPE_LIMITS.notes),
   ingredients: z.array(metadataIngredientSchema).min(1).max(RECIPE_LIMITS.ingredients),
+};
+const instructionDescription = () => metadataText().min(1).max(RECIPE_LIMITS.instructionDescription);
+
+export const createRecipeMetadataSchema: z.ZodType<CreateRecipeMetadata> = z.strictObject({
+  ...metadataFields,
   instructions: z.array(z.strictObject({
-    description: metadataText().min(1).max(RECIPE_LIMITS.instructionDescription),
+    description: instructionDescription(),
     hasImage: z.boolean(),
   })).min(1).max(RECIPE_LIMITS.instructions),
+});
+
+const imageSlotSchema = z.enum(RECIPE_IMAGE_SLOTS);
+
+export const updateRecipeMetadataSchema: z.ZodType<UpdateRecipeMetadata> = z.strictObject({
+  ...metadataFields,
+  cover: imageSlotSchema,
+  instructions: z.array(z.strictObject({
+    id: entityIdSchema.max(200).nullable(),
+    description: instructionDescription(),
+    image: imageSlotSchema,
+  }).refine((step) => step.id !== null || step.image !== "keep", {
+    message: "A new step has no photo to keep.", path: ["image"],
+  })).min(1).max(RECIPE_LIMITS.instructions)
+    .refine((steps) => {
+      const ids = steps.flatMap((step) => step.id === null ? [] : [step.id]);
+      return new Set(ids).size === ids.length;
+    }, "Each existing step can be used once."),
 });
 
 export const createRecipeResultSchema: z.ZodType<CreateRecipeResult> = z.object({ id: entityIdSchema });
@@ -228,6 +256,7 @@ export const recipeDetailInstructionSchema: z.ZodType<RecipeDetailInstruction> =
 }));
 
 export const recipeDetailSchema: z.ZodType<RecipeDetail> = recipeSchema.and(z.object({
+  isFavorite: z.boolean(),
   notes: z.string().trim().max(RECIPE_LIMITS.notes).nullable(),
   videoUrl: z.string().max(RECIPE_LIMITS.videoUrl).nullable(),
   instructions: z.array(recipeDetailInstructionSchema),
@@ -238,5 +267,13 @@ export function expectedRecipeFileFields(metadata: CreateRecipeMetadata, hasCove
   return [
     ...(hasCover ? ["cover"] : []),
     ...metadata.instructions.flatMap((step, index) => step.hasImage ? [`step-${index}`] : []),
+  ];
+}
+
+/** Multipart image fields an update must carry: one per slot marked `replace`. */
+export function expectedRecipeUpdateFileFields(metadata: UpdateRecipeMetadata): string[] {
+  return [
+    ...(metadata.cover === "replace" ? ["cover"] : []),
+    ...metadata.instructions.flatMap((step, index) => step.image === "replace" ? [`step-${index}`] : []),
   ];
 }
