@@ -10,6 +10,8 @@ The recipe list reads NestJS `GET /recipes` on the server. `RECIPE_API_URL` is t
 
 Session and recipe reads are private, session-gated and fetched with `cache: 'no-store'`; no recipe data enters a shared server cache. Server reads forward only the session cookie to NestJS. Browser pagination uses the narrow same-origin `/backend/recipes` GET transport, with owner-specific query keys; logout and session expiry clear private query state. Failed reads show an explicit error and Retry.
 
+Login and sign-up live on `/` and require the request `Origin` to be trusted by the API. Set `AUTH_TRUSTED_ORIGINS` in the API environment to the exact frontend origins, comma-separated (for example `https://recipes.example.com`); it is required when `NODE_ENV=production` and falls back to `http://localhost:3000` and `http://127.0.0.1:3000` otherwise. When every listed origin is HTTPS the session cookie is always issued as Secure.
+
 Use `pnpm build` for production builds and `pnpm typecheck` / `pnpm lint` for checks. A running API is not required during the web build; it is required when visiting `/recipes`. For an individual app build, run `pnpm exec turbo build --filter=@recipe/api` or `--filter=@recipe/web` so contracts are built first.
 
 ```bash
