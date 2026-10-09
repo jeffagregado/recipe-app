@@ -51,7 +51,9 @@ it('links username conflict to its input and announces pending submission', asyn
 	await user.type(screen.getByLabelText('Password'), testSecret())
 	await user.click(within(screen.getByLabelText('Password').closest('form')!).getByRole('button', { name: 'Sign up' }))
 	await waitFor(() => expect(screen.getByRole('button', { name: 'Signing up...' })).toBeDisabled())
-	expect(screen.getByRole('status')).toHaveTextContent('Signing up...')
+	// The button carries the only pending label and announces it.
+	expect(screen.getAllByText('Signing up...')).toHaveLength(1)
+	expect(screen.getByText('Signing up...')).toHaveAttribute('aria-live', 'polite')
 	finish({ ok: false, code: 'USERNAME_UNAVAILABLE', message: 'Username is unavailable.', fieldErrors: { username: ['Username is unavailable.'] } })
 	await waitFor(() => expect(screen.getByLabelText('Username')).toHaveFocus())
 	expect(screen.getByLabelText('Username')).toHaveAccessibleDescription('Username is unavailable.')

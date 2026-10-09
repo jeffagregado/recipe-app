@@ -18,8 +18,7 @@ export function LogoutButton() {
 				broadcastAuth('logout')
 				leavePrivateSession()
 			})
-		}}>{pending ? 'Logging out...' : 'Log out'}</Button>
-		{pending && <p role="status" className="text-sm text-muted-foreground">Logging out...</p>}
+		}}><span aria-live="polite">{pending ? 'Logging out...' : 'Log out'}</span></Button>
 		{error && <p role="alert" className="text-sm text-destructive wrap-break-word">{error}</p>}
 	</div>
 }

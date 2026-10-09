@@ -30,8 +30,7 @@ export function AuthForm() {
 				<Button type="button" variant="ghost" className="absolute inset-y-0 right-0 min-h-11 min-w-16" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onClick={() => setShowPassword((current) => !current)}>{showPassword ? 'Hide' : 'Show'}</Button>
 			</AuthField>
 			{message && <p role="alert" className="text-sm text-destructive wrap-break-word">{message}</p>}
-			<Button type="submit" className="min-h-11 w-full" disabled={pending}>{label}</Button>
-			{pending && <p role="status" className="text-sm text-muted-foreground">{label}</p>}
+			<Button type="submit" className="min-h-11 w-full" disabled={pending}><span aria-live="polite">{label}</span></Button>
 		</form>
 	</div>
 }
