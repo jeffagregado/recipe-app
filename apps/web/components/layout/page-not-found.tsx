@@ -10,8 +10,12 @@ import PageContainer from '@/components/layout/page-container'
 const REDIRECT_DELAY_MS = 5_000
 const DESTINATION = '/recipes'
 
-/** "Page not found" that sends the user to Recipes after five seconds; "Go now" skips the wait. */
-export function PageNotFound() {
+/**
+ * The "Page not found" card for a page that already sits inside a container. Pages under a Suspense boundary render it
+ * instead of calling `notFound()`: a `notFound()` raised after the shell was sent makes React report error #419 in the browser.
+ * Sends the user to Recipes after five seconds; "Go now" skips the wait.
+ */
+export function PageNotFoundBlock() {
 	const router = useRouter()
 	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -22,22 +26,29 @@ export function PageNotFound() {
 	}, [router])
 
 	return (
-		<PageContainer>
-			<div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 sm:p-5">
-				<span aria-hidden="true" className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-					<Search className="size-5" />
-				</span>
-				<div className="min-w-0 space-y-1">
-					<h1 className="text-lg font-semibold">Page not found</h1>
-					<p className="text-sm text-muted-foreground">
-						{/* A static sentence in a status region: announced once, never every second. */}
-						<span role="status">Taking you to Recipes in 5 seconds.</span>{' '}
-						<Link href={DESTINATION} onClick={() => clearTimeout(timer.current)} className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4">
-							Go now
-						</Link>
-					</p>
-				</div>
+		<div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 sm:p-5">
+			<span aria-hidden="true" className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+				<Search className="size-5" />
+			</span>
+			<div className="min-w-0 space-y-1">
+				<h1 className="text-lg font-semibold">Page not found</h1>
+				<p className="text-sm text-muted-foreground">
+					{/* A static sentence in a status region: announced once, never every second. */}
+					<span role="status">Taking you to Recipes in 5 seconds.</span>{' '}
+					<Link href={DESTINATION} onClick={() => clearTimeout(timer.current)} className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4">
+						Go now
+					</Link>
+				</p>
 			</div>
+		</div>
+	)
+}
+
+/** The full-page version, for routes that have no container of their own. */
+export function PageNotFound() {
+	return (
+		<PageContainer>
+			<PageNotFoundBlock />
 		</PageContainer>
 	)
 }

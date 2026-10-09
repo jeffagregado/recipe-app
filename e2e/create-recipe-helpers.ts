@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { deflateSync, crc32 } from 'node:zlib';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
+import { asc, eq } from '../apps/api/node_modules/drizzle-orm/index.js';
+import type { DrizzleDb } from '../apps/api/src/database/database.service.js';
+import { recipeImages, recipeInstructions } from '../apps/api/src/database/schema.js';
 import { expect, WEB_URL } from './fixtures.js';
 
 const API_URL = 'http://127.0.0.1:4101';
@@ -16,17 +19,31 @@ function chunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([length, body, checksum]);
 }
 
-/** A small valid PNG with a diagonal gradient, so thumbnails and renders are visibly distinct per colour. */
+/**
+ * A small valid PNG that looks like a plated dish from a distance: a gradient tabletop, a rimmed plate and swirls on it.
+ * Smooth shapes only, so files stay small, but distinct per colour and never a flat block.
+ */
 export function photo(name: string, [red, green, blue]: [number, number, number] = [200, 90, 40], width = 320, height = 240): Photo {
   const stride = width * 3 + 1;
   const raw = Buffer.alloc(stride * height);
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const radius = Math.min(width, height) * 0.4;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const offset = y * stride + 1 + x * 3;
       const shade = (x + y) / (width + height);
-      raw[offset] = Math.round(red * (1 - shade * 0.6));
-      raw[offset + 1] = Math.round(green * (1 - shade * 0.4) + 40 * shade);
-      raw[offset + 2] = Math.round(blue + (255 - blue) * shade * 0.5);
+      let pixel = [red * (1 - shade * 0.6), green * (1 - shade * 0.4) + 40 * shade, blue + (255 - blue) * shade * 0.5];
+      const distance = Math.hypot(x - centerX, y - centerY);
+      if (distance < radius) {
+        const angle = Math.atan2(y - centerY, x - centerX);
+        const swirl = 0.5 + 0.5 * Math.sin(distance / radius * 18 + angle * 3);
+        const rim = distance > radius * 0.88 ? 0.92 : 0;
+        pixel = rim ? [244, 240, 232] : [230 - 70 * swirl + (red - 128) * 0.15, 196 - 60 * swirl, 120 - 50 * swirl + (blue - 128) * 0.1];
+      }
+      raw[offset] = Math.max(0, Math.min(255, Math.round(pixel[0])));
+      raw[offset + 1] = Math.max(0, Math.min(255, Math.round(pixel[1])));
+      raw[offset + 2] = Math.max(0, Math.min(255, Math.round(pixel[2])));
     }
   }
   const header = Buffer.alloc(13);
@@ -42,14 +59,27 @@ export function photo(name: string, [red, green, blue]: [number, number, number]
 
 export const COVER = photo('creamy-garlic-pasta.png', [214, 160, 90]);
 export const STEP_ONE = photo('boiling-pasta.png', [120, 150, 190]);
-const STEP_THREE = photo('garlic-butter.png', [190, 120, 140]);
+export const STEP_THREE = photo('garlic-butter.png', [190, 120, 140]);
 
 const YOUTUBE_LINK = 'https://youtu.be/dQw4w9WgXcQ';
 export const PLAIN_LINK = 'https://example.com/watch/creamy-garlic-pasta';
 
+/** Every host a video embed or its thumbnails could reach; nothing in the tests may depend on them being reachable. */
+const VIDEO_HOST = /(^|\.)(youtube\.com|youtube-nocookie\.com|ytimg\.com|youtu\.be|vimeo\.com|vimeocdn\.com)$/;
+
 /** Keeps tests off the network: the embed itself is not under test, only that the right frame is requested. */
 export async function stubVideoHosts(page: Page) {
-  await page.route(/^https:\/\/(www\.youtube-nocookie\.com|player\.vimeo\.com)\//, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>stub</title>' }));
+  await page.route((url) => VIDEO_HOST.test(url.hostname), (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>stub</title>' }));
+}
+
+/** Records every request the page makes, in order, so a test can say what was (not) requested before and after an action. */
+export function recordRequests(page: Page) {
+  const entries: { url: URL; resourceType: string }[] = [];
+  page.on('request', (request) => entries.push({ url: new URL(request.url()), resourceType: request.resourceType() }));
+  return {
+    mark: () => entries.length,
+    videoRequests: (from = 0) => entries.slice(from).filter(({ url }) => VIDEO_HOST.test(url.hostname)).map(({ url }) => url.hostname),
+  };
 }
 
 /** Console errors/warnings and page errors; the desktop sidebar's three unbuilt routes answer 404 by design. */
@@ -60,7 +90,9 @@ export function watchConsole(page: Page): string[] {
   page.on('console', (message) => {
     if (message.type() !== 'error' && message.type() !== 'warning') return;
     if (unbuilt.test(message.location().url)) return;
-    issues.push(`${message.type()}: ${message.text()}`);
+    // Path only: image and storage URLs carry signatures in their query strings.
+    const { url } = message.location();
+    issues.push(`${message.type()}: ${message.text()} (${url ? new URL(url).pathname : 'no url'})`);
   });
   return issues;
 }
@@ -72,7 +104,8 @@ export const field = {
   description: (page: Page) => page.getByLabel('Description', { exact: true }),
   prep: (page: Page) => page.getByLabel('Prep time in minutes'),
   cook: (page: Page) => page.getByLabel('Cook time in minutes'),
-  servings: (page: Page) => page.getByLabel('Servings', { exact: true }),
+  // A role query, so the recipe page's servings stepper (kept mounted but hidden behind the edit page) never matches.
+  servings: (page: Page) => page.getByRole('textbox', { name: 'Servings', exact: true }),
   video: (page: Page) => page.getByLabel('Video link', { exact: true }),
   notes: (page: Page) => page.getByRole('textbox', { name: 'Notes', exact: true }),
   ingredientName: (page: Page, position: number) => page.getByLabel(`Ingredient ${position} name`, { exact: true }),
@@ -144,7 +177,7 @@ export async function fillRich(page: Page, title: string, video = YOUTUBE_LINK) 
 }
 
 type Creator = { cookie: string };
-type CreateMetadata = {
+export type CreateMetadata = {
   title: string; description: string | null; categories: string[]; servings: number | null; prepTimeMinutes: number | null; cookTimeMinutes: number | null;
   videoUrl: string | null; notes: string | null;
   ingredients: { name: string; quantity: number | null; unit: string | null }[];
@@ -169,10 +202,16 @@ export async function createRecipeViaApi(creator: Creator, address: string, meta
   const body = new FormData();
   body.append('recipe', JSON.stringify(metadata));
   for (const [name, file] of Object.entries(files)) body.append(name, new Blob([new Uint8Array(file.buffer)], { type: file.mimeType }), file.name);
-  const response = await fetch(`${API_URL}/recipes`, {
-    method: 'POST', body,
-    headers: { Cookie: creator.cookie, Origin: WEB_URL, 'Idempotency-Key': randomUUID(), 'X-Forwarded-For': address },
-  });
+  // The dev database and storage are remote; a 503 means nothing was saved, so a fresh attempt is safe. Anything else is a real failure.
+  let response!: Response;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    response = await fetch(`${API_URL}/recipes`, {
+      method: 'POST', body,
+      headers: { Cookie: creator.cookie, Origin: WEB_URL, 'Idempotency-Key': randomUUID(), 'X-Forwarded-For': address },
+    });
+    if (response.status !== 503) break;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
   expect(response.status).toBe(201);
   const { id } = await response.json() as { id: string };
   return id;
@@ -181,3 +220,65 @@ export async function createRecipeViaApi(creator: Creator, address: string, meta
 export const RICH_FILES = { cover: COVER, 'step-0': STEP_ONE, 'step-2': STEP_THREE };
 
 export const WIDTHS = [320, 390, 768, 1024, 1280, 1440] as const;
+
+export const metadataWith = (title: string, overrides: Partial<CreateMetadata>): CreateMetadata => ({ ...minimalMetadata(title), ...overrides });
+
+/** Ingredient rows of the recipe page as shown: name and amount text. */
+export const ingredientRows = (page: Page) => page.getByRole('list', { name: 'Ingredients' }).locator(':scope > li').evaluateAll((items) => items.map((item) => {
+  const [name, amount] = Array.from(item.querySelectorAll('label > span')).map((element) => element.textContent?.trim() ?? '');
+  return { name, amount };
+}));
+
+export const stepTexts = (page: Page) => page.getByRole('list', { name: 'Instructions' }).locator(':scope > li p').allTextContents();
+
+export const photoButtons = (page: Page) => page.getByRole('button', { name: /^Open step \d+ photo$/ });
+
+/** Image rows and the photo each step points at; ids and keys stay in the test, assertions compare them without printing. */
+export async function imageState(db: DrizzleDb, recipeId: string) {
+  const images = await db.select({ id: recipeImages.id, key: recipeImages.objectKey, position: recipeImages.sortOrder }).from(recipeImages)
+    .where(eq(recipeImages.recipeId, recipeId)).orderBy(asc(recipeImages.sortOrder));
+  const steps = await db.select({ step: recipeInstructions.stepNumber, text: recipeInstructions.description, imageId: recipeInstructions.imageId }).from(recipeInstructions)
+    .where(eq(recipeInstructions.recipeId, recipeId)).orderBy(asc(recipeInstructions.stepNumber));
+  return { images, steps };
+}
+
+/** The page as the user sees it once the recipe heading is up. */
+export async function openRecipe(page: Page, id: string, title?: string) {
+  await page.goto(`/recipes/${id}`);
+  await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
+  // Interactions before hydration would be dropped silently.
+  await page.waitForFunction(() => Array.from(document.querySelectorAll('article button')).some((button) => Object.keys(button).some((key) => key.startsWith('__reactProps'))));
+}
+
+export const imagesLoaded = (page: Page, selector = 'article img') => page.locator(selector).evaluateAll((images) => images.every((image) => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0));
+
+/**
+ * Toasts render in a portal. Success toasts are role=status in the accessibility tree. Base UI keeps an error toast's own
+ * element out of the accessibility tree (aria-hidden until focused) and announces it through a hidden role=alert live
+ * region instead, so `error` finds the visible element by its role attribute and `announced` finds the announcement.
+ */
+export const toast = {
+  success: (page: Page, text: string | RegExp) => page.getByRole('status').filter({ hasText: text }).filter({ has: page.getByRole('button', { name: 'Dismiss' }) }),
+  error: (page: Page, text: string | RegExp) => page.locator('[data-slot="toast"][role="alert"]').filter({ hasText: text }),
+  announced: (page: Page, text: string | RegExp) => page.getByRole('alert').filter({ hasText: text }),
+  dismiss: (toastElement: Locator) => toastElement.getByRole('button', { name: 'Dismiss', includeHidden: true }),
+};
+
+/** Interactions before React hydrates a control are dropped silently; wait until the element has its handlers. */
+export const waitHydrated = (locator: Locator) => expect.poll(() => locator.evaluate((element) => Object.keys(element).some((key) => key.startsWith('__reactProps')))).toBe(true);
+
+export const recipeCards = (page: Page) => page.getByRole('list', { name: 'Recipes' }).locator(':scope > li');
+
+/** Signs in through the form as the given temporary account. */
+export async function logIn(page: Page, { username, password }: { username: string; password: string }) {
+  await page.getByLabel('Username', { exact: true }).fill(username);
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Log in', exact: true }).click();
+  await expect(page).toHaveURL(`${WEB_URL}/recipes`);
+}
+
+/** Signs out through the visible Log out button (sidebar on desktop, header on mobile) and waits for the sign-in page. */
+export async function logOut(page: Page) {
+  await page.getByRole('button', { name: 'Log out', exact: true }).filter({ visible: true }).click();
+  await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+}

@@ -6,10 +6,11 @@ import { seedRecipes } from '../apps/api/src/recipes/seed-recipes.js';
 import { creatorTest as test, expect, WEB_URL } from './fixtures.js';
 import {
   COVER, PLAIN_LINK, RICH, RICH_FILES, STEP_ONE, WIDTHS,
-  createRecipeViaApi, field, fillIngredient, fillMinimal, fillRich, noOverflow, openCreate, photo, richMetadata, stubVideoHosts, watchConsole,
+  createRecipeViaApi, field, fillIngredient, fillMinimal, fillRich, ingredientRows, noOverflow, openCreate, photo, richMetadata, stepTexts, stubVideoHosts, toast, watchConsole,
 } from './create-recipe-helpers.js';
 
-const SAVED = /\/recipes\/[^/?]+\?notice=recipe-saved$/;
+// The one-time notice is removed from the URL once the toast shows, so the saved page is just /recipes/<id>.
+const SAVED = /\/recipes\/(?!create$)[^/?]+$/;
 const issues = new WeakMap<Page, string[]>();
 const cards = (page: Page) => page.getByRole('list', { name: 'Recipes' }).locator(':scope > li');
 const categoryCount = (page: Page, name: string) => page.getByRole('group', { name: 'Recipe categories' }).getByRole('button', { name: new RegExp(`^${name}(?: |$)`) });
@@ -20,6 +21,7 @@ const optimizerStatuses = (page: Page) => {
   page.on('response', (response) => { if (new URL(response.url()).pathname === '/_next/image') statuses.push(response.status()); });
   return statuses;
 };
+const createForm = (page: Page) => page.getByRole('form', { name: 'Create Recipe' });
 const loaded = (page: Page, selector: string) => page.locator(selector).evaluateAll((images) => images.map((image) => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0));
 
 test.beforeEach(async ({ page }) => { issues.set(page, watchConsole(page)); await stubVideoHosts(page); });
@@ -228,25 +230,59 @@ test.describe('photos', () => {
 });
 
 test.describe('leaving the form', () => {
-  test('a dirty form asks before discarding (dismiss keeps it, accept leaves) and a pristine one does not', async ({ page }) => {
+  const discardDialog = (page: Page) => page.getByRole('alertdialog', { name: 'Discard changes?' });
+
+  test('a pristine form leaves without asking and never opens a native confirm', async ({ page }) => {
     const prompts: string[] = [];
     page.on('dialog', (dialog) => { prompts.push(dialog.type()); void dialog.dismiss(); });
     await openCreate(page);
     await field.leave(page).click();
     await expect(page).toHaveURL(`${WEB_URL}/recipes`);
+    await expect(discardDialog(page)).toHaveCount(0);
     expect(prompts).toEqual([]);
+  });
 
+  test('a dirty form asks in a dialog: Keep editing, Escape and the backdrop keep it; Discard leaves and the next visit starts empty', async ({ page }) => {
+    const prompts: string[] = [];
+    page.on('dialog', (dialog) => { prompts.push(dialog.type()); void dialog.dismiss(); });
     await openCreate(page);
     await field.title(page).fill('Unsaved idea');
     await field.leave(page).click();
-    await expect.poll(() => prompts.length).toBe(1);
+    const dialog = discardDialog(page);
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('Your changes to this recipe will be lost.');
+    await expect(dialog.getByRole('button', { name: 'Keep editing' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Discard' })).toBeVisible();
+
+    await dialog.getByRole('button', { name: 'Keep editing' }).click();
+    await expect(dialog).toHaveCount(0);
     await expect(page).toHaveURL(`${WEB_URL}/recipes/create`);
     await expect(field.title(page)).toHaveValue('Unsaved idea');
-    page.removeAllListeners('dialog');
-    page.once('dialog', (dialog) => { prompts.push(dialog.type()); void dialog.accept(); });
+
     await field.leave(page).click();
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(field.title(page)).toHaveValue('Unsaved idea');
+
+    // An alert dialog ignores backdrop clicks: the click must never count as consent to discard.
+    await field.leave(page).click();
+    await expect(dialog).toBeVisible();
+    await page.mouse.click(3, 3);
+    await expect(page).toHaveURL(`${WEB_URL}/recipes/create`);
+    await expect(field.title(page)).toHaveValue('Unsaved idea');
+    await dialog.getByRole('button', { name: 'Keep editing' }).click();
+    await expect(dialog).toHaveCount(0);
+
+    await field.leave(page).click();
+    await dialog.getByRole('button', { name: 'Discard' }).click();
     await expect(page).toHaveURL(`${WEB_URL}/recipes`);
-    expect(prompts).toEqual(['confirm', 'confirm']);
+    // The form stays mounted (hidden) after leaving; the discarded text must not greet the next visit.
+    await page.getByRole('link', { name: 'New Recipe' }).click();
+    await expect(field.title(page)).toBeEditable();
+    await expect(field.title(page)).toHaveValue('');
+    await expect(page.getByText('Choose up to 3 · 0 selected')).toBeVisible();
+    expect(prompts).toEqual([]);
   });
 });
 
@@ -258,9 +294,9 @@ test.describe('saving', () => {
     await field.save(page).click();
     await expect(page).toHaveURL(SAVED, { timeout: 30_000 });
     await expect(page.getByRole('heading', { level: 1, name: 'Minimal tea' })).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByRole('status').filter({ hasText: 'Recipe saved' })).toBeVisible();
-    await expect(page.getByRole('list', { name: 'Ingredients' }).getByRole('listitem')).toHaveText(['2 cup Water']);
-    await expect(page.getByRole('list', { name: 'Instructions' }).getByRole('listitem')).toHaveText(['Boil the water.']);
+    await expect(toast.success(page, 'Recipe saved')).toBeVisible();
+    expect(await ingredientRows(page)).toEqual([{ name: 'Water', amount: '2 cup' }]);
+    expect(await stepTexts(page)).toEqual(['Boil the water.']);
     await expect(page.getByRole('heading', { name: 'Notes' })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Video' })).toHaveCount(0);
     await expect(page.getByRole('list', { name: 'Categories' })).toHaveCount(0);
@@ -280,24 +316,30 @@ test.describe('saving', () => {
     await field.save(page).click();
     await expect(page).toHaveURL(SAVED, { timeout: 30_000 });
     await expect(page.getByRole('heading', { level: 1, name: 'Rich carbonara' })).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByRole('status').filter({ hasText: 'Recipe saved' })).toBeVisible();
+    await expect(toast.success(page, 'Recipe saved')).toBeVisible();
     await expect(page.getByRole('list', { name: 'Categories' }).getByRole('listitem')).toHaveText(RICH.categories);
-    await expect(page.getByRole('list', { name: 'Recipe details' }).getByRole('listitem')).toHaveText(['Prep 10 min', 'Cook 20 min', 'Total 30 min', '4 servings']);
+    await expect(page.getByRole('list', { name: 'Recipe details' }).getByRole('listitem')).toHaveCount(2);
+    await expect(page.getByRole('list', { name: 'Recipe details' })).toContainText(/Prep 10.*Cook 20.*Total 30 min.*4 servings/);
     await expect(page.getByText(RICH.description)).toBeVisible();
-    await expect(page.getByRole('list', { name: 'Ingredients' }).getByRole('listitem')).toHaveText(['200 g Spaghetti', '1.5 tbsp Olive oil', 'Salt, to taste']);
-    await expect(page.getByRole('list', { name: 'Instructions' }).getByRole('listitem')).toHaveText(RICH.steps);
+    expect(await ingredientRows(page)).toEqual([
+      { name: 'Spaghetti', amount: '200 g' }, { name: 'Olive oil', amount: '1.5 tbsp' }, { name: 'Salt', amount: 'to taste' },
+    ]);
+    expect(await stepTexts(page)).toEqual(RICH.steps);
     await expect(page.getByRole('heading', { name: 'Notes' })).toBeVisible();
     await expect(page.getByText('Swap the bacon for mushrooms.')).toBeVisible();
     await expect(page.getByText('Keeps for two days.')).toBeVisible();
-    await expect(page.locator('iframe[title="Video for Rich carbonara"]')).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
+    // The video is a poster with a Play button; the embed exists only after Play.
+    await expect(page.locator('iframe')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Play video' }).click();
+    await expect(page.locator('iframe[title="Video for Rich carbonara"]')).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1');
 
-    // Cover and the photos of steps 1 and 3 go through the optimizer; step 2 has none.
+    // The cover, the photos of steps 1 and 3 and (until Play is pressed) the video poster go through the optimizer; step 2 has no photo.
     const imageSelector = 'article img';
     await expect.poll(async () => (await loaded(page, imageSelector)).filter(Boolean).length).toBe(3);
     await expect(page.getByRole('img', { name: 'Rich carbonara' })).toBeVisible();
-    await expect(page.getByRole('img', { name: 'Step 1 photo' })).toBeVisible();
-    await expect(page.getByRole('img', { name: 'Step 3 photo' })).toBeVisible();
-    await expect(page.getByRole('img', { name: 'Step 2 photo' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open step 1 photo' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open step 3 photo' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open step 2 photo' })).toHaveCount(0);
     const sources = await page.locator(imageSelector).evaluateAll((images) => images.map((image) => new URL((image as HTMLImageElement).currentSrc).pathname));
     expect(sources.every((path) => path === '/_next/image')).toBe(true);
     expect(statuses.length).toBeGreaterThanOrEqual(3);
@@ -328,7 +370,7 @@ test.describe('saving', () => {
     await expect(link).toHaveAttribute('target', '_blank');
     await expect(link).toHaveAttribute('rel', /noopener/);
     await expect(page.locator('iframe')).toHaveCount(0);
-    await expect(page.getByRole('status').filter({ hasText: 'Recipe saved' })).toHaveCount(0);
+    await expect(page.getByText('Recipe saved')).toHaveCount(0);
   });
 
   test('photo URLs are signed afresh on every load and no page response is cacheable', async ({ page, creator, workerData }) => {
@@ -377,7 +419,8 @@ test.describe('saving', () => {
     await page.getByLabel('Add cover photo').setInputFiles(COVER);
     await context.clearCookies();
     await field.save(page).click();
-    await expect(page.getByRole('alert').filter({ hasText: 'Your session has expired.' })).toBeVisible();
+    await expect(createForm(page).getByRole('alert').filter({ hasText: 'Your session has expired.' })).toBeVisible();
+    await expect(toast.error(page, 'Your session has expired.')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Open sign in in a new tab' })).toHaveAttribute('target', '_blank');
     await expect(field.title(page)).toHaveValue('Kept through expiry');
     await expect(field.step(page, 1)).toHaveValue('Boil the water.');
@@ -396,7 +439,8 @@ test.describe('saving', () => {
     await fillMinimal(page, 'Retry after limit');
     await page.getByLabel('Add cover photo').setInputFiles(COVER);
     await field.save(page).click();
-    await expect(page.getByRole('alert').filter({ hasText: 'Too many saves. Try again in a moment.' })).toBeVisible();
+    await expect(createForm(page).getByRole('alert').filter({ hasText: 'Too many saves. Try again in a moment.' })).toBeVisible();
+    await expect(toast.error(page, 'Couldn’t save recipe. Try again.')).toBeVisible();
     await expect(field.title(page)).toHaveValue('Retry after limit');
     await expect(page.getByText(/^creamy-garlic-pasta\.png · \d+ KB$/)).toBeVisible();
     await expect(field.save(page)).toBeEnabled();
@@ -416,7 +460,8 @@ test.describe('detail page access', () => {
     for (const id of [foreignId, 'does-not-exist']) {
       await page.goto(`/recipes/${id}`);
       await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
-      await expect(page.getByRole('link', { name: 'Back to Recipes' })).toBeVisible();
+      await expect(page.getByRole('status').filter({ hasText: 'Taking you to Recipes in 5 seconds.' })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Go now' })).toBeVisible();
     }
   });
 });
@@ -537,7 +582,8 @@ test.describe('layout', () => {
     const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Detail layout check with a deliberately long recipe title that must wrap properly'), RICH_FILES);
     await page.goto(`/recipes/${id}`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    await expect.poll(async () => (await loaded(page, 'article img')).filter(Boolean).length).toBe(3);
+    // Cover, video poster and the two step photos.
+    await expect.poll(async () => (await loaded(page, 'article img')).filter(Boolean).length).toBe(4);
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
       expect(await noOverflow(page)).toBe(true);

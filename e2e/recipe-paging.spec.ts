@@ -244,11 +244,12 @@ test('preserves card controls and keeps mobile chips inside horizontal scroller'
   await expect(cards(page)).toHaveCount(20);
   const card = cards(page).first();
   const favorite = card.getByRole('button', { name: 'Add Banana Oat Pancakes to favorites', exact: true });
-  await favorite.click();
+  // The heart saves through a Server Action; a second toggle is ignored until the first save has settled.
+  await Promise.all([page.waitForResponse((response) => response.request().method() === 'POST'), favorite.click()]);
   await expect(card.getByRole('button', { name: 'Remove Banana Oat Pancakes from favorites' })).toHaveAttribute('aria-pressed', 'true');
   await card.getByRole('button', { name: 'More options for Banana Oat Pancakes' }).click();
   await expect(page.getByRole('menuitem', { name: 'View recipe' })).toBeVisible();
-  await page.getByRole('menuitem', { name: 'Remove from favorites' }).click();
+  await Promise.all([page.waitForResponse((response) => response.request().method() === 'POST'), page.getByRole('menuitem', { name: 'Remove from favorites' }).click()]);
   await expect(favorite).toHaveAttribute('aria-pressed', 'false');
   if (isMobile) {
     const scroller = page.getByRole('group', { name: 'Recipe categories' });

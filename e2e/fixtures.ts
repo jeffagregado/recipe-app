@@ -29,6 +29,8 @@ type WorkerData = {
   newPassword: () => string;
   /** A fresh, empty account signed up from its own client address, so the five-per-hour signup limit is never shared. */
   signupFreshAccount: () => Promise<TestAccount>;
+  /** How many of these stored objects still answer 200. Keys stay inside the helper's callers; only counts leave. */
+  countStoredObjects: (keys: string[]) => Promise<number>;
 };
 
 /** Cookie values stay in worker memory and the HttpOnly browser cookie jar. */
@@ -68,7 +70,7 @@ async function removeWorkerData(db: DrizzleDb, usernames: string[], addresses: s
     return { users: users.n, recipes: recipes.n, attempts: attempts.n };
   };
   const { recipes } = await ownedRows();
-  if (ids.length) await db.delete(schema.authRateLimits).where(inArray(schema.authRateLimits.key, ids.map((id) => `wrapper:recipe-write:user:${id}`)));
+  if (ids.length) await db.delete(schema.authRateLimits).where(inArray(schema.authRateLimits.key, ids.flatMap((id) => [`wrapper:recipe-write:user:${id}`, `wrapper:recipe-favorite:user:${id}`])));
   await removeTestData(db, { usernames, addresses });
   const rows = Object.values(await ownedRows()).reduce((total, n) => total + n, 0);
   console.log(`E2E cleanup: users=${ids.length} recipes=${recipes} objects(found=${objects.found} deleted=${objects.deleted} failed=${objects.failed} remaining=${objects.remaining}) rows-remaining=${rows}`);
@@ -87,6 +89,11 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
     const client = apiClient(API_URL, address, WEB_URL);
     const usernames: string[] = [];
     const newUsername = () => { const username = testUsername(); usernames.push(username); return username; };
+    let storage: Awaited<ReturnType<typeof openStorageCleanup>> | undefined;
+    const countStoredObjects = async (keys: string[]) => {
+      storage ??= await (await loadStorageCleanup()).openStorageCleanup(resolve('apps/api/.env'));
+      return storage.countRemaining(keys);
+    };
     const signupFreshAccount = async () => {
       const freshAddress = testAddress();
       addresses.push(freshAddress);
@@ -97,9 +104,9 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
       await insertOwnedRecipes(db, owner.user, owner.tag);
       const other = { ...await signupUser(client, newUsername()), tag: `e2e-${randomUUID()}` };
       await insertOwnedRecipes(db, other.user, other.tag, seedRecipes.slice(0, 25).map((recipe) => ({ ...recipe, title: `Other kitchen: ${recipe.title}` })));
-      await use({ db, client, address, owner, other, usernames, newUsername, newPassword: testPassword, signupFreshAccount });
+      await use({ db, client, address, owner, other, usernames, newUsername, newPassword: testPassword, signupFreshAccount, countStoredObjects });
     } finally {
-      try { await removeWorkerData(db, usernames, addresses); }
+      try { await storage?.close(); await removeWorkerData(db, usernames, addresses); }
       catch { throw new Error('Temporary E2E user/counter/storage cleanup failed on the approved dev database.'); }
       finally { await pool.end(); }
     }

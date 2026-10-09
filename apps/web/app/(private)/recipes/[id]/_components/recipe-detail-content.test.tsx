@@ -7,7 +7,7 @@ import { recipeDetailFixture } from '@/features/recipes/queries/recipe-detail.fi
 
 const read = vi.hoisted(() => ({ getRecipe: vi.fn<(id: string) => Promise<RecipeDetail | null>>() }))
 vi.mock('@/features/recipes/queries/get-recipe', () => ({ getRecipe: read.getRecipe }))
-vi.mock('next/navigation', () => ({ notFound: () => { throw new Error('NEXT_NOT_FOUND') } }))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: vi.fn() }) }))
 // The image optimizer needs remotePatterns and a server; render a plain img instead.
 vi.mock('next/image', () => ({
 	default: ({ src, alt }: ImgHTMLAttributes<HTMLImageElement>) => (
@@ -114,8 +114,11 @@ it('renders no video section for an unsafe stored video link', async () => {
 	expect(screen.queryByRole('heading', { name: 'Video' })).not.toBeInTheDocument()
 })
 
-it('calls notFound for an unknown or foreign recipe', async () => {
-	await expect(renderRecipe(null)).rejects.toThrow('NEXT_NOT_FOUND')
+it('renders the not-found card, without throwing, for an unknown or foreign recipe', async () => {
+	await renderRecipe(null)
+	expect(screen.getByRole('heading', { level: 1, name: 'Page not found' })).toBeInTheDocument()
+	expect(screen.getByRole('link', { name: 'Go now' })).toHaveAttribute('href', '/recipes')
+	expect(screen.queryByRole('article')).not.toBeInTheDocument()
 })
 
 it('puts the favorite heart and the ⋮ menu to the right of the title, in that order', async () => {

@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation'
+import { PageNotFound } from '@/components/layout/page-not-found'
 import { RecipeForm } from '@/features/recipes/form/components/recipe-form'
 import { toRecipeFormValues } from '@/features/recipes/form/lib/recipe-edit'
 import { getRecipe } from '@/features/recipes/queries/get-recipe'
@@ -8,11 +8,14 @@ type EditRecipeContentProps = {
 	params: Promise<{ id: string }>
 }
 
-/** Resolves request-time inputs and the uncached owner-scoped read inside the page's Suspense boundary. */
+/**
+ * Resolves request-time inputs and the uncached owner-scoped read inside the page's Suspense boundary. An unknown or foreign recipe
+ * renders the not-found page rather than throwing `notFound()`, which would surface as a React #419 error in the browser mid-stream.
+ */
 export async function EditRecipeContent({ params }: EditRecipeContentProps) {
 	const { id } = await params
 	const recipe = await getRecipe(id)
-	if (!recipe) notFound()
+	if (!recipe) return <PageNotFound />
 
 	return (
 		<RecipeForm

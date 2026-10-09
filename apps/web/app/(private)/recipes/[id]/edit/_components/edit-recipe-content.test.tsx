@@ -12,7 +12,8 @@ vi.mock('@/features/recipes/queries/get-recipe', () => ({ getRecipe: read.getRec
 const action = vi.hoisted(() => ({ updateRecipe: vi.fn<(id: string, formData: FormData) => Promise<SaveRecipeResult>>() }))
 vi.mock('../actions', () => action)
 const router = vi.hoisted(() => ({ push: vi.fn() }))
-vi.mock('next/navigation', () => ({ notFound: () => { throw new Error('NEXT_NOT_FOUND') }, useRouter: () => router, unstable_rethrow: () => undefined }))
+const replace = vi.hoisted(() => vi.fn())
+vi.mock('next/navigation', () => ({ useRouter: () => ({ ...router, replace }), unstable_rethrow: () => undefined }))
 vi.mock('next/image', () => ({
 	default: ({ src, alt }: ImgHTMLAttributes<HTMLImageElement>) => (
 		// eslint-disable-next-line @next/next/no-img-element
@@ -63,6 +64,9 @@ it('cancels back to the recipe page', async () => {
 	expect(router.push).toHaveBeenCalledWith('/recipes/recipe-1')
 })
 
-it('calls notFound for an unknown or foreign recipe', async () => {
-	await expect(renderEdit(null)).rejects.toThrow('NEXT_NOT_FOUND')
+it('renders the not-found page, without throwing, for an unknown or foreign recipe', async () => {
+	await renderEdit(null)
+	expect(screen.getByRole('heading', { level: 1, name: 'Page not found' })).toBeInTheDocument()
+	expect(screen.getByRole('link', { name: 'Go now' })).toHaveAttribute('href', '/recipes')
+	expect(screen.queryByRole('form')).not.toBeInTheDocument()
 })
