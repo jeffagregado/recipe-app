@@ -1,6 +1,6 @@
 'use client'
 
-import type { RecipeCategory, RecipeSummary } from '@recipe-app/contracts/types'
+import type { RecipeSummary } from '@recipe-app/contracts/types'
 import { BookOpen, Heart, MoreHorizontal } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -16,15 +16,8 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { categoryVariants } from '@/features/recipes/lib/category-variants'
 import { cn } from '@/lib/utils'
-
-const categoryVariants = {
-	Breakfast: 'breakfast',
-	Lunch: 'lunch',
-	Dinner: 'dinner',
-	Snacks: 'snack',
-	Desserts: 'dessert',
-} as const satisfies Record<RecipeCategory, string>
 
 export type RecipeCardData = Pick<RecipeSummary, 'id' | 'title' | 'imageUrl' | 'categories' | 'updatedAt'> & {
 	updatedLabel: string

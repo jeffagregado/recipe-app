@@ -1,3 +1,10 @@
+import PageContainer from '@/components/layout/page-container'
+import { RecipeDetailLoading } from './_components/recipe-detail-loading'
+
 export default function LoadingRecipe() {
-	return <p role="status">Loading recipe...</p>
+	return (
+		<PageContainer size="default">
+			<RecipeDetailLoading />
+		</PageContainer>
+	)
 }
