@@ -80,6 +80,48 @@ describe('Public SQL recipe pagination', () => {
     }
   }, 30_000);
 
+  it('searches title and description case-insensitively before filtering, sorting and paging', async () => {
+    for (const category of [undefined, 'Breakfast'] as const) {
+      const expected = seedRecipes.filter((recipe) => (!category || recipe.categories.includes(category)) &&
+        `${recipe.title} ${recipe.description ?? ''}`.toLowerCase().includes('oat'));
+      expect(expected.length).toBeGreaterThan(1);
+      const first = await list({ search: '  OaT  ', ...(category ? { category } : {}), sortBy: 'title', order: 'asc', limit: 2 });
+      const pages = [first];
+      for (let page = 2; page <= first.meta.totalPages; page++) pages.push(await list({ search: 'oat', ...(category ? { category } : {}), sortBy: 'title', order: 'asc', limit: 2, page }));
+      expect(first.meta.total).toBe(expected.length);
+      expect(first.counts.total).toBe(100);
+      expect(pages.flatMap(({ data }) => data.map(({ id }) => id))).toEqual(ordered('title', 'asc', expected));
+      expect((await list({ search: 'oat', ...(category ? { category } : {}), limit: 2, page: first.meta.totalPages + 1 })).data).toEqual([]);
+    }
+    const description = await list({ search: 'softened apple' });
+    expect(description.data.map(({ id }) => id)).toEqual(['apple-cinnamon-porridge']);
+    expect((await list({ search: 'no-matching-recipe-12345' })).meta).toMatchObject({ total: 0, totalPages: 0 });
+    expect((await list({ search: '   ' })).meta.total).toBe(100);
+  }, 30_000);
+
+  it('treats search wildcard characters and quotes as literal text', async () => {
+    const db = app.get(DatabaseService).db;
+    const id = `verify-search-${randomUUID()}`;
+    const title = "Search 100%_\\ literal ' recipe";
+    try {
+      await db.insert(recipes).values({ id, userId: DEMO_AUTHOR_ID, title, sortOrder: 100 });
+      for (const search of ['%', '_', '\\', "100%_\\ literal '"]) {
+        const result = await list({ search });
+        expect(result.data.map((recipe) => recipe.id)).toEqual([id]);
+        expect(result.meta.total).toBe(1);
+      }
+      expect((await list({ search: "' OR 1=1 --" })).data).toEqual([]);
+    } finally { await db.delete(recipes).where(inArray(recipes.id, [id])); }
+  }, 30_000);
+
+  it('rejects repeated and oversized search parameters', async () => {
+    for (const query of ['search=oat&search=rice', `search=${'a'.repeat(201)}`]) {
+      const response = await fetch(`${baseUrl}/recipes?${query}`);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ errors: expect.arrayContaining([expect.objectContaining({ parameter: 'search' })]) });
+    }
+  });
+
   it('honors every sorting direction with stable sortOrder ties across pages', async () => {
     for (const sortBy of RECIPE_SORT_FIELDS) for (const order of ['asc', 'desc'] as const) {
       const pages = await Promise.all([1, 2, 3, 4, 5].map((page) => list({ page, sortBy, order })));

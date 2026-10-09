@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ResilienceError, ResilienceService } from '@nestjs/resilience';
 import type { ResiliencePolicy } from '@nestjs/resilience';
-import { asc, count, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { recipeListResponseSchema } from '@recipe-app/contracts/schemas';
 import type { RecipeCounts, RecipeListQuery, RecipeListResponse } from '@recipe-app/contracts/types';
 import { DRIZZLE_DB } from '../database/database.module.js';
@@ -29,10 +29,13 @@ export class RecipesService {
   private async readAll(query: RecipeListQuery, signal: AbortSignal): Promise<RecipeListResponse> {
     try {
       // EXISTS filters each recipe once, even when it belongs to several categories.
-      const where = query.category === undefined ? undefined : sql`exists (
+      const category = query.category === undefined ? undefined : sql`exists (
         select 1 from ${recipeCategories} rc join ${categories} c on c.id = rc.category_id
         where rc.recipe_id = ${recipes.id} and c.name = ${query.category}
       )`;
+      // Escape LIKE metacharacters so searches match literal text, not SQL wildcards.
+      const search = query.search === undefined ? undefined : `%${query.search.replace(/[\\%_]/g, '\\$&')}%`;
+      const where = and(category, search === undefined ? undefined : or(ilike(recipes.title, search), ilike(recipes.description, search)));
       const direction = query.order === 'asc' ? asc : desc;
       const { rows, total, counts } = await this.databasePolicy.execute(async () => {
         return this.db.transaction(async (tx) => {

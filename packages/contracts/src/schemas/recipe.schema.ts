@@ -141,7 +141,10 @@ const queryInteger = (schema: z.ZodNumber) => z.preprocess(
   schema,
 );
 
+export const recipeSearchSchema = z.string().trim().max(200).transform((value) => value || undefined).optional();
+
 export const recipeListQuerySchema: z.ZodType<RecipeListQuery> = z.object({
+  search: recipeSearchSchema,
   category: recipeCategorySchema.optional(),
   page: queryInteger(z.number().int().positive().max(Math.floor(Number.MAX_SAFE_INTEGER / 20))).default(1),
   limit: queryInteger(z.number().int().positive().max(20)).default(20),

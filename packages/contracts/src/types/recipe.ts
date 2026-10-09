@@ -101,6 +101,7 @@ export const RECIPE_SORT_FIELDS = [
 export type RecipeSortField = (typeof RECIPE_SORT_FIELDS)[number];
 
 export type RecipeFilters = {
+  search?: string;
   category?: RecipeCategory;
   sortBy: RecipeSortField;
   order: SortDirection;

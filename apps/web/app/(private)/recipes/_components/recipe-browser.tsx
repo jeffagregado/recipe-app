@@ -2,18 +2,18 @@
 
 import { useSearchParams } from 'next/navigation'
 import { useQueryStates } from 'nuqs'
-import { recipeFilterError, recipeParsers, recipeUrlOptions } from '@/features/recipes/lib/filters'
+import { loadRecipeFilters, recipeFilterError, recipeParsers, recipeUrlOptions } from '@/features/recipes/lib/filters'
 import { RecipeFilterErrorView } from './recipe-filter-error'
 import { RecipeResults } from './recipe-results'
 
 export function RecipeBrowser({ endpoint }: { endpoint: string }) {
-	const [state, setFilters] = useQueryStates(recipeParsers, recipeUrlOptions)
+	const [, setFilters] = useQueryStates(recipeParsers, recipeUrlOptions)
 	const params = useSearchParams()
 	const error = recipeFilterError(new URLSearchParams(params))
 	if (error) return <RecipeFilterErrorView message={error.message} />
-	const filters = { ...state, category: state.category ?? undefined }
+	const filters = loadRecipeFilters(new URLSearchParams(params))
 	return <RecipeResults
-		key={`${filters.category ?? 'All'}:${filters.sortBy}:${filters.order}`}
+		key={JSON.stringify(filters)}
 		endpoint={endpoint}
 		filters={filters}
 		onCategory={(category) => { void setFilters({ category }) }}

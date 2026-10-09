@@ -4,7 +4,7 @@ import { fetchRecipePage, RECIPE_PAGE_SIZE } from '../api/request'
 
 export function recipeQueryOptions(endpoint: string, filters: RecipeFilters) {
 	return infiniteQueryOptions({
-		queryKey: ['recipes', endpoint, filters.category ?? null, filters.sortBy, filters.order, RECIPE_PAGE_SIZE] as const,
+		queryKey: ['recipes', endpoint, filters.search ?? null, filters.category ?? null, filters.sortBy, filters.order, RECIPE_PAGE_SIZE] as const,
 		queryFn: ({ pageParam, signal }) => fetchRecipePage(endpoint, filters, pageParam, signal),
 		initialPageParam: 1,
 		getNextPageParam: ({ meta }: RecipeListResponse) => meta.page < meta.totalPages ? meta.page + 1 : undefined,
