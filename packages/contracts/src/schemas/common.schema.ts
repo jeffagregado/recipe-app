@@ -1,12 +1,19 @@
 import { z } from "zod";
 
 import type {
+  ApiErrorEnvelope,
   PaginationMeta,
   PaginationParams,
   SortDirection,
 } from "../types/common.js";
 
 export const entityIdSchema = z.string().min(1);
+
+export const apiErrorEnvelopeSchema: z.ZodType<ApiErrorEnvelope> = z.object({
+  code: z.string(),
+  message: z.string().min(1),
+  fieldErrors: z.record(z.string(), z.array(z.string())).optional(),
+});
 
 export const isoDateStringSchema = z.iso.datetime();
 

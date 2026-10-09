@@ -8,6 +8,7 @@ import type {
 
 import type {
   CreateRecipeIngredientInput,
+  MeasurementUnit,
   RecipeIngredient,
 } from "./ingredient.js";
 
@@ -20,6 +21,53 @@ export const RECIPE_CATEGORIES = [
 ] as const;
 
 export type RecipeCategory = (typeof RECIPE_CATEGORIES)[number];
+
+export const RECIPE_LIMITS = {
+  title: 200, description: 2000, notes: 5000, videoUrl: 2048,
+  categories: 3, ingredients: 100, instructions: 100,
+  ingredientName: 100, instructionDescription: 5000,
+  maxInteger: 2147483647, maxQuantity: 999999999.999, quantityDecimals: 3,
+  imageBytes: 5 * 1024 * 1024, metadataBytes: 1024 * 1024,
+  maxFiles: 101, requestBytes: 128 * 1024 * 1024,
+} as const;
+
+export const RECIPE_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+
+export type CreateRecipeMetadataIngredient = {
+  name: string;
+  quantity: number | null;
+  unit: MeasurementUnit | null;
+  preparation?: null;
+  note?: null;
+};
+
+export type CreateRecipeMetadataInstruction = {
+  description: string;
+  hasImage: boolean;
+};
+
+export type CreateRecipeMetadata = {
+  title: string;
+  description: string | null;
+  categories: RecipeCategory[];
+  servings: number | null;
+  prepTimeMinutes: number | null;
+  cookTimeMinutes: number | null;
+  videoUrl: string | null;
+  notes: string | null;
+  ingredients: CreateRecipeMetadataIngredient[];
+  instructions: CreateRecipeMetadataInstruction[];
+};
+
+export type CreateRecipeResult = { id: EntityId };
+
+export type RecipeDetailInstruction = RecipeInstruction & { imageUrl: string | null };
+
+export type RecipeDetail = Omit<Recipe, "instructions"> & {
+  notes: string | null;
+  videoUrl: string | null;
+  instructions: RecipeDetailInstruction[];
+};
 
 export type RecipeInstruction = {
   id: EntityId;

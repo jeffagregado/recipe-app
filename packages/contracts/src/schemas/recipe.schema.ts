@@ -3,6 +3,12 @@ import { z } from "zod";
 import {
   RECIPE_CATEGORIES,
   RECIPE_SORT_FIELDS,
+  RECIPE_LIMITS,
+  type CreateRecipeMetadata,
+  type CreateRecipeMetadataIngredient,
+  type CreateRecipeResult,
+  type RecipeDetail,
+  type RecipeDetailInstruction,
   type CreateRecipeInput,
   type CreateRecipeInstructionInput,
   type Recipe,
@@ -26,6 +32,7 @@ import {
 import {
   createRecipeIngredientSchema,
   recipeIngredientSchema,
+  measurementUnitSchema,
 } from "./ingredient.schema.js";
 
 export const recipeCategorySchema: z.ZodType<RecipeCategory> = z.enum(
@@ -172,3 +179,63 @@ export const recipeQueryParamsSchema: z.ZodType<RecipeQueryParams> = z.object({
 
   sortDirection: sortDirectionSchema.optional(),
 });
+
+const nullableText = (limit: number) => z.string().trim().max(limit)
+  .transform((value) => value || null).nullable();
+
+// String round-tripping avoids binary floating-point modulo errors (e.g. 1.001).
+const quantitySchema = z.number().positive().max(RECIPE_LIMITS.maxQuantity)
+  .refine((value) => value === Number(value.toFixed(RECIPE_LIMITS.quantityDecimals)), "Use at most three decimal places.");
+
+const metadataIngredientSchema: z.ZodType<CreateRecipeMetadataIngredient> = z.strictObject({
+  name: z.string().trim().min(1).max(RECIPE_LIMITS.ingredientName),
+  quantity: quantitySchema.nullable(),
+  unit: measurementUnitSchema.nullable(),
+  preparation: z.null().optional(),
+  note: z.null().optional(),
+}).refine((row) => (row.quantity === null) === (row.unit === null), {
+  message: "Set both quantity and unit, or use null for both to taste.",
+  path: ["quantity"],
+});
+
+const videoUrlSchema = nullableText(RECIPE_LIMITS.videoUrl).refine((value) => {
+  if (value === null) return true;
+  try { return new URL(value).protocol === "https:"; } catch { return false; }
+}, "Enter a valid HTTPS URL.");
+
+export const createRecipeMetadataSchema: z.ZodType<CreateRecipeMetadata> = z.strictObject({
+  title: z.string().trim().min(1).max(RECIPE_LIMITS.title),
+  description: nullableText(RECIPE_LIMITS.description),
+  categories: z.array(recipeCategorySchema).max(RECIPE_LIMITS.categories)
+    .refine((values) => new Set(values).size === values.length, "Categories must be unique"),
+  servings: z.number().int().positive().max(RECIPE_LIMITS.maxInteger).nullable(),
+  prepTimeMinutes: z.number().int().nonnegative().max(RECIPE_LIMITS.maxInteger).nullable(),
+  cookTimeMinutes: z.number().int().nonnegative().max(RECIPE_LIMITS.maxInteger).nullable(),
+  videoUrl: videoUrlSchema,
+  notes: nullableText(RECIPE_LIMITS.notes),
+  ingredients: z.array(metadataIngredientSchema).min(1).max(RECIPE_LIMITS.ingredients),
+  instructions: z.array(z.strictObject({
+    description: z.string().trim().min(1).max(RECIPE_LIMITS.instructionDescription),
+    hasImage: z.boolean(),
+  })).min(1).max(RECIPE_LIMITS.instructions),
+});
+
+export const createRecipeResultSchema: z.ZodType<CreateRecipeResult> = z.object({ id: entityIdSchema });
+
+export const recipeDetailInstructionSchema: z.ZodType<RecipeDetailInstruction> = recipeInstructionSchema.and(z.object({
+  imageUrl: z.url().nullable(),
+}));
+
+export const recipeDetailSchema: z.ZodType<RecipeDetail> = recipeSchema.and(z.object({
+  notes: z.string().trim().max(RECIPE_LIMITS.notes).nullable(),
+  videoUrl: z.string().max(RECIPE_LIMITS.videoUrl).nullable(),
+  instructions: z.array(recipeDetailInstructionSchema),
+}));
+
+/** Multipart image fields in cover-first order, using original instruction indexes. */
+export function expectedRecipeFileFields(metadata: CreateRecipeMetadata, hasCover: boolean): string[] {
+  return [
+    ...(hasCover ? ["cover"] : []),
+    ...metadata.instructions.flatMap((step, index) => step.hasImage ? [`step-${index}`] : []),
+  ];
+}

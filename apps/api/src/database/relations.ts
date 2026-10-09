@@ -1,9 +1,10 @@
 import { relations } from 'drizzle-orm';
 import { authAccounts, authSessions, users } from './auth.schema.js';
-import { categories, favorites, ingredients, recipeCategories, recipeImages, recipeIngredients, recipeInstructions, recipes } from './recipe.schema.js';
+import { categories, favorites, ingredients, recipeCategories, recipeImages, recipeIngredients, recipeInstructions, recipes, recipeWriteAttempts } from './recipe.schema.js';
 
 export const usersRelations = relations(users, ({ many }) => ({
   accounts: many(authAccounts), sessions: many(authSessions), recipes: many(recipes), favorites: many(favorites),
+  writeAttempts: many(recipeWriteAttempts),
 }));
 export const authAccountsRelations = relations(authAccounts, ({ one }) => ({
   user: one(users, { fields: [authAccounts.userId], references: [users.id] }),
@@ -22,6 +23,7 @@ export const recipeIngredientsRelations = relations(recipeIngredients, ({ one })
 }));
 export const recipeInstructionsRelations = relations(recipeInstructions, ({ one }) => ({
   recipe: one(recipes, { fields: [recipeInstructions.recipeId], references: [recipes.id] }),
+  image: one(recipeImages, { fields: [recipeInstructions.imageId], references: [recipeImages.id] }),
 }));
 export const categoriesRelations = relations(categories, ({ many }) => ({ recipes: many(recipeCategories) }));
 export const recipeCategoriesRelations = relations(recipeCategories, ({ one }) => ({
@@ -30,8 +32,13 @@ export const recipeCategoriesRelations = relations(recipeCategories, ({ one }) =
 }));
 export const recipeImagesRelations = relations(recipeImages, ({ one }) => ({
   recipe: one(recipes, { fields: [recipeImages.recipeId], references: [recipes.id] }),
+  instruction: one(recipeInstructions),
 }));
 export const favoritesRelations = relations(favorites, ({ one }) => ({
   user: one(users, { fields: [favorites.userId], references: [users.id] }),
   recipe: one(recipes, { fields: [favorites.recipeId], references: [recipes.id] }),
+}));
+
+export const recipeWriteAttemptsRelations = relations(recipeWriteAttempts, ({ one }) => ({
+  user: one(users, { fields: [recipeWriteAttempts.userId], references: [users.id] }),
 }));

@@ -1,3 +1,7 @@
+import type { AuthErrorResponse } from "./auth.js";
+
+export type ApiErrorEnvelope = Omit<AuthErrorResponse, "code"> & { code: string };
+
 export type EntityId = string;
 
 export type ISODateString = string;

@@ -1,0 +1,140 @@
+import { describe, expect, it } from "vitest";
+
+import { RECIPE_CATEGORIES } from "../types/recipe.js";
+import {
+  createRecipeMetadataSchema,
+  createRecipeResultSchema,
+  expectedRecipeFileFields,
+  recipeDetailSchema,
+} from "./recipe.schema.js";
+import { apiErrorEnvelopeSchema } from "./common.schema.js";
+
+const ingredient = { name: " Salt ", quantity: null, unit: null };
+const instruction = { description: " Stir ", hasImage: false };
+const metadata = {
+  title: " Soup ", description: null, categories: [], servings: null,
+  prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
+  ingredients: [ingredient], instructions: [instruction],
+};
+
+describe("recipe creation metadata", () => {
+  it("trims text, normalizes blank optional text and preserves category order", () => {
+    const result = createRecipeMetadataSchema.parse({ ...metadata, description: " \t ", notes: " \n ", videoUrl: "  ", categories: ["Dinner", "Lunch"] });
+    expect(result).toMatchObject({ title: "Soup", description: null, notes: null, videoUrl: null, categories: ["Dinner", "Lunch"], ingredients: [{ name: "Salt" }], instructions: [{ description: "Stir" }] });
+    expect(createRecipeMetadataSchema.parse({ ...metadata, description: " Rich ", notes: " Tip " })).toMatchObject({ description: "Rich", notes: "Tip" });
+  });
+
+  it("enforces text boundaries and rejects blank required text", () => {
+    for (const [field, limit] of [["title", 200], ["description", 2000], ["notes", 5000]] as const) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, [field]: "x".repeat(limit) }).success, field).toBe(true);
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, [field]: "x".repeat(limit + 1) }).success, field).toBe(false);
+    }
+    for (const [field, row, key, limit] of [["ingredients", ingredient, "name", 100], ["instructions", instruction, "description", 5000]] as const) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, [field]: [{ ...row, [key]: "x".repeat(limit) }] }).success).toBe(true);
+      for (const value of [" ", "x".repeat(limit + 1)]) {
+        expect(createRecipeMetadataSchema.safeParse({ ...metadata, [field]: [{ ...row, [key]: value }] }).success).toBe(false);
+      }
+    }
+    expect(createRecipeMetadataSchema.safeParse({ ...metadata, title: " " }).success).toBe(false);
+  });
+
+  it("requires 1–100 ingredients and instructions", () => {
+    for (const [field, row] of [["ingredients", ingredient], ["instructions", instruction]] as const) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, [field]: Array.from({ length: 100 }, () => row) }).success).toBe(true);
+      for (const length of [0, 101]) {
+        expect(createRecipeMetadataSchema.safeParse({ ...metadata, [field]: Array.from({ length }, () => row) }).success).toBe(false);
+      }
+    }
+  });
+
+  it("accepts zero to three unique known categories", () => {
+    expect(createRecipeMetadataSchema.safeParse({ ...metadata, categories: RECIPE_CATEGORIES.slice(0, 3) }).success).toBe(true);
+    for (const categories of [RECIPE_CATEGORIES.slice(0, 4), ["Dinner", "Dinner"], ["Unknown"]]) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, categories }).success).toBe(false);
+    }
+  });
+
+  it("requires a parseable HTTPS video URL within 2048 characters", () => {
+    const url = "https://example.com/";
+    expect(createRecipeMetadataSchema.parse({ ...metadata, videoUrl: ` ${url} ` }).videoUrl).toBe(url);
+    expect(createRecipeMetadataSchema.safeParse({ ...metadata, videoUrl: url + "x".repeat(2048 - url.length) }).success).toBe(true);
+    for (const videoUrl of ["http://example.com", "javascript:alert(1)", "not a url", "https://", url + "x".repeat(2049 - url.length)]) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, videoUrl }).success, videoUrl).toBe(false);
+    }
+  });
+
+  it("requires finite positive quantities with at most three decimals and paired units", () => {
+    for (const quantity of [0.001, 1.123, 1.001, 999999999.999]) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: [{ ...ingredient, quantity, unit: "g" }] }).success, String(quantity)).toBe(true);
+    }
+    for (const quantity of [0.0001, 1.1234, 999999999.9991, 0, -1, 1000000000, Infinity, NaN]) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: [{ ...ingredient, quantity, unit: "g" }] }).success, String(quantity)).toBe(false);
+    }
+    for (const row of [{ ...ingredient, quantity: 1 }, { ...ingredient, unit: "g" }, { ...ingredient, quantity: 1, unit: "unknown" }]) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: [row] }).success).toBe(false);
+    }
+    expect(createRecipeMetadataSchema.safeParse(metadata).success).toBe(true);
+  });
+
+  it("enforces integer ceilings and allows zero minutes only", () => {
+    for (const field of ["servings", "prepTimeMinutes", "cookTimeMinutes"] as const) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, [field]: 2147483647 }).success).toBe(true);
+      for (const value of [2147483648, -1, 1.5]) {
+        expect(createRecipeMetadataSchema.safeParse({ ...metadata, [field]: value }).success).toBe(false);
+      }
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, [field]: 0 }).success).toBe(field !== "servings");
+    }
+  });
+
+  it("rejects missing keys, ownership claims and unknown nested keys", () => {
+    for (const key of Object.keys(metadata)) {
+      const missing: Record<string, unknown> = { ...metadata };
+      delete missing[key];
+      expect(createRecipeMetadataSchema.safeParse(missing).success, key).toBe(false);
+    }
+    for (const key of ["id", "userId", "imageUrl", "objectKey", "sortOrder", "createdAt"]) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, [key]: "x" }).success, key).toBe(false);
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: [{ ...ingredient, [key]: "x" }] }).success, key).toBe(false);
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, instructions: [{ ...instruction, [key]: "x" }] }).success, key).toBe(false);
+    }
+    for (const key of ["quantity", "unit", "name"]) {
+      const missing: Record<string, unknown> = { ...ingredient };
+      delete missing[key];
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: [missing] }).success).toBe(false);
+    }
+    expect(createRecipeMetadataSchema.safeParse({ ...metadata, instructions: [{ description: "Stir" }] }).success).toBe(false);
+    expect(createRecipeMetadataSchema.safeParse({ ...metadata, instructions: [{ ...instruction, hasImage: "true" }] }).success).toBe(false);
+    expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: [{ ...ingredient, preparation: null, note: null }] }).success).toBe(true);
+    for (const key of ["preparation", "note"]) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: [{ ...ingredient, [key]: "text" }] }).success).toBe(false);
+    }
+  });
+});
+
+describe("recipe files and responses", () => {
+  it("declares cover first and image steps by original zero-based index", () => {
+    const parsed = createRecipeMetadataSchema.parse({ ...metadata, instructions: [instruction, { ...instruction, hasImage: true }, instruction, { ...instruction, hasImage: true }] });
+    expect(expectedRecipeFileFields(parsed, true)).toEqual(["cover", "step-1", "step-3"]);
+    expect(expectedRecipeFileFields(parsed, false)).toEqual(["step-1", "step-3"]);
+    expect(expectedRecipeFileFields(createRecipeMetadataSchema.parse(metadata), false)).toEqual([]);
+    const all = createRecipeMetadataSchema.parse({ ...metadata, instructions: Array.from({ length: 100 }, () => ({ ...instruction, hasImage: true })) });
+    expect(expectedRecipeFileFields(all, true)).toHaveLength(101);
+    expect(expectedRecipeFileFields(all, true).at(-1)).toBe("step-99");
+  });
+
+  it("validates creation IDs and general API errors", () => {
+    expect(createRecipeResultSchema.parse({ id: "recipe-1" })).toEqual({ id: "recipe-1" });
+    expect(createRecipeResultSchema.safeParse({ id: "" }).success).toBe(false);
+    expect(apiErrorEnvelopeSchema.safeParse({ code: "RECIPE_WRITE_PENDING", message: "Pending", fieldErrors: { title: ["Required"] } }).success).toBe(true);
+    expect(apiErrorEnvelopeSchema.safeParse({ code: "ERROR", message: "Failed", fieldErrors: { title: "Required" } }).success).toBe(false);
+  });
+
+  it("validates nullable detail fields and per-instruction image URLs", () => {
+    const detail = { id: "r1", userId: "u1", title: "Soup", categories: [], description: null, imageUrl: null, servings: null, prepTimeMinutes: null, cookTimeMinutes: null, ingredients: [], instructions: [{ id: "s1", stepNumber: 1, description: "Stir", imageUrl: null }], notes: null, videoUrl: null, createdAt: "2026-10-09T00:00:00.000Z", updatedAt: "2026-10-09T00:00:00.000Z" };
+    expect(recipeDetailSchema.safeParse(detail).success).toBe(true);
+    expect(recipeDetailSchema.safeParse({ ...detail, notes: "x".repeat(5000), videoUrl: "x".repeat(2048), instructions: [{ ...detail.instructions[0], imageUrl: "https://example.com/step.png" }] }).success).toBe(true);
+    for (const invalid of [{ ...detail, notes: "x".repeat(5001) }, { ...detail, videoUrl: "x".repeat(2049) }, { ...detail, instructions: [{ ...detail.instructions[0], imageUrl: "invalid" }] }]) {
+      expect(recipeDetailSchema.safeParse(invalid).success).toBe(false);
+    }
+  });
+});

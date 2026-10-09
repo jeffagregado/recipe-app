@@ -13,6 +13,8 @@ export const recipes = pgTable('recipes', {
   userId: text('user_id').notNull(),
   title: text('title').notNull(),
   description: text('description'),
+  notes: text('notes'),
+  videoUrl: text('video_url'),
   servings: integer('servings'),
   prepTimeMinutes: integer('prep_time_minutes'),
   cookTimeMinutes: integer('cook_time_minutes'),
@@ -25,6 +27,8 @@ export const recipes = pgTable('recipes', {
   index('recipes_sort_order_id_idx').on(t.sortOrder, t.id),
   check('recipes_title_check', sql`length(btrim(${t.title})) BETWEEN 1 AND 200`),
   check('recipes_description_check', sql`length(${t.description}) <= 2000`),
+  check('recipes_notes_check', sql`length(${t.notes}) <= 5000`),
+  check('recipes_video_url_check', sql`length(${t.videoUrl}) <= 2048`),
   check('recipes_servings_check', sql`${t.servings} > 0`),
   check('recipes_prep_time_check', sql`${t.prepTimeMinutes} >= 0`),
   check('recipes_cook_time_check', sql`${t.cookTimeMinutes} >= 0`),
@@ -65,9 +69,12 @@ export const recipeIngredients = pgTable('recipe_ingredients', {
 
 export const recipeInstructions = pgTable('recipe_instructions', {
   id: textId(), recipeId: text('recipe_id').notNull(), stepNumber: integer('step_number').notNull(), description: text('description').notNull(),
+  imageId: text('image_id'),
 }, (t) => [
   primaryKey({ name: 'recipe_instructions_pkey', columns: [t.id] }),
   foreignKey({ name: 'recipe_instructions_recipe_id_fkey', columns: [t.recipeId], foreignColumns: [recipes.id] }).onDelete('cascade'),
+  foreignKey({ name: 'recipe_instructions_image_id_fkey', columns: [t.imageId], foreignColumns: [recipeImages.id] }).onDelete('set null'),
+  unique('recipe_instructions_image_id_key').on(t.imageId),
   unique('recipe_instructions_recipe_step_key').on(t.recipeId, t.stepNumber),
   check('recipe_instructions_step_number_check', sql`${t.stepNumber} > 0`),
   check('recipe_instructions_description_check', sql`length(btrim(${t.description})) BETWEEN 1 AND 5000`),
@@ -111,4 +118,26 @@ export const recipeImages = pgTable('recipe_images', {
   unique('recipe_images_recipe_order_key').on(t.recipeId, t.sortOrder),
   check('recipe_images_object_key_check', sql`length(btrim(${t.objectKey})) > 0`),
   check('recipe_images_sort_order_check', sql`${t.sortOrder} >= 0`),
+]);
+
+export const recipeWriteAttempts = pgTable('recipe_write_attempts', {
+  id: textId(),
+  userId: text('user_id').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  operation: text('operation').$type<'create' | 'update' | 'delete'>().notNull(),
+  requestHash: text('request_hash').notNull(),
+  // Exists before creation and survives recipe deletion; deliberately no recipe FK.
+  recipeId: text('recipe_id').notNull(),
+  objectKeys: text('object_keys').array().notNull().default(sql`'{}'::text[]`),
+  staleObjectKeys: text('stale_object_keys').array().notNull().default(sql`'{}'::text[]`),
+  state: text('state').$type<'pending' | 'completed' | 'cleanup_pending'>().notNull(),
+  ...timestamps(),
+}, (t) => [
+  primaryKey({ name: 'recipe_write_attempts_pkey', columns: [t.id] }),
+  foreignKey({ name: 'recipe_write_attempts_user_id_fkey', columns: [t.userId], foreignColumns: [users.id] }).onDelete('cascade'),
+  unique('recipe_write_attempts_user_key_key').on(t.userId, t.idempotencyKey),
+  index('recipe_write_attempts_state_created_at_idx').on(t.state, t.createdAt),
+  check('recipe_write_attempts_idempotency_key_check', sql`length(${t.idempotencyKey}) BETWEEN 1 AND 200`),
+  check('recipe_write_attempts_operation_check', sql`${t.operation} IN ('create', 'update', 'delete')`),
+  check('recipe_write_attempts_state_check', sql`${t.state} IN ('pending', 'completed', 'cleanup_pending')`),
 ]);
