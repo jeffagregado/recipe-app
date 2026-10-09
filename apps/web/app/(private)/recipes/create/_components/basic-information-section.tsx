@@ -1,5 +1,5 @@
 import { FileText, Link2 } from 'lucide-react'
-import { useFormContext } from 'react-hook-form'
+import { useFormContext, useFormState } from 'react-hook-form'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import type { RecipeFormValues } from '../_lib/recipe-form-schema'
@@ -11,7 +11,8 @@ import { SectionCard } from './section-card'
 type TimeFieldProps = { id: string; name: 'prepTime' | 'cookTime' | 'servings'; label: string; suffix?: string; error?: string }
 
 export function BasicInformationSection() {
-	const { register, formState: { errors } } = useFormContext<RecipeFormValues>()
+	const { register, control } = useFormContext<RecipeFormValues>()
+	const { errors } = useFormState({ control })
 
 	return (
 		<SectionCard icon={FileText} title="Basic Information">

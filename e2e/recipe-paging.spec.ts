@@ -262,6 +262,7 @@ test('preserves card controls and keeps mobile chips inside horizontal scroller'
     await expect(page.getByRole('button', { name: 'Sort recipes' })).toHaveText('Oldest first');
     await category(page, 'All').click();
   }
+  const title = await firstTitle(page).textContent();
   await cards(page).first().getByRole('heading').getByRole('link').click();
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Recipe /);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(title!);
 });

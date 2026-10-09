@@ -36,26 +36,50 @@ function parseMetadata(raw: FormDataEntryValue | null, errors: SaveRecipeFieldEr
 	addIssues(errors, parsed.error)
 }
 
-/** Re-validates everything the browser sent; the API repeats these checks, but invalid input must never be forwarded. */
-function readSubmission(formData: FormData): { submission: Submission } | { errors: SaveRecipeFieldErrors } {
-	const errors: SaveRecipeFieldErrors = {}
-	const metadata = parseMetadata(formData.get('recipe'), errors)
-	const key = KEY_SCHEMA.safeParse(formData.get('idempotencyKey'))
-	if (!key.success) errors.idempotencyKey = ['The submission key is missing or invalid.']
+type PartProblem = { field: string; message: string }
 
+/** A non-reserved multipart part is either a single photo file or a problem to report. */
+function classifyPart(name: string, value: FormDataEntryValue, seen: Map<string, File>): File | PartProblem {
+	if (!PHOTO_FIELD.test(name)) return { field: 'recipe', message: 'The request contained an unexpected part.' }
+	if (seen.has(name)) return { field: name, message: 'Send one photo per field.' }
+	if (typeof value === 'string') return { field: name, message: 'Expected a photo file.' }
+	return value
+}
+
+function collectFiles(formData: FormData, errors: SaveRecipeFieldErrors): Map<string, File> {
 	const files = new Map<string, File>()
 	for (const [name, value] of formData.entries()) {
 		if (RESERVED_FIELDS.has(name)) continue
-		if (!PHOTO_FIELD.test(name)) errors.recipe = ['The request contained an unexpected part.']
-		else if (files.has(name)) errors[name] = ['Send one photo per field.']
-		else if (typeof value === 'string') errors[name] = ['Expected a photo file.']
-		else files.set(name, value)
+		const part = classifyPart(name, value, files)
+		if (part instanceof File) files.set(name, part)
+		else errors[part.field] = [part.message]
 	}
-	if (metadata) {
-		const expected = new Set(expectedRecipeFileFields(metadata, files.has('cover')))
-		for (const name of expected) if (!files.has(name)) errors[name] ??= ['This photo is missing.']
-		for (const name of files.keys()) if (!expected.has(name)) errors[name] ??= ['This photo does not belong to a step.']
-	}
+	return files
+}
+
+function readKey(raw: FormDataEntryValue | null, errors: SaveRecipeFieldErrors): string | undefined {
+	const key = KEY_SCHEMA.safeParse(raw)
+	if (key.success) return key.data
+	errors.idempotencyKey = ['The submission key is missing or invalid.']
+}
+
+function flagMissingPhotos(expected: Set<string>, files: Map<string, File>, errors: SaveRecipeFieldErrors) {
+	for (const name of expected) if (!files.has(name)) errors[name] ??= ['This photo is missing.']
+}
+
+function flagStrayPhotos(expected: Set<string>, files: Map<string, File>, errors: SaveRecipeFieldErrors) {
+	for (const name of files.keys()) if (!expected.has(name)) errors[name] ??= ['This photo does not belong to a step.']
+}
+
+/** File count and step indexes must match what the metadata declares. */
+function checkAgainstMetadata(metadata: CreateRecipeMetadata | undefined, files: Map<string, File>, errors: SaveRecipeFieldErrors) {
+	if (!metadata) return
+	const expected = new Set(expectedRecipeFileFields(metadata, files.has('cover')))
+	flagMissingPhotos(expected, files, errors)
+	flagStrayPhotos(expected, files, errors)
+}
+
+function checkPhotos(files: Map<string, File>, errors: SaveRecipeFieldErrors) {
 	let total = 0
 	for (const [name, file] of files) {
 		total += file.size
@@ -63,9 +87,19 @@ function readSubmission(formData: FormData): { submission: Submission } | { erro
 		if (problem) errors[name] = [problem]
 	}
 	if (total > RECIPE_LIMITS.requestBytes) errors.recipe = ['The photos are too large to save together.']
+}
 
-	if (Object.keys(errors).length > 0 || !metadata || !key.success) return { errors }
-	return { submission: { metadata, key: key.data, files } }
+/** Re-validates everything the browser sent; the API repeats these checks, but invalid input must never be forwarded. */
+function readSubmission(formData: FormData): { submission: Submission } | { errors: SaveRecipeFieldErrors } {
+	const errors: SaveRecipeFieldErrors = {}
+	const metadata = parseMetadata(formData.get('recipe'), errors)
+	const key = readKey(formData.get('idempotencyKey'), errors)
+	const files = collectFiles(formData, errors)
+	checkAgainstMetadata(metadata, files, errors)
+	checkPhotos(files, errors)
+
+	if (Object.keys(errors).length > 0 || !metadata || !key) return { errors }
+	return { submission: { metadata, key, files } }
 }
 
 function toUpstreamBody({ metadata, files }: Submission): FormData {
@@ -84,18 +118,21 @@ async function readEnvelope(response: Response): Promise<ApiErrorEnvelope | null
 	}
 }
 
+type FailureMapper = (envelope: ApiErrorEnvelope | null) => SaveRecipeResult
+
+const FAILURES: Record<number, FailureMapper> = {
+	400: (envelope) => invalid(envelope?.fieldErrors ?? {}),
+	401: () => ({ status: 'session-expired', message: SAVE_MESSAGES.sessionExpired }),
+	403: () => failed(SAVE_MESSAGES.unverified),
+	409: (envelope) => (envelope?.code === 'IDEMPOTENCY_CONFLICT' ? failed() : unknown()),
+	413: (envelope) => invalid(envelope?.fieldErrors ?? { recipe: ['The recipe or its photos are too large to save.'] }),
+	415: (envelope) => invalid(envelope?.fieldErrors ?? { recipe: ['One of the photos is not a supported image.'] }),
+	429: () => failed(SAVE_MESSAGES.rateLimited),
+	503: () => failed(),
+}
+
 function mapFailure(status: number, envelope: ApiErrorEnvelope | null): SaveRecipeResult {
-	switch (status) {
-		case 400: return invalid(envelope?.fieldErrors ?? {})
-		case 401: return { status: 'session-expired', message: SAVE_MESSAGES.sessionExpired }
-		case 403: return failed(SAVE_MESSAGES.unverified)
-		case 409: return envelope?.code === 'IDEMPOTENCY_CONFLICT' ? failed() : unknown()
-		case 413: return invalid(envelope?.fieldErrors ?? { recipe: ['The recipe or its photos are too large to save.'] })
-		case 415: return invalid(envelope?.fieldErrors ?? { recipe: ['One of the photos is not a supported image.'] })
-		case 429: return failed(SAVE_MESSAGES.rateLimited)
-		case 503: return failed()
-		default: return unknown()
-	}
+	return (FAILURES[status] ?? unknown)(envelope)
 }
 
 /** Resolves to the saved recipe id, or to the result the form should show. Never throws. */

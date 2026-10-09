@@ -2,14 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { test as base, expect, type BrowserContext } from '@playwright/test';
+import { count, inArray } from '../apps/api/node_modules/drizzle-orm/index.js';
 import { drizzle } from '../apps/api/node_modules/drizzle-orm/node-postgres/index.js';
 import type { NodePgClient } from '../apps/api/node_modules/drizzle-orm/node-postgres/session.js';
 import * as schema from '../apps/api/src/database/schema.js';
 import type { DrizzleDb } from '../apps/api/src/database/database.service.js';
 import type { apiClient, signupUser } from '../apps/api/test/auth-harness.js';
+import type { openStorageCleanup } from '../apps/api/test/storage-cleanup.js';
 import { getDevDatabaseUrl } from '../apps/api/test/neon-dev.js';
 import { seedRecipes } from '../apps/api/src/recipes/seed-recipes.js';
-import { loadAuthHarness } from './load-auth-harness.js';
+import { loadAuthHarness, loadStorageCleanup } from './load-auth-harness.js';
 
 const requireApi = createRequire(resolve('apps/api/package.json'));
 const pg = requireApi('pg') as { Pool: new (options: { connectionString: string; ssl: { rejectUnauthorized: true }; max: number; connectionTimeoutMillis: number }) => NodePgClient & { end: () => Promise<void> } };
@@ -25,6 +27,8 @@ type WorkerData = {
   usernames: string[];
   newUsername: () => string;
   newPassword: () => string;
+  /** A fresh, empty account signed up from its own client address, so the five-per-hour signup limit is never shared. */
+  signupFreshAccount: () => Promise<TestAccount>;
 };
 
 /** Cookie values stay in worker memory and the HttpOnly browser cookie jar. */
@@ -38,26 +42,65 @@ async function addSession(context: BrowserContext, cookie: string) {
   await context.addCookies(cookies.map((cookie) => ({ ...cookie, url: WEB_URL, httpOnly: true, sameSite: 'Lax', secure: cookie.name.startsWith('__Secure-') })));
 }
 
+/**
+ * Deletes the stored photos of every recipe and write attempt owned by the temporary users, then the users themselves
+ * (cascading recipes, attempts and sessions). Only counts are reported: object keys never leave the helper.
+ */
+async function removeWorkerData(db: DrizzleDb, usernames: string[], addresses: string[]) {
+  const { removeTestData } = await loadAuthHarness();
+  const { openStorageCleanup: open } = await loadStorageCleanup();
+  const ids = usernames.length ? (await db.select({ id: schema.users.id }).from(schema.users).where(inArray(schema.users.username, usernames))).map(({ id }) => id) : [];
+  const cleanup: Awaited<ReturnType<typeof openStorageCleanup>> = await open(resolve('apps/api/.env'));
+  let objects = { found: 0, deleted: 0, failed: 0, remaining: 0 };
+  try {
+    const keys = await cleanup.collectObjectKeys(db, ids);
+    const { deleted, failed } = await cleanup.deleteObjects(keys);
+    objects = { found: keys.length, deleted, failed, remaining: await cleanup.countRemaining(keys) };
+  } finally { await cleanup.close(); }
+
+  const ownedRows = async () => {
+    if (!ids.length) return { users: 0, recipes: 0, attempts: 0 };
+    const [[users], [recipes], [attempts]] = await Promise.all([
+      db.select({ n: count() }).from(schema.users).where(inArray(schema.users.id, ids)),
+      db.select({ n: count() }).from(schema.recipes).where(inArray(schema.recipes.userId, ids)),
+      db.select({ n: count() }).from(schema.recipeWriteAttempts).where(inArray(schema.recipeWriteAttempts.userId, ids)),
+    ]);
+    return { users: users.n, recipes: recipes.n, attempts: attempts.n };
+  };
+  const { recipes } = await ownedRows();
+  if (ids.length) await db.delete(schema.authRateLimits).where(inArray(schema.authRateLimits.key, ids.map((id) => `wrapper:recipe-write:user:${id}`)));
+  await removeTestData(db, { usernames, addresses });
+  const rows = Object.values(await ownedRows()).reduce((total, n) => total + n, 0);
+  console.log(`E2E cleanup: users=${ids.length} recipes=${recipes} objects(found=${objects.found} deleted=${objects.deleted} failed=${objects.failed} remaining=${objects.remaining}) rows-remaining=${rows}`);
+  if (objects.failed || objects.remaining || rows) throw new Error('Temporary E2E data was not fully removed.');
+}
+
 export const authTest = base.extend<Record<never, never>, { workerData: WorkerData }>({
   workerData: [async ({}, use) => {
-    const { apiClient, signupUser, insertOwnedRecipes, removeTestData, testAddress, testUsername, testPassword } = await loadAuthHarness();
+    const { apiClient, signupUser, insertOwnedRecipes, testAddress, testUsername, testPassword } = await loadAuthHarness();
     let connection: string;
     try { connection = await getDevDatabaseUrl(); } catch { throw new Error('Could not resolve the approved Neon dev target for E2E.'); }
     const pool = new pg.Pool({ connectionString: connection, ssl: { rejectUnauthorized: true }, max: 2, connectionTimeoutMillis: 10_000 });
     const db = drizzle(pool, { schema });
     const address = testAddress();
+    const addresses = [address];
     const client = apiClient(API_URL, address, WEB_URL);
     const usernames: string[] = [];
     const newUsername = () => { const username = testUsername(); usernames.push(username); return username; };
+    const signupFreshAccount = async () => {
+      const freshAddress = testAddress();
+      addresses.push(freshAddress);
+      return { ...await signupUser(apiClient(API_URL, freshAddress, WEB_URL), newUsername()), tag: `e2e-${randomUUID()}` };
+    };
     try {
       const owner = { ...await signupUser(client, newUsername()), tag: `e2e-${randomUUID()}` };
       await insertOwnedRecipes(db, owner.user, owner.tag);
       const other = { ...await signupUser(client, newUsername()), tag: `e2e-${randomUUID()}` };
       await insertOwnedRecipes(db, other.user, other.tag, seedRecipes.slice(0, 25).map((recipe) => ({ ...recipe, title: `Other kitchen: ${recipe.title}` })));
-      await use({ db, client, address, owner, other, usernames, newUsername, newPassword: testPassword });
+      await use({ db, client, address, owner, other, usernames, newUsername, newPassword: testPassword, signupFreshAccount });
     } finally {
-      try { await removeTestData(db, { usernames, addresses: [address] }); }
-      catch { throw new Error('Temporary E2E user/counter cleanup failed on the approved dev database.'); }
+      try { await removeWorkerData(db, usernames, addresses); }
+      catch { throw new Error('Temporary E2E user/counter/storage cleanup failed on the approved dev database.'); }
       finally { await pool.end(); }
     }
   }, { scope: 'worker', timeout: 90_000 }],
@@ -70,6 +113,15 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
 export const test = authTest.extend({
   context: async ({ context, workerData }, use) => {
     await addSession(context, workerData.owner.cookie);
+    await use(context);
+  },
+});
+
+/** Signs in as a brand-new account with no recipes, so counts and lists are exact and nothing leaks into other specs. */
+export const creatorTest = authTest.extend<{ creator: TestAccount }>({
+  creator: async ({ workerData }, use) => { await use(await workerData.signupFreshAccount()); },
+  context: async ({ context, creator }, use) => {
+    await addSession(context, creator.cookie);
     await use(context);
   },
 });

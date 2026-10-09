@@ -29,7 +29,6 @@ export function RecipeVideo({ title, videoUrl }: RecipeVideoProps) {
 						title={`Video for ${title}`}
 						loading="lazy"
 						allow="encrypted-media; picture-in-picture; fullscreen"
-						allowFullScreen
 						referrerPolicy="strict-origin-when-cross-origin"
 						className="size-full border-0"
 					/>

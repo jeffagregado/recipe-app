@@ -136,7 +136,7 @@ for (const trigger of ['pagination', 'focus'] as const) {
   });
 }
 
-test('session tokens stay out of rendered HTML and browser storage; create stays unavailable', async ({ page, context, workerData }) => {
+test('session tokens stay out of rendered HTML and browser storage; the create form renders no secrets', async ({ page, context, workerData }) => {
   await login(page, workerData.owner.username, workerData.owner.password);
   await expect(cards(page)).toHaveCount(20);
   const secrets = (await context.cookies()).filter(({ name }) => name.endsWith('session_token')).flatMap(({ value }) => [value, decodeURIComponent(value)]);
@@ -145,8 +145,11 @@ test('session tokens stay out of rendered HTML and browser storage; create stays
   const storage = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]));
   expect(secrets.some((value) => html.includes(value) || storage.includes(value))).toBe(false);
   expect(html.includes('http://127.0.0.1:4101')).toBe(false);
-  await page.goto('/recipes/create');
-  await expect(page.getByText('Create Recipe is unavailable for now.', { exact: true })).toBeVisible();
+  const create = await page.goto('/recipes/create');
+  await expect(page.getByRole('heading', { level: 1, name: 'Create Recipe' })).toBeVisible();
+  const createHtml = await create!.text();
+  expect(secrets.some((value) => createHtml.includes(value))).toBe(false);
+  expect(createHtml.includes('http://127.0.0.1:4101')).toBe(false);
 });
 
 for (const width of [320, 390, 768, 1440]) {

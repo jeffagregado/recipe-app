@@ -1,5 +1,5 @@
 import { ImagePlus, ListOrdered, Plus } from 'lucide-react'
-import { useFieldArray, useFormContext, useWatch } from 'react-hook-form'
+import { useFieldArray, useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { formatFileSize } from '../_lib/recipe-files'
 import { emptyInstructionRow, MAX_ROWS, type RecipeFormValues } from '../_lib/recipe-form-schema'
@@ -10,36 +10,23 @@ import { PhotoThumbnail } from './photo-thumbnail'
 import { RowControls } from './row-controls'
 import { SectionCard } from './section-card'
 import { usePhotoPick } from './use-photo-pick'
-import { useRowFocus } from './use-row-focus'
+import { useRowActions } from './use-row-actions'
 
 type InstructionRowProps = { index: number; count: number; disabled: boolean; onMove: (direction: 'up' | 'down') => void; onRemove: () => void }
 
 export function InstructionsSection({ disabled }: { disabled: boolean }) {
-	const { control, formState: { errors } } = useFormContext<RecipeFormValues>()
+	const { control } = useFormContext<RecipeFormValues>()
+	const { errors } = useFormState({ control })
 	const { fields, append, remove, move, update } = useFieldArray({ control, name: 'instructions' })
-	const { listRef, focusRow } = useRowFocus<HTMLOListElement>()
+	// Each row owns its photo, so a photo always travels with its step.
+	const { listRef, focusNewRow, moveRow, removeRow } = useRowActions<HTMLOListElement>({
+		count: fields.length, control: 'description', move, remove, clear: () => update(0, emptyInstructionRow()),
+	})
 	const listError = errors.instructions?.message ?? errors.instructions?.root?.message
 
 	function add() {
-		focusRow({ index: fields.length, controls: ['description'] })
+		focusNewRow()
 		append(emptyInstructionRow(), { shouldFocus: false })
-	}
-
-	// Each row owns its photo, so a photo always travels with its step.
-	function moveRow(index: number, direction: 'up' | 'down') {
-		const target = direction === 'up' ? index - 1 : index + 1
-		focusRow({ index: target, controls: direction === 'up' ? ['move-up', 'move-down'] : ['move-down', 'move-up'] })
-		move(index, target)
-	}
-
-	function removeRow(index: number) {
-		if (fields.length === 1) {
-			focusRow({ index: 0, controls: ['description'] })
-			update(0, emptyInstructionRow())
-			return
-		}
-		focusRow({ index: Math.min(index, fields.length - 2), controls: ['description'] })
-		remove(index)
 	}
 
 	return (
@@ -62,7 +49,8 @@ export function InstructionsSection({ disabled }: { disabled: boolean }) {
 }
 
 function InstructionRow({ index, count, disabled, onMove, onRemove }: InstructionRowProps) {
-	const { register, formState: { errors } } = useFormContext<RecipeFormValues>()
+	const { register, control } = useFormContext<RecipeFormValues>()
+	const { errors } = useFormState({ control })
 	const position = index + 1
 	const fieldId = `recipe-step-${index}`
 	const description = errors.instructions?.[index]?.description?.message
@@ -92,7 +80,8 @@ function InstructionRow({ index, count, disabled, onMove, onRemove }: Instructio
 }
 
 function StepPhoto({ index, disabled }: { index: number; disabled: boolean }) {
-	const { control, setValue, formState: { errors } } = useFormContext<RecipeFormValues>()
+	const { control, setValue } = useFormContext<RecipeFormValues>()
+	const { errors } = useFormState({ control })
 	const photo = useWatch({ control, name: `instructions.${index}.photo` })
 	const { pickError, pick, remove } = usePhotoPick((file) => setValue(`instructions.${index}.photo`, file, { shouldDirty: true, shouldTouch: true }))
 	const position = index + 1
@@ -103,13 +92,13 @@ function StepPhoto({ index, disabled }: { index: number; disabled: boolean }) {
 	return (
 		<div className="space-y-1.5">
 			{photo ? (
-				<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+				<div className="flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-3">
 					<PhotoThumbnail file={photo} className="size-14 shrink-0 rounded-lg object-cover" />
-					<p className="min-w-0 flex-1 basis-32 text-sm text-muted-foreground wrap-break-word">{photo.name} · {formatFileSize(photo.size)}</p>
+					<p className="min-w-0 flex-1 basis-16 text-sm text-muted-foreground wrap-break-word">{photo.name} · {formatFileSize(photo.size)}</p>
 					<PhotoPicker label={`Replace photo for step ${position}`} onPick={pick} disabled={disabled} a11y={a11y} className="rounded-lg">
-						<span className="inline-flex h-11 items-center rounded-lg border border-border bg-background px-4 text-sm font-medium">Replace</span>
+						<span className="inline-flex h-11 items-center rounded-lg border border-border bg-background px-3 text-sm font-medium sm:px-4">Replace</span>
 					</PhotoPicker>
-					<Button type="button" variant="outline" className="h-11 px-4" aria-label={`Remove photo from step ${position}`} disabled={disabled} onClick={remove}>Remove</Button>
+					<Button type="button" variant="outline" className="h-11 px-3 sm:px-4" aria-label={`Remove photo from step ${position}`} disabled={disabled} onClick={remove}>Remove</Button>
 				</div>
 			) : (
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1">

@@ -1,12 +1,13 @@
 import { RECIPE_CATEGORIES, RECIPE_LIMITS, type RecipeCategory } from '@recipe-app/contracts/types'
 import { Check } from 'lucide-react'
-import { useFormContext, useWatch } from 'react-hook-form'
+import { useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import type { RecipeFormValues } from '../_lib/recipe-form-schema'
 import { FieldError } from './form-field'
 
 export function CategoryChips() {
-	const { control, setValue, formState: { errors } } = useFormContext<RecipeFormValues>()
+	const { control, setValue } = useFormContext<RecipeFormValues>()
+	const { errors } = useFormState({ control })
 	const selected = useWatch({ control, name: 'categories' })
 	const full = selected.length >= RECIPE_LIMITS.categories
 	const error = errors.categories?.message ?? errors.categories?.root?.message

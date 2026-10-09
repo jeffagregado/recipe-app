@@ -1,12 +1,13 @@
 import { StickyNote } from 'lucide-react'
-import { useFormContext } from 'react-hook-form'
+import { useFormContext, useFormState } from 'react-hook-form'
 import type { RecipeFormValues } from '../_lib/recipe-form-schema'
 import { textareaClass } from '../_lib/field-props'
 import { FormField } from './form-field'
 import { SectionCard } from './section-card'
 
 export function NotesSection() {
-	const { register, formState: { errors } } = useFormContext<RecipeFormValues>()
+	const { register, control } = useFormContext<RecipeFormValues>()
+	const { errors } = useFormState({ control })
 
 	return (
 		<SectionCard icon={StickyNote} title="Notes" optional>

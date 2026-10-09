@@ -39,7 +39,7 @@ export function RecipeResults({ userId, endpoint, filters, onCategory, onSort }:
 function EmptyLibrary() {
 	return <div className="space-y-2 rounded-xl border border-border bg-card p-6">
 		<h2 className="text-lg font-semibold">Your recipe library is empty.</h2>
-		<p className="text-sm text-muted-foreground">Your recipes will appear here. Create Recipe is unavailable for now.</p>
+		<p className="text-sm text-muted-foreground">Your recipes will appear here. Use New Recipe to add your first one.</p>
 	</div>
 }
 

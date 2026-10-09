@@ -1,5 +1,5 @@
 import { ImageIcon } from 'lucide-react'
-import { useFormContext, useWatch } from 'react-hook-form'
+import { useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { formatFileSize, IMAGE_HINT } from '../_lib/recipe-files'
 import type { RecipeFormValues } from '../_lib/recipe-form-schema'
@@ -13,7 +13,8 @@ import { usePhotoPick } from './use-photo-pick'
 const FIELD_ID = 'recipe-cover'
 
 export function CoverPhotoSection({ disabled }: { disabled: boolean }) {
-	const { control, setValue, formState: { errors } } = useFormContext<RecipeFormValues>()
+	const { control, setValue } = useFormContext<RecipeFormValues>()
+	const { errors } = useFormState({ control })
 	const cover = useWatch({ control, name: 'cover' })
 	const { pickError, pick, remove } = usePhotoPick((file) => setValue('cover', file, { shouldDirty: true, shouldTouch: true }))
 	const error = pickError ?? errors.cover?.message

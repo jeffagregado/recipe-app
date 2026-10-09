@@ -1,5 +1,5 @@
 import PageContainer from '@/components/layout/page-container'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 import { Plus } from 'lucide-react'
@@ -21,9 +21,9 @@ export default function RecipesPage({ searchParams }: PageProps<'/recipes'>) {
 						<RecipeSearch />
 					</Suspense>
 				</div>
-				<Button className="justify-self-end" size="lg" nativeButton={false} render={<Link href="/recipes/create" />}>
-					<Plus /> New Recipe
-				</Button>
+				<Link href="/recipes/create" className={buttonVariants({ size: 'lg', className: 'justify-self-end' })}>
+					<Plus aria-hidden="true" /> New Recipe
+				</Link>
 			</header>
 			<RecipeErrorBoundary message="Please try again in a moment.">
 				<Suspense fallback={<RecipeLoading />}>

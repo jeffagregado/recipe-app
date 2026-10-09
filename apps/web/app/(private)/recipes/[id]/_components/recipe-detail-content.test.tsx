@@ -77,7 +77,9 @@ it('renders every detail of a rich recipe in order', async () => {
 	expect(video).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ')
 	expect(video).toHaveAttribute('loading', 'lazy')
 	expect(video).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin')
-	expect(video).toHaveAttribute('allowfullscreen')
+	// Chromium warns when both are present, and allow already grants fullscreen.
+	expect(video.getAttribute('allow')).toContain('fullscreen')
+	expect(video).not.toHaveAttribute('allowfullscreen')
 
 	const steps = within(screen.getByRole('list', { name: 'Instructions' })).getAllByRole('listitem')
 	expect(steps).toHaveLength(2)

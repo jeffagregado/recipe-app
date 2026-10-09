@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { createRecipeMetadataSchema } from '@recipe-app/contracts/schemas'
 import { unstable_rethrow } from 'next/navigation'
 import { useEffect, useLayoutEffect, useRef, useState, useTransition, type BaseSyntheticEvent } from 'react'
-import { useForm, type FieldPath } from 'react-hook-form'
+import { useForm, useFormState, type FieldPath } from 'react-hook-form'
 import { buildRecipeFormData } from '../_lib/build-recipe-form-data'
 import { mapSaveFieldErrors } from '../_lib/map-save-errors'
 import { createEmptyRecipeValues, recipeFormSchema, toCreateRecipeMetadata, type RecipeFormValues } from '../_lib/recipe-form-schema'
@@ -36,13 +36,15 @@ export function useRecipeForm({ initialValues, onSave }: UseRecipeFormOptions) {
 	const attempt = useRef<{ key: string; fingerprint: string } | null>(null)
 	const inFlight = useRef(false)
 	const saved = useRef(false)
-	const isDirty = form.formState.isDirty
+	// Subscribed state: the form object keeps one identity, so reading form.formState here could be cached by the compiler.
+	const { isDirty, submitCount } = useFormState({ control: form.control })
+	// React Hook Form publishes client validation errors, and bumps submitCount with them, only after the invalid callback returns.
 	const busy = pending || leaving
 
 	// The first invalid control (document order) gets focus once its error has rendered.
 	useEffect(() => {
-		if (focusRequest > 0) formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
-	}, [focusRequest])
+		if (focusRequest > 0 || submitCount > 0) formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+	}, [focusRequest, submitCount])
 
 	useEffect(() => {
 		if (!isDirty) return
@@ -109,10 +111,7 @@ export function useRecipeForm({ initialValues, onSave }: UseRecipeFormOptions) {
 	}
 
 	function submit(event?: BaseSyntheticEvent) {
-		return form.handleSubmit(save, () => {
-			setAlert(undefined)
-			setFocusRequest((count) => count + 1)
-		})(event)
+		return form.handleSubmit(save, () => setAlert(undefined))(event)
 	}
 
 	return { form, formRef, busy, alert, isDirty, submit }

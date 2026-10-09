@@ -25,6 +25,8 @@ it('shows the empty-library state for an account without recipes', () => {
 	state({ data: { pages: [page(0)] } })
 	renderResults()
 	expect(screen.getByText('Your recipe library is empty.')).toBeInTheDocument()
+	expect(screen.getByText(/Use New Recipe to add your first one/)).toBeInTheDocument()
+	expect(screen.queryByText(/unavailable/)).not.toBeInTheDocument()
 	expect(screen.queryByText(/recipes listed/)).not.toBeInTheDocument()
 })
 

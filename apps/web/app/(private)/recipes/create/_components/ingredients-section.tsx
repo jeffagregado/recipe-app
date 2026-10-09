@@ -1,6 +1,6 @@
 import { MEASUREMENT_UNITS } from '@recipe-app/contracts/types'
 import { ClipboardList, Plus } from 'lucide-react'
-import { useFieldArray, useFormContext, useWatch } from 'react-hook-form'
+import { useFieldArray, useFormContext, useWatch, useFormState, type FieldErrors } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -9,38 +9,24 @@ import { fieldA11y, inputClass, selectClass } from '../_lib/field-props'
 import { FieldError } from './form-field'
 import { RowControls } from './row-controls'
 import { SectionCard } from './section-card'
-import { useRowFocus } from './use-row-focus'
+import { useRowActions } from './use-row-actions'
 
 type IngredientRowProps = { index: number; count: number; onMove: (direction: 'up' | 'down') => void; onRemove: () => void }
 
 const ROW_GRID = 'sm:grid sm:grid-cols-[minmax(0,1fr)_5.5rem_8.5rem_auto] sm:items-center sm:gap-2'
 
 export function IngredientsSection() {
-	const { control, formState: { errors } } = useFormContext<RecipeFormValues>()
+	const { control } = useFormContext<RecipeFormValues>()
+	const { errors } = useFormState({ control })
 	const { fields, append, remove, move, update } = useFieldArray({ control, name: 'ingredients' })
-	const { listRef, focusRow } = useRowFocus<HTMLOListElement>()
+	const { listRef, focusNewRow, moveRow, removeRow } = useRowActions<HTMLOListElement>({
+		count: fields.length, control: 'name', move, remove, clear: () => update(0, emptyIngredientRow()),
+	})
 	const listError = errors.ingredients?.message ?? errors.ingredients?.root?.message
 
 	function add() {
-		focusRow({ index: fields.length, controls: ['name'] })
+		focusNewRow()
 		append(emptyIngredientRow(), { shouldFocus: false })
-	}
-
-	function moveRow(index: number, direction: 'up' | 'down') {
-		const target = direction === 'up' ? index - 1 : index + 1
-		focusRow({ index: target, controls: direction === 'up' ? ['move-up', 'move-down'] : ['move-down', 'move-up'] })
-		move(index, target)
-	}
-
-	// The last remaining row is cleared instead of removed: at least one row is always required.
-	function removeRow(index: number) {
-		if (fields.length === 1) {
-			focusRow({ index: 0, controls: ['name'] })
-			update(0, emptyIngredientRow())
-			return
-		}
-		focusRow({ index: Math.min(index, fields.length - 2), controls: ['name'] })
-		remove(index)
 	}
 
 	return (
@@ -68,10 +54,22 @@ export function IngredientsSection() {
 	)
 }
 
+type RowErrors = Partial<Record<'name' | 'amount' | 'unit', string>>
+
+function ingredientRowErrors(errors: FieldErrors<RecipeFormValues>, index: number): RowErrors {
+	const row = errors.ingredients?.[index]
+	return { name: row?.name?.message, amount: row?.amount?.message, unit: row?.unit?.message }
+}
+
+function RowFieldErrors({ base, errors }: { base: string; errors: RowErrors }) {
+	return (['name', 'amount', 'unit'] as const).map((key) => errors[key] && <FieldError key={key} id={`${base}-${key}-error`}>{errors[key]}</FieldError>)
+}
+
 function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
-	const { register, setValue, control, formState: { errors } } = useFormContext<RecipeFormValues>()
+	const { register, setValue, control } = useFormContext<RecipeFormValues>()
+	const { errors } = useFormState({ control })
 	const unit = useWatch({ control, name: `ingredients.${index}.unit` })
-	const rowErrors = errors.ingredients?.[index]
+	const rowErrors = ingredientRowErrors(errors, index)
 	const position = index + 1
 	const base = `recipe-ingredient-${index}`
 	const toTaste = unit === TO_TASTE
@@ -81,7 +79,7 @@ function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
 		<li className="space-y-1.5">
 			<div className={cn('flex flex-wrap items-center gap-2', ROW_GRID)}>
 				<Input
-					{...fieldA11y(`${base}-name`, rowErrors?.name?.message)}
+					{...fieldA11y(`${base}-name`, rowErrors.name)}
 					{...register(`ingredients.${index}.name`)}
 					className={cn(inputClass, 'basis-full sm:basis-auto')}
 					aria-label={`Ingredient ${position} name`}
@@ -89,9 +87,9 @@ function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
 					autoComplete="off"
 				/>
 				<Input
-					{...fieldA11y(`${base}-amount`, rowErrors?.amount?.message)}
+					{...fieldA11y(`${base}-amount`, rowErrors.amount)}
 					{...register(`ingredients.${index}.amount`)}
-					className={cn(inputClass, 'w-20 sm:w-auto')}
+					className={cn(inputClass, 'w-16 sm:w-auto')}
 					aria-label={`Ingredient ${position} amount`}
 					inputMode="decimal"
 					autoComplete="off"
@@ -99,13 +97,13 @@ function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
 					placeholder={toTaste ? '—' : undefined}
 				/>
 				<select
-					{...fieldA11y(`${base}-unit`, rowErrors?.unit?.message)}
+					{...fieldA11y(`${base}-unit`, rowErrors.unit)}
 					{...unitField}
 					onChange={(event) => {
 						void unitField.onChange(event)
 						if (event.target.value === TO_TASTE) setValue(`ingredients.${index}.amount`, '', { shouldDirty: true })
 					}}
-					className={cn(selectClass, 'min-w-28 flex-1 sm:min-w-0 sm:flex-none')}
+					className={cn(selectClass, 'min-w-20 flex-1 sm:min-w-0 sm:flex-none')}
 					aria-label={`Ingredient ${position} unit`}
 				>
 					<option value="">Unit</option>
@@ -114,9 +112,7 @@ function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
 				</select>
 				<RowControls noun="ingredient" position={position} count={count} onMove={onMove} onRemove={onRemove} className="ml-auto" />
 			</div>
-			{rowErrors?.name?.message && <FieldError id={`${base}-name-error`}>{rowErrors.name.message}</FieldError>}
-			{rowErrors?.amount?.message && <FieldError id={`${base}-amount-error`}>{rowErrors.amount.message}</FieldError>}
-			{rowErrors?.unit?.message && <FieldError id={`${base}-unit-error`}>{rowErrors.unit.message}</FieldError>}
+			<RowFieldErrors base={base} errors={rowErrors} />
 		</li>
 	)
 }
