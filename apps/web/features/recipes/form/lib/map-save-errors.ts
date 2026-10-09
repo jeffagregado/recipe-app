@@ -2,7 +2,7 @@
 const SIMPLE_FIELDS = new Set(['title', 'description', 'categories', 'servings', 'videoUrl', 'notes', 'cover', 'ingredients', 'instructions'])
 const RENAMED_FIELDS: Record<string, string> = { prepTimeMinutes: 'prepTime', cookTimeMinutes: 'cookTime' }
 const INGREDIENT_FIELDS: Record<string, string> = { name: 'name', quantity: 'amount', unit: 'unit' }
-const INSTRUCTION_FIELDS: Record<string, string> = { description: 'description', hasImage: 'photo' }
+const INSTRUCTION_FIELDS: Record<string, string> = { description: 'description', hasImage: 'photo', image: 'photo' }
 
 /** Returns the form field path for an API/metadata field key, or null when it has no matching form field. */
 export function toFormFieldPath(key: string): string | null {

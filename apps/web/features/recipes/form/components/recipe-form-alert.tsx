@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import type { FormAlert } from './use-recipe-form'
+import type { FormAlert } from '../hooks/use-recipe-submission'
 
 type RecipeFormAlertProps = { alert: FormAlert; busy: boolean; onRetry: () => void }
 

@@ -1,9 +1,11 @@
 import type { RecipeDetail } from '@recipe-app/contracts/types'
+import { FavoriteButton } from '@/features/recipes/components/favorite-button'
 import { parseVideoLink } from '@/features/recipes/lib/video-link'
 import { IngredientsCard } from './ingredients-card'
 import { InstructionsCard } from './instructions-card'
 import { NotesCard } from './notes-card'
 import { RecipeCover } from './recipe-cover'
+import { RecipeMenu } from './recipe-menu'
 import { RecipeMeta } from './recipe-meta'
 import { RecipeTitleRow } from './recipe-title-row'
 import { RecipeVideoCard } from './recipe-video-card'
@@ -26,7 +28,15 @@ export function RecipeDetailView({ recipe }: RecipeDetailViewProps) {
 			{recipe.imageUrl && <RecipeCover src={recipe.imageUrl} title={recipe.title} />}
 
 			<header className="space-y-3">
-				<RecipeTitleRow title={recipe.title} />
+				<RecipeTitleRow
+					title={recipe.title}
+					actions={(
+						<>
+							<FavoriteButton recipeId={recipe.id} title={recipe.title} isFavorite={recipe.isFavorite} variant="outline" className="sm:size-9" />
+							<RecipeMenu recipeId={recipe.id} title={recipe.title} />
+						</>
+					)}
+				/>
 				<RecipeMeta
 					categories={recipe.categories}
 					prepTimeMinutes={recipe.prepTimeMinutes}

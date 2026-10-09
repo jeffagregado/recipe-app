@@ -1,12 +1,13 @@
 import { createRecipeMetadataSchema } from '@recipe-app/contracts/schemas'
 import { describe, expect, it } from 'vitest'
+import { existingPhoto, newPhoto, noPhoto } from './recipe-photo'
 import { createEmptyRecipeValues, parseAmount, recipeFormSchema, toCreateRecipeMetadata, TO_TASTE, type RecipeFormValues } from './recipe-form-schema'
 
 const valid = (overrides: Partial<RecipeFormValues> = {}): RecipeFormValues => ({
 	...createEmptyRecipeValues(),
 	title: '  Creamy Garlic Pasta  ',
 	ingredients: [{ name: ' Spaghetti ', amount: '200', unit: 'g' }],
-	instructions: [{ description: ' Boil the pasta. ', photo: null }],
+	instructions: [{ id: null, description: ' Boil the pasta. ', photo: noPhoto() }],
 	...overrides,
 })
 const issues = (values: RecipeFormValues) => {
@@ -42,7 +43,7 @@ describe('toCreateRecipeMetadata', () => {
 
 	it('marks hasImage from the attached photo and its output satisfies the shared schema', () => {
 		const photo = new File(['x'], 'boil.jpg', { type: 'image/jpeg' })
-		const metadata = toCreateRecipeMetadata(valid({ instructions: [{ description: 'Boil', photo }, { description: 'Drain', photo: null }], videoUrl: 'https://youtu.be/abc' }))
+		const metadata = toCreateRecipeMetadata(valid({ instructions: [{ id: null, description: 'Boil', photo: newPhoto(photo) }, { id: null, description: 'Drain', photo: noPhoto() }], videoUrl: 'https://youtu.be/abc' }))
 		expect(metadata.instructions.map((step) => step.hasImage)).toEqual([true, false])
 		expect(createRecipeMetadataSchema.safeParse(metadata).success).toBe(true)
 	})
@@ -74,7 +75,7 @@ describe('recipeFormSchema', () => {
 	})
 
 	it('reports a blank title, blank rows and a fraction on the exact field', () => {
-		const found = issues(valid({ title: '  ', ingredients: [{ name: '', amount: '', unit: '' }, { name: 'Sugar', amount: '1/2', unit: 'cup' }], instructions: [{ description: ' ', photo: null }] }))
+		const found = issues(valid({ title: '  ', ingredients: [{ name: '', amount: '', unit: '' }, { name: 'Sugar', amount: '1/2', unit: 'cup' }], instructions: [{ id: null, description: ' ', photo: noPhoto() }] }))
 		expect(found['title']).toBe('Add a title before saving.')
 		expect(found['ingredients.0.name']).toBe('Add an ingredient name.')
 		expect(found['ingredients.0.amount']).toBe('Enter an amount, or choose “to taste”.')
@@ -99,5 +100,38 @@ describe('recipeFormSchema', () => {
 		expect(issues(valid({ ingredients: many }))['ingredients']).toBeDefined()
 		expect(issues(valid({ ingredients: [] }))['ingredients']).toBeDefined()
 		expect(issues(valid({ instructions: [] }))['instructions']).toBeDefined()
+	})
+})
+
+describe('photo slots', () => {
+	const file = (name: string, type = 'image/png', size = 4) => {
+		const picked = new File(['x'], name, { type })
+		Object.defineProperty(picked, 'size', { value: size })
+		return picked
+	}
+
+	it('starts every slot empty, with new steps carrying no id', () => {
+		const empty = createEmptyRecipeValues()
+		expect(empty.cover).toEqual({ kind: 'none' })
+		expect(empty.instructions).toEqual([{ id: null, description: '', photo: { kind: 'none' } }])
+	})
+
+	it('accepts stored photos and valid new files', () => {
+		expect(issues(valid({ cover: existingPhoto('https://storage.example/cover.jpg'), instructions: [{ id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') }] }))).toEqual({})
+		expect(issues(valid({ cover: newPhoto(file('cover.png')) }))).toEqual({})
+	})
+
+	it('reports an unsupported or oversized new file on its own slot and ignores stored photos', () => {
+		const found = issues(valid({
+			cover: newPhoto(file('logo.svg', 'image/svg+xml')),
+			instructions: [{ id: 's1', description: 'Boil', photo: newPhoto(file('huge.png', 'image/png', 6 * 1024 * 1024)) }],
+		}))
+		expect(found['cover']).toBe('logo.svg is not a JPG, PNG or WebP image.')
+		expect(found['instructions.0.photo']).toMatch(/huge\.png is 6\.0 MB/)
+	})
+
+	it('rejects a slot that is not one of the three photo states', () => {
+		expect(issues(valid({ cover: { kind: 'new', file: 'nope' } as never }))['cover']).toBe('Choose an image file.')
+		expect(issues(valid({ cover: null as never }))['cover']).toBe('Choose an image file.')
 	})
 })

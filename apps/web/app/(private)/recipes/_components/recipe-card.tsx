@@ -1,10 +1,10 @@
 'use client'
 
-import type { RecipeSummary } from '@recipe-app/contracts/types'
+import type { RecipeListItem } from '@recipe-app/contracts/types'
 import { BookOpen, Heart, MoreHorizontal } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { useId, useState } from 'react'
+import { useId } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,10 +16,11 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { FavoriteButton } from '@/features/recipes/components/favorite-button'
+import { useFavorite } from '@/features/recipes/hooks/use-favorite'
 import { categoryVariants } from '@/features/recipes/lib/category-variants'
-import { cn } from '@/lib/utils'
 
-export type RecipeCardData = Pick<RecipeSummary, 'id' | 'title' | 'imageUrl' | 'categories' | 'updatedAt'> & {
+export type RecipeCardData = Pick<RecipeListItem, 'id' | 'title' | 'imageUrl' | 'categories' | 'updatedAt' | 'isFavorite'> & {
 	updatedLabel: string
 }
 
@@ -29,22 +30,10 @@ type RecipeCardProps = {
 }
 
 export function RecipeCard({ recipe, preload = false }: RecipeCardProps) {
-	const [favorites, setFavorites] = useState<Set<string>>(() => new Set())
-	const isFavorite = favorites.has(recipe.id)
+	const { favorite, toggle } = useFavorite(recipe.id, recipe.isFavorite)
 
 	const titleId = useId()
 	const href = `/recipes/${encodeURIComponent(recipe.id)}`
-	const favoriteLabel = `${isFavorite ? 'Remove' : 'Add'} ${recipe.title} ${isFavorite ? 'from' : 'to'} favorites`
-
-
-	function toggleFavorite(id: string) {
-		setFavorites((current) => {
-			const next = new Set(current)
-			if (next.has(id)) next.delete(id)
-			else next.add(id)
-			return next
-		})
-	}
 
 	return (
 		<Card
@@ -76,9 +65,9 @@ export function RecipeCard({ recipe, preload = false }: RecipeCardProps) {
 									<BookOpen aria-hidden="true" />
 									View recipe
 								</DropdownMenuItem>
-								<DropdownMenuItem onClick={() =>toggleFavorite(recipe.id)}>
+								<DropdownMenuItem onClick={() => void toggle()}>
 									<Heart aria-hidden="true" />
-									{isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+									{favorite ? 'Remove from favorites' : 'Add to favorites'}
 								</DropdownMenuItem>
 							</DropdownMenuGroup>
 						</DropdownMenuContent>
@@ -107,17 +96,12 @@ export function RecipeCard({ recipe, preload = false }: RecipeCardProps) {
 					<time dateTime={recipe.updatedAt} className="text-sm leading-5 text-muted-foreground">
 						Updated {recipe.updatedLabel}
 					</time>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon"
-						aria-label={favoriteLabel}
-						aria-pressed={isFavorite}
-						onClick={() =>toggleFavorite(recipe.id)}
-						className="relative z-10 -my-1 -mr-1 size-11 rounded-full sm:size-8"
-					>
-						<Heart aria-hidden="true" className={cn(isFavorite && 'fill-destructive text-destructive')} />
-					</Button>
+					<FavoriteButton
+						recipeId={recipe.id}
+						title={recipe.title}
+						isFavorite={recipe.isFavorite}
+						className="relative z-10 -my-1 -mr-1 sm:size-8"
+					/>
 				</div>
 			</CardContent>
 		</Card>

@@ -1,7 +1,7 @@
 import { StickyNote } from 'lucide-react'
 import { useFormContext, useFormState } from 'react-hook-form'
-import type { RecipeFormValues } from '../_lib/recipe-form-schema'
-import { textareaClass } from '../_lib/field-props'
+import type { RecipeFormValues } from '../lib/recipe-form-schema'
+import { textareaClass } from '../lib/field-props'
 import { FormField } from './form-field'
 import { SectionCard } from './section-card'
 

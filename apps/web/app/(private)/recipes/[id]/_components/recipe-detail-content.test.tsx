@@ -2,6 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import type { RecipeDetail } from '@recipe-app/contracts/types'
 import type { ImgHTMLAttributes } from 'react'
 import { beforeEach, expect, it, vi } from 'vitest'
+import { AppToaster } from '@/components/layout/app-toaster'
 import { recipeDetailFixture } from '@/features/recipes/queries/recipe-detail.fixture'
 
 const read = vi.hoisted(() => ({ getRecipe: vi.fn<(id: string) => Promise<RecipeDetail | null>>() }))
@@ -19,7 +20,7 @@ import { RecipeDetailContent } from './recipe-detail-content'
 
 async function renderRecipe(recipe: RecipeDetail | null) {
 	read.getRecipe.mockResolvedValue(recipe)
-	render(await RecipeDetailContent({ params: Promise.resolve({ id: 'recipe-1' }) }))
+	render(<AppToaster>{await RecipeDetailContent({ params: Promise.resolve({ id: 'recipe-1' }) })}</AppToaster>)
 }
 
 beforeEach(() => read.getRecipe.mockReset())
@@ -115,4 +116,18 @@ it('renders no video section for an unsafe stored video link', async () => {
 
 it('calls notFound for an unknown or foreign recipe', async () => {
 	await expect(renderRecipe(null)).rejects.toThrow('NEXT_NOT_FOUND')
+})
+
+it('puts the favorite heart and the ⋮ menu to the right of the title, in that order', async () => {
+	await renderRecipe(recipeDetailFixture({ isFavorite: true }))
+	const row = screen.getByRole('heading', { level: 1, name: 'Tomato Soup' }).parentElement!
+	const [heart, menu] = within(row).getAllByRole('button')
+	expect(heart).toHaveAccessibleName('Remove Tomato Soup from favorites')
+	expect(heart).toHaveAttribute('aria-pressed', 'true')
+	expect(menu).toHaveAccessibleName('More options for Tomato Soup')
+})
+
+it('starts the heart unpressed for a recipe that is not a favorite', async () => {
+	await renderRecipe(recipeDetailFixture({ id: 'recipe-not-favorite', isFavorite: false }))
+	expect(screen.getByRole('button', { name: 'Add Tomato Soup to favorites' })).toHaveAttribute('aria-pressed', 'false')
 })

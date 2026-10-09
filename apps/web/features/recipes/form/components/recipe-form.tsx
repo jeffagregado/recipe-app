@@ -4,7 +4,8 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { FormProvider } from 'react-hook-form'
 import PageContainer from '@/components/layout/page-container'
-import type { RecipeFormValues } from '../_lib/recipe-form-schema'
+import type { RecipeFormValues } from '../lib/recipe-form-schema'
+import type { RecipeFormMode } from '../lib/recipe-payload'
 import { BasicInformationSection } from './basic-information-section'
 import { CoverPhotoSection } from './cover-photo-section'
 import { DiscardChangesDialog } from './discard-changes-dialog'
@@ -13,9 +14,11 @@ import { InstructionsSection } from './instructions-section'
 import { NotesSection } from './notes-section'
 import { RecipeFormAlert } from './recipe-form-alert'
 import { RecipeFormHeader } from './recipe-form-header'
-import { useRecipeForm, type SaveRecipeAction } from './use-recipe-form'
+import { useRecipeForm } from '../hooks/use-recipe-form'
+import type { SaveRecipeAction } from '../hooks/use-recipe-submission'
 
 type RecipeFormProps = {
+	mode: RecipeFormMode
 	title: string
 	submitLabel: string
 	cancelHref: string
@@ -23,10 +26,13 @@ type RecipeFormProps = {
 	initialValues?: RecipeFormValues
 }
 
-/** Free of create-only assumptions: title, submit label, initial values, destination on cancel and the save action are props. */
-export function RecipeForm({ title, submitLabel, cancelHref, onSave, initialValues }: RecipeFormProps) {
+/**
+ * Shared by Create and Edit: the mode, title, submit label, initial values, destination on cancel and the save action are props.
+ * Mount it with a `key` that changes when the stored recipe does, so a revisit never shows values from before a save.
+ */
+export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, initialValues }: RecipeFormProps) {
 	const router = useRouter()
-	const { form, formRef, busy, alert, isDirty, submit } = useRecipeForm({ initialValues, onSave })
+	const { form, formRef, busy, alert, isDirty, submit, resetWhenHidden } = useRecipeForm({ mode, initialValues, onSave })
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false)
 
 	function cancel() {
@@ -36,6 +42,8 @@ export function RecipeForm({ title, submitLabel, cancelHref, onSave, initialValu
 
 	function discard() {
 		setConfirmingDiscard(false)
+		// The page stays mounted (hidden) after leaving; the discarded values must not greet the next visit.
+		resetWhenHidden()
 		router.push(cancelHref)
 	}
 

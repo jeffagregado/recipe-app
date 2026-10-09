@@ -1,16 +1,16 @@
 import { ImagePlus, ListOrdered, Plus } from 'lucide-react'
 import { useFieldArray, useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
-import { formatFileSize } from '../_lib/recipe-files'
-import { emptyInstructionRow, MAX_ROWS, type RecipeFormValues } from '../_lib/recipe-form-schema'
-import { fieldA11y, textareaClass } from '../_lib/field-props'
+import { emptyInstructionRow, MAX_ROWS, type RecipeFormValues } from '../lib/recipe-form-schema'
+import { fieldA11y, textareaClass } from '../lib/field-props'
+import { newPhoto, noPhoto, photoCaption } from '../lib/recipe-photo'
 import { FieldError } from './form-field'
 import { PhotoPicker } from './photo-picker'
-import { PhotoThumbnail } from './photo-thumbnail'
+import { PhotoPreview } from './photo-preview'
 import { RowControls } from './row-controls'
 import { SectionCard } from './section-card'
-import { usePhotoPick } from './use-photo-pick'
-import { useRowActions } from './use-row-actions'
+import { usePhotoPick } from '../hooks/use-photo-pick'
+import { useRowActions } from '../hooks/use-row-actions'
 
 type InstructionRowProps = { index: number; count: number; disabled: boolean; onMove: (direction: 'up' | 'down') => void; onRemove: () => void }
 
@@ -83,7 +83,7 @@ function StepPhoto({ index, disabled }: { index: number; disabled: boolean }) {
 	const { control, setValue } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
 	const photo = useWatch({ control, name: `instructions.${index}.photo` })
-	const { pickError, pick, remove } = usePhotoPick((file) => setValue(`instructions.${index}.photo`, file, { shouldDirty: true, shouldTouch: true }))
+	const { pickError, pick, remove } = usePhotoPick((file) => setValue(`instructions.${index}.photo`, file ? newPhoto(file) : noPhoto(), { shouldDirty: true, shouldTouch: true }))
 	const position = index + 1
 	const error = pickError ?? errors.instructions?.[index]?.photo?.message
 	const fieldId = `recipe-step-${index}-photo`
@@ -91,10 +91,10 @@ function StepPhoto({ index, disabled }: { index: number; disabled: boolean }) {
 
 	return (
 		<div className="space-y-1.5">
-			{photo ? (
+			{photo.kind !== 'none' ? (
 				<div className="flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-3">
-					<PhotoThumbnail file={photo} className="size-14 shrink-0 rounded-lg object-cover" />
-					<p className="min-w-0 flex-1 basis-16 text-sm text-muted-foreground wrap-break-word">{photo.name} · {formatFileSize(photo.size)}</p>
+					<PhotoPreview photo={photo} label={`Current photo for step ${position}`} sizes="56px" className="size-14 shrink-0 rounded-lg" />
+					<p className="min-w-0 flex-1 basis-16 text-sm text-muted-foreground wrap-break-word">{photoCaption(photo)}</p>
 					<PhotoPicker label={`Replace photo for step ${position}`} onPick={pick} disabled={disabled} a11y={a11y} className="rounded-lg">
 						<span className="inline-flex h-11 items-center rounded-lg border border-border bg-background px-3 text-sm font-medium sm:px-4">Replace</span>
 					</PhotoPicker>

@@ -2,7 +2,7 @@ import { RECIPE_CATEGORIES, RECIPE_LIMITS, type RecipeCategory } from '@recipe-a
 import { Check } from 'lucide-react'
 import { useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
-import type { RecipeFormValues } from '../_lib/recipe-form-schema'
+import type { RecipeFormValues } from '../lib/recipe-form-schema'
 import { FieldError } from './form-field'
 
 export function CategoryChips() {

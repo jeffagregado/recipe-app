@@ -1,4 +1,4 @@
-import type { RecipeSummary } from '@recipe-app/contracts/types'
+import type { RecipeListItem } from '@recipe-app/contracts/types'
 
 import pastaPhoto from '@/public/recipes/creamy-garlic-pasta.png'
 import type { RecipeCardData } from '../_components/recipe-card'
@@ -11,7 +11,7 @@ const previewIds = new Set([
 	'creamy-garlic-pasta4',
 ])
 
-export function toRecipeCard(recipe: RecipeSummary): RecipeCardData {
+export function toRecipeCard(recipe: RecipeListItem): RecipeCardData {
 	const isPreview = previewIds.has(recipe.id)
 
 	return {

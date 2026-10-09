@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { checkRecipeImage } from '../_lib/recipe-files'
+import { checkRecipeImage } from '../lib/recipe-files'
 
 /** Validates a picked file; a rejected file never replaces the current photo and its problem stays visible until the next pick. */
 export function usePhotoPick(onChange: (file: File | null) => void) {

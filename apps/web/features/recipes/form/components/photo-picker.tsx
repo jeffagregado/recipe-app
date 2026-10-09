@@ -1,7 +1,7 @@
 import type { ChangeEvent, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
-import { IMAGE_ACCEPT } from '../_lib/recipe-files'
-import type { FieldA11yProps } from '../_lib/field-props'
+import { IMAGE_ACCEPT } from '../lib/recipe-files'
+import type { FieldA11yProps } from '../lib/field-props'
 
 type PhotoPickerProps = {
 	label: string

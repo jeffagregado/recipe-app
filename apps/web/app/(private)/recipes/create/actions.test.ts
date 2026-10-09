@@ -12,10 +12,12 @@ vi.mock('@/features/auth/queries', () => ({
 		return session.result === 'anonymous' ? { status: 'anonymous' } : { status: 'authenticated', user: { id: 'user-1' } }
 	},
 }))
+const cache = vi.hoisted(() => ({ refresh: vi.fn() }))
+vi.mock('next/cache', () => cache)
 vi.mock('next/navigation', () => ({ redirect: (path: string) => { throw new Error(`NEXT_REDIRECT:${path}`) } }))
 
 import { saveRecipe } from './actions'
-import { SAVE_MESSAGES } from './_lib/save-recipe-result'
+import { SAVE_MESSAGES } from '@/features/recipes/form/lib/save-recipe-result'
 
 const KEY = '2c1d3c2e-8a9b-4f6a-9d1f-0a7f6a1b2c3d'
 const fetchMock = vi.fn<typeof fetch>()
@@ -40,6 +42,7 @@ beforeEach(() => {
 	next.headers = new Headers({ origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', cookie: 'analytics=1' })
 	next.cookies = new Map([['better-auth.session_token', 'abc'], ['other-cookie', 'secret-value']])
 	fetchMock.mockReset()
+	cache.refresh.mockReset()
 	vi.stubEnv('RECIPE_API_URL', 'http://api.example')
 	vi.stubGlobal('fetch', fetchMock)
 })
@@ -58,11 +61,19 @@ it('forwards multipart parts with only the session cookie, origin, key and clien
 	const body = init?.body as FormData
 	expect([...body.keys()].sort()).toEqual(['cover', 'recipe', 'step-0'])
 	expect(JSON.parse(body.get('recipe') as string)).toEqual(metadata)
+	// A revalidation makes the router drop preserved pages, so Back cannot restore a list without the new recipe.
+	expect(cache.refresh).toHaveBeenCalledOnce()
 })
 
 it('treats a 200 replay like a first save', async () => {
 	fetchMock.mockResolvedValue(json({ id: 'r1' }, 200))
 	await expect(saveRecipe(payload())).rejects.toThrow('NEXT_REDIRECT:/recipes/r1?notice=recipe-saved')
+})
+
+it('does not revalidate when nothing was saved', async () => {
+	fetchMock.mockResolvedValue(json({ code: 'UNAVAILABLE', message: 'x' }, 503))
+	await saveRecipe(payload())
+	expect(cache.refresh).not.toHaveBeenCalled()
 })
 
 it('refuses a missing or null Origin without contacting the API', async () => {

@@ -4,12 +4,12 @@ import { useFieldArray, useFormContext, useWatch, useFormState, type FieldErrors
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { emptyIngredientRow, MAX_ROWS, TO_TASTE, type RecipeFormValues } from '../_lib/recipe-form-schema'
-import { fieldA11y, inputClass, selectClass } from '../_lib/field-props'
+import { emptyIngredientRow, MAX_ROWS, TO_TASTE, type RecipeFormValues } from '../lib/recipe-form-schema'
+import { fieldA11y, inputClass, selectClass } from '../lib/field-props'
 import { FieldError } from './form-field'
 import { RowControls } from './row-controls'
 import { SectionCard } from './section-card'
-import { useRowActions } from './use-row-actions'
+import { useRowActions } from '../hooks/use-row-actions'
 
 type IngredientRowProps = { index: number; count: number; onMove: (direction: 'up' | 'down') => void; onRemove: () => void }
 

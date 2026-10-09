@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Component, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { SaveRecipeResult } from '../_lib/save-recipe-result'
+import type { SaveRecipeResult } from '../lib/save-recipe-result'
 import { AppToaster } from '@/components/layout/app-toaster'
 import { RecipeForm } from './recipe-form'
 
@@ -22,7 +22,7 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks() })
 
 function renderForm() {
-	return render(<AppToaster><RecipeForm title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></AppToaster>)
+	return render(<AppToaster><RecipeForm mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></AppToaster>)
 }
 // The toast region also exposes alerts, so the form's own alert is looked up inside the form.
 const formElement = () => screen.getByRole('form', { name: 'Create Recipe' })
@@ -195,6 +195,8 @@ it('keeps every value after a confirmed failure and uses a new key for the next 
 	expect(screen.getByLabelText('Title')).toHaveValue('Creamy Garlic Pasta')
 	expect(screen.getByLabelText('Ingredient 1 name')).toHaveValue('Spaghetti')
 	expect(screen.getByLabelText('Step 1 instructions')).toHaveValue('Boil the pasta.')
+	// The alert appears a moment before the pending transition ends; Save ignores clicks until then.
+	await waitFor(() => expect(save()).toBeEnabled())
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
 	expect(onSave.mock.calls[1][0].get('idempotencyKey')).not.toBe(onSave.mock.calls[0][0].get('idempotencyKey'))
@@ -208,6 +210,7 @@ it('reuses the same submission key and payload when retrying after an unknown ou
 	await fillMinimum(user)
 	await user.click(save())
 	const alert = await findFormAlert()
+	await waitFor(() => expect(within(alert).getByRole('button', { name: 'Retry save' })).toBeEnabled())
 	await user.click(within(alert).getByRole('button', { name: 'Retry save' }))
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
 	const [first, second] = onSave.mock.calls.map(([data]) => data)
@@ -369,7 +372,7 @@ it('hands a successful save’s redirect to Next instead of reporting a failure,
 		render() { return this.state.error ? <p>navigating: {this.state.error.digest}</p> : this.props.children }
 	}
 	vi.spyOn(console, 'error').mockImplementation(() => undefined)
-	render(<AppToaster><Boundary><RecipeForm title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></Boundary></AppToaster>)
+	render(<AppToaster><Boundary><RecipeForm mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></Boundary></AppToaster>)
 	await fillMinimum(user)
 	await user.click(save())
 	expect(await screen.findByText(/navigating: NEXT_REDIRECT/)).toBeInTheDocument()

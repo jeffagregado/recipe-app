@@ -3,6 +3,7 @@ import { MEASUREMENT_UNITS, RECIPE_CATEGORIES, RECIPE_LIMITS, type CreateRecipeM
 import { z } from 'zod'
 import { toFormFieldPath } from './map-save-errors'
 import { checkRecipeImage } from './recipe-files'
+import { isPhotoValue, noPhoto, type PhotoValue } from './recipe-photo'
 
 export const TO_TASTE = 'to-taste'
 export const MAX_ROWS = { ingredients: RECIPE_LIMITS.ingredients, instructions: RECIPE_LIMITS.instructions }
@@ -48,12 +49,15 @@ const ingredientRowSchema = z.object({
 	else if (row.unit === '') ctx.addIssue({ code: 'custom', path: ['unit'], message: 'Choose a unit.' })
 })
 
-const photoSchema = z.custom<File | null>((value) => value === null || value instanceof File, 'Choose an image file.').superRefine((file, ctx) => {
-	const problem = file ? checkRecipeImage(file) : null
+// Stored photos were checked when they were uploaded; only a file picked in this session needs checking.
+const photoSchema = z.custom<PhotoValue>(isPhotoValue, 'Choose an image file.').superRefine((photo, ctx) => {
+	const problem = photo.kind === 'new' ? checkRecipeImage(photo.file) : null
 	if (problem) ctx.addIssue({ code: 'custom', message: problem })
 })
 
 const instructionRowSchema = z.object({
+	/** The stored step this row continues; null for a row added in this session. */
+	id: z.string().nullable(),
 	description: z.string().trim()
 		.min(1, 'Describe this step.')
 		.max(RECIPE_LIMITS.instructionDescription, `Use ${formatLimit(RECIPE_LIMITS.instructionDescription)} characters or fewer.`),
@@ -94,11 +98,11 @@ export type IngredientFormRow = RecipeFormValues['ingredients'][number]
 export type InstructionFormRow = RecipeFormValues['instructions'][number]
 
 export const emptyIngredientRow = (): IngredientFormRow => ({ name: '', amount: '', unit: '' })
-export const emptyInstructionRow = (): InstructionFormRow => ({ description: '', photo: null })
+export const emptyInstructionRow = (): InstructionFormRow => ({ id: null, description: '', photo: noPhoto() })
 
 export function createEmptyRecipeValues(): RecipeFormValues {
 	return {
-		title: '', description: '', categories: [], prepTime: '', cookTime: '', servings: '', videoUrl: '', cover: null,
+		title: '', description: '', categories: [], prepTime: '', cookTime: '', servings: '', videoUrl: '', cover: noPhoto(),
 		ingredients: [emptyIngredientRow()], instructions: [emptyInstructionRow()], notes: '',
 	}
 }
@@ -110,8 +114,8 @@ const wholeNumberOrNull = (text: string) => {
 	return /^\d+$/.test(value) ? Number(value) : Number.NaN
 }
 
-/** Maps form strings to the API metadata. Invalid numbers become NaN so the shared schema rejects them. */
-export function toCreateRecipeMetadata(values: RecipeFormValues): CreateRecipeMetadata {
+/** The metadata fields create and update share. Invalid numbers become NaN so the shared schema rejects them. */
+export function toSharedMetadata(values: RecipeFormValues): Omit<CreateRecipeMetadata, 'instructions'> {
 	return {
 		title: values.title.trim(),
 		description: blankToNull(values.description),
@@ -127,6 +131,12 @@ export function toCreateRecipeMetadata(values: RecipeFormValues): CreateRecipeMe
 			const amount = parseAmount(row.amount)
 			return { name, quantity: amount.ok ? amount.value : Number.NaN, unit: row.unit }
 		}),
-		instructions: values.instructions.map((step) => ({ description: step.description.trim(), hasImage: step.photo !== null })),
+	}
+}
+
+export function toCreateRecipeMetadata(values: RecipeFormValues): CreateRecipeMetadata {
+	return {
+		...toSharedMetadata(values),
+		instructions: values.instructions.map((step) => ({ description: step.description.trim(), hasImage: step.photo.kind === 'new' })),
 	}
 }

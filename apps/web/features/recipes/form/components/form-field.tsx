@@ -2,7 +2,7 @@ import { CircleAlert } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { fieldA11y, type FieldA11yProps } from '../_lib/field-props'
+import { fieldA11y, type FieldA11yProps } from '../lib/field-props'
 
 export function FieldError({ id, children, className }: { id: string; children: ReactNode; className?: string }) {
 	return (

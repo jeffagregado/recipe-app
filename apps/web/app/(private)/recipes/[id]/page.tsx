@@ -6,9 +6,9 @@ import { Suspense } from 'react'
 import PageContainer from '@/components/layout/page-container'
 import { SessionErrorBoundary } from '@/features/auth/session-error'
 import { RecipeDetailContent } from './_components/recipe-detail-content'
-import { RecipeDetailErrorBoundary } from './_components/recipe-detail-error'
+import { RecipeReadErrorBoundary } from '@/features/recipes/components/recipe-read-error'
 import { RecipeDetailLoading } from './_components/recipe-detail-loading'
-import { RecipeDetailSession } from './_components/recipe-detail-session'
+import { RecipeSession } from '@/features/recipes/components/recipe-session'
 
 export const metadata: Metadata = { title: 'Recipe' }
 
@@ -21,11 +21,11 @@ export default function RecipePage({ params }: PageProps<'/recipes/[id]'>) {
 			</Link>
 			<SessionErrorBoundary>
 				<Suspense fallback={<RecipeDetailLoading />}>
-					<RecipeDetailSession>
-						<RecipeDetailErrorBoundary>
+					<RecipeSession>
+						<RecipeReadErrorBoundary>
 							<RecipeDetailContent params={params} />
-						</RecipeDetailErrorBoundary>
-					</RecipeDetailSession>
+						</RecipeReadErrorBoundary>
+					</RecipeSession>
 				</Suspense>
 			</SessionErrorBoundary>
 		</PageContainer>

@@ -1,6 +1,6 @@
 'use client'
 
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { useEffect, useRef } from 'react'
 
 import { NOTICE_PARAM, noticeMessage, urlWithoutNotice } from '@/lib/notice'
@@ -8,10 +8,11 @@ import { useAppToast } from '@/lib/use-app-toast'
 
 /**
  * Shows the one-time `?notice=<code>` message that a redirect carries, then removes only that parameter
- * so a reload or Back does not repeat it. Renders nothing; mount it inside its own Suspense boundary.
+ * so a reload or Back does not repeat it. The native `history.replaceState` is integrated with `useSearchParams`, so the
+ * URL changes without a navigation: no extra server refetch and no new history entry. Renders nothing; mount it inside
+ * its own Suspense boundary.
  */
 export function NoticeToast() {
-	const router = useRouter()
 	const pathname = usePathname()
 	const searchParams = useSearchParams()
 	const toast = useAppToast()
@@ -29,8 +30,8 @@ export function NoticeToast() {
 
 		const message = noticeMessage(notice)
 		if (message) toast.success(message)
-		router.replace(urlWithoutNotice(pathname, searchParams, window.location.hash), { scroll: false })
-	}, [notice, pathname, router, searchParams, toast])
+		window.history.replaceState(null, '', urlWithoutNotice(pathname, searchParams, window.location.hash))
+	}, [notice, pathname, searchParams, toast])
 
 	return null
 }

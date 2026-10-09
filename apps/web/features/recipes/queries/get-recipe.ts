@@ -7,9 +7,9 @@ import { redirect } from 'next/navigation'
 import { getApiOrigin } from '@/features/auth/api'
 import { requireSession } from '@/features/auth/queries'
 import { sessionCookieHeader } from '@/features/auth/session-cookie'
+import { isValidRecipeId } from '../lib/recipe-id'
 
 const REQUEST_TIMEOUT_MS = 20_000
-const MAX_ID_LENGTH = 200
 
 class RecipeDetailError extends Error {
 	constructor(message: string, options?: ErrorOptions) {
@@ -44,7 +44,7 @@ async function parseRecipe(response: Response): Promise<RecipeDetail> {
 
 /** Uncached owner-scoped read; null means unknown or foreign (indistinguishable). */
 export async function getRecipe(id: string): Promise<RecipeDetail | null> {
-	if (!id || id.length > MAX_ID_LENGTH) return null
+	if (!isValidRecipeId(id)) return null
 	await requireSession()
 	const response = await fetchRecipe(id, sessionCookieHeader(await cookies()))
 	if (response.status === 401) redirect('/')
