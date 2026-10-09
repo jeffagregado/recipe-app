@@ -18,6 +18,19 @@ const metadata = {
 };
 
 describe("recipe creation metadata", () => {
+  it("rejects NUL in every creation text field with a field error", () => {
+    const cases = [
+      { title: "Soup\u0000" }, { description: "Text\u0000" }, { notes: "Note\u0000" },
+      { videoUrl: "https://example.com/\u0000" },
+      { ingredients: [{ ...ingredient, name: "Salt\u0000" }] },
+      { instructions: [{ ...instruction, description: "Mix\u0000" }] },
+    ];
+    for (const value of cases) {
+      const result = createRecipeMetadataSchema.safeParse({ ...metadata, ...value });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues.some((issue) => issue.message.includes("NUL"))).toBe(true);
+    }
+  });
   it("trims text, normalizes blank optional text and preserves category order", () => {
     const result = createRecipeMetadataSchema.parse({ ...metadata, description: " \t ", notes: " \n ", videoUrl: "  ", categories: ["Dinner", "Lunch"] });
     expect(result).toMatchObject({ title: "Soup", description: null, notes: null, videoUrl: null, categories: ["Dinner", "Lunch"], ingredients: [{ name: "Salt" }], instructions: [{ description: "Stir" }] });

@@ -54,7 +54,7 @@ export class RecipesService {
             limit: query.limit, offset: (query.page - 1) * query.limit,
             with: {
               categories: { orderBy: (category, { asc }) => [asc(category.sortOrder)], with: { category: true } },
-              images: { orderBy: (image, { asc }) => [asc(image.sortOrder)], limit: 1 },
+              images: { where: (image, { eq }) => eq(image.sortOrder, 0), limit: 1 },
             },
           }));
           return { rows, total, counts };

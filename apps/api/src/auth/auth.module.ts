@@ -25,6 +25,6 @@ export { AUTH } from './auth.tokens.js';
       AUTH_TRUSTED_ORIGINS: config.get('AUTH_TRUSTED_ORIGINS', { infer: true }),
     }),
   }, AuthService, AuthRateLimiter, SessionGuard, OriginGuard],
-  exports: [AUTH, AuthService, SessionGuard],
+  exports: [AUTH, AuthService, SessionGuard, OriginGuard, AuthRateLimiter],
 })
 export class AuthModule {}

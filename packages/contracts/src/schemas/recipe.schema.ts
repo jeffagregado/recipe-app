@@ -180,7 +180,8 @@ export const recipeQueryParamsSchema: z.ZodType<RecipeQueryParams> = z.object({
   sortDirection: sortDirectionSchema.optional(),
 });
 
-const nullableText = (limit: number) => z.string().trim().max(limit)
+const metadataText = () => z.string().trim().refine((value) => !value.includes("\u0000"), "NUL characters are not allowed.");
+const nullableText = (limit: number) => metadataText().max(limit)
   .transform((value) => value || null).nullable();
 
 // String round-tripping avoids binary floating-point modulo errors (e.g. 1.001).
@@ -188,7 +189,7 @@ const quantitySchema = z.number().positive().max(RECIPE_LIMITS.maxQuantity)
   .refine((value) => value === Number(value.toFixed(RECIPE_LIMITS.quantityDecimals)), "Use at most three decimal places.");
 
 const metadataIngredientSchema: z.ZodType<CreateRecipeMetadataIngredient> = z.strictObject({
-  name: z.string().trim().min(1).max(RECIPE_LIMITS.ingredientName),
+  name: metadataText().min(1).max(RECIPE_LIMITS.ingredientName),
   quantity: quantitySchema.nullable(),
   unit: measurementUnitSchema.nullable(),
   preparation: z.null().optional(),
@@ -204,7 +205,7 @@ const videoUrlSchema = nullableText(RECIPE_LIMITS.videoUrl).refine((value) => {
 }, "Enter a valid HTTPS URL.");
 
 export const createRecipeMetadataSchema: z.ZodType<CreateRecipeMetadata> = z.strictObject({
-  title: z.string().trim().min(1).max(RECIPE_LIMITS.title),
+  title: metadataText().min(1).max(RECIPE_LIMITS.title),
   description: nullableText(RECIPE_LIMITS.description),
   categories: z.array(recipeCategorySchema).max(RECIPE_LIMITS.categories)
     .refine((values) => new Set(values).size === values.length, "Categories must be unique"),
@@ -215,7 +216,7 @@ export const createRecipeMetadataSchema: z.ZodType<CreateRecipeMetadata> = z.str
   notes: nullableText(RECIPE_LIMITS.notes),
   ingredients: z.array(metadataIngredientSchema).min(1).max(RECIPE_LIMITS.ingredients),
   instructions: z.array(z.strictObject({
-    description: z.string().trim().min(1).max(RECIPE_LIMITS.instructionDescription),
+    description: metadataText().min(1).max(RECIPE_LIMITS.instructionDescription),
     hasImage: z.boolean(),
   })).min(1).max(RECIPE_LIMITS.instructions),
 });

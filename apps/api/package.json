@@ -17,6 +17,7 @@
     "db:auth-schema": "pnpm dlx auth@1.7.7 generate --config auth.cli.ts --output auth.generated.ts --yes",
     "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
     "db:seed": "node dist/database/seed.main.js",
+    "recipes:reconcile": "node dist/recipes/reconcile.main.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
