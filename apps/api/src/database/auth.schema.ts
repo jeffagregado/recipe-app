@@ -11,9 +11,13 @@ export const users = pgTable('users', {
   emailVerified: boolean('email_verified').default(false).notNull(),
   image: text('image'),
   ...timestamps(),
+  // Null only for identities without login credentials, such as the seed demo owner.
+  username: text('username'),
 }, (t) => [
   primaryKey({ name: 'users_pkey', columns: [t.id] }),
   unique('users_email_key').on(t.email),
+  unique('users_username_key').on(t.username),
+  check('users_username_normalized_check', sql`${t.username} = lower(btrim(${t.username})) AND length(${t.username}) BETWEEN 3 AND 30`),
   check('users_email_normalized_check', sql`${t.email} = lower(btrim(${t.email})) AND length(${t.email}) > 0`),
 ]);
 

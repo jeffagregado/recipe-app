@@ -1,41 +1,45 @@
-import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { inArray, sql, TransactionRollbackError } from 'drizzle-orm';
 import { ResilienceTimeoutError } from '@nestjs/resilience';
 import { recipeListResponseSchema } from '@recipe-app/contracts/schemas';
 import { RECIPE_CATEGORIES, RECIPE_SORT_FIELDS } from '@recipe-app/contracts/types';
-import type { RecipeListQuery, RecipeSummary } from '@recipe-app/contracts/types';
-import { mountAuth } from '../../src/auth/auth.http.js';
+import type { AuthUser, RecipeListQuery, RecipeSummary } from '@recipe-app/contracts/types';
 import { DatabaseService } from '../../src/database/database.service.js';
-import { DEMO_AUTHOR_ID, seedDatabase } from '../../src/database/seed.js';
+import { seedDatabase } from '../../src/database/seed.js';
 import { recipes } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
 import { createReadDeadline } from '../../src/recipes/recipe-read-deadline.js';
-import { getDevDatabaseUrl } from '../neon-dev.js';
+import { apiClient, insertOwnedRecipes, ownedId, removeTestData, signupUser, startApi, testAddress, testUsername } from '../auth-harness.js';
 
-describe('Public SQL recipe pagination', () => {
+describe('Owner-scoped SQL recipe pagination', () => {
   let app: NestExpressApplication;
   let baseUrl: string;
+  let user: AuthUser;
+  let cookie: string;
+  const address = testAddress();
+  const username = testUsername();
+  const tag = `verify-paging-${randomUUID()}`;
   beforeAll(async () => {
-    process.env.DATABASE_URL = await getDevDatabaseUrl();
-    process.env.BETTER_AUTH_URL = 'http://127.0.0.1:4101';
-    const { AppModule } = await import('../../src/app.module.js');
-    app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: false, bodyParser: false, abortOnError: false });
-    mountAuth(app);
-    await seedDatabase(app.get(DatabaseService).db);
-    await app.listen(0, '127.0.0.1');
-    baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
+    const started = await startApi();
+    app = started.app;
+    baseUrl = started.baseUrl;
+    await seedDatabase(started.db);
+    ({ user, cookie } = await signupUser(apiClient(baseUrl, address), username));
+    await insertOwnedRecipes(started.db, user, tag);
   }, 60_000);
-  afterAll(async () => { await app?.close(); });
+  afterAll(async () => {
+    if (!app) return;
+    try { await removeTestData(app.get(DatabaseService).db, { usernames: [username], addresses: [address] }); }
+    finally { await app.close(); }
+  });
 
   async function list(params: Partial<RecipeListQuery> = {}) {
     const query = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]));
-    const response = await fetch(`${baseUrl}/recipes?${query}`);
+    const response = await fetch(`${baseUrl}/recipes?${query}`, { headers: { Cookie: cookie } });
     expect(response.status).toBe(200);
-    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
     return recipeListResponseSchema.parse(await response.json());
   }
 
@@ -46,7 +50,7 @@ describe('Public SQL recipe pagination', () => {
         const right = sortBy === 'title' ? b.recipe.title : Date.parse(b.recipe[sortBy]);
         const comparison = left < right ? -1 : left > right ? 1 : 0;
         return comparison * (order === 'asc' ? 1 : -1) || a.position - b.position;
-      }).map(({ recipe }) => recipe.id);
+      }).map(({ recipe }) => ownedId(tag, recipe.id));
   }
 
   it('returns five disjoint 20-item pages, default newest order, full counts and an empty terminal page', async () => {
@@ -78,7 +82,7 @@ describe('Public SQL recipe pagination', () => {
       expect(new Set(records.map(({ id }) => id)).size).toBe(expected.length);
       expect((await list({ category, page: first.meta.totalPages + 1 })).data).toEqual([]);
     }
-  }, 30_000);
+  }, 60_000);
 
   it('searches title and description case-insensitively before filtering, sorting and paging', async () => {
     for (const category of [undefined, 'Breakfast'] as const) {
@@ -94,17 +98,17 @@ describe('Public SQL recipe pagination', () => {
       expect((await list({ search: 'oat', ...(category ? { category } : {}), limit: 2, page: first.meta.totalPages + 1 })).data).toEqual([]);
     }
     const description = await list({ search: 'softened apple' });
-    expect(description.data.map(({ id }) => id)).toEqual(['apple-cinnamon-porridge']);
+    expect(description.data.map(({ id }) => id)).toEqual([ownedId(tag, 'apple-cinnamon-porridge')]);
     expect((await list({ search: 'no-matching-recipe-12345' })).meta).toMatchObject({ total: 0, totalPages: 0 });
     expect((await list({ search: '   ' })).meta.total).toBe(100);
-  }, 30_000);
+  }, 60_000);
 
   it('treats search wildcard characters and quotes as literal text', async () => {
     const db = app.get(DatabaseService).db;
     const id = `verify-search-${randomUUID()}`;
     const title = "Search 100%_\\ literal ' recipe";
     try {
-      await db.insert(recipes).values({ id, userId: DEMO_AUTHOR_ID, title, sortOrder: 100 });
+      await db.insert(recipes).values({ id, userId: user.id, title, sortOrder: 100 });
       for (const search of ['%', '_', '\\', "100%_\\ literal '"]) {
         const result = await list({ search });
         expect(result.data.map((recipe) => recipe.id)).toEqual([id]);
@@ -116,7 +120,7 @@ describe('Public SQL recipe pagination', () => {
 
   it('rejects repeated and oversized search parameters', async () => {
     for (const query of ['search=oat&search=rice', `search=${'a'.repeat(201)}`]) {
-      const response = await fetch(`${baseUrl}/recipes?${query}`);
+      const response = await fetch(`${baseUrl}/recipes?${query}`, { headers: { Cookie: cookie } });
       expect(response.status).toBe(400);
       expect(await response.json()).toMatchObject({ errors: expect.arrayContaining([expect.objectContaining({ parameter: 'search' })]) });
     }
@@ -131,7 +135,7 @@ describe('Public SQL recipe pagination', () => {
 
   it('rejects malformed supported parameters with actionable HTTP 400 errors', async () => {
     for (const query of ['page=0', 'page=-1', 'page=1.5', 'page=no', 'page=', 'page=1&page=2', 'limit=0', 'limit=21', 'limit=', 'category=no', 'category=', 'category=Dinner&category=Lunch', 'sortBy=no', 'sortBy=', 'order=no', 'order=', 'order=ASC']) {
-      const response = await fetch(`${baseUrl}/recipes?${query}`);
+      const response = await fetch(`${baseUrl}/recipes?${query}`, { headers: { Cookie: cookie } });
       expect(response.status, query).toBe(400);
       const payload: unknown = await response.json();
       expect(payload).toMatchObject({
@@ -146,7 +150,7 @@ describe('Public SQL recipe pagination', () => {
     const token = randomUUID();
     const ids = [`verify-tie-a-${token}`, `verify-tie-b-${token}`];
     try {
-      await db.insert(recipes).values(ids.toReversed().map((id) => ({ id, userId: DEMO_AUTHOR_ID, title: 'AAAA API tie', sortOrder: 100,
+      await db.insert(recipes).values(ids.toReversed().map((id) => ({ id, userId: user.id, title: 'AAAA API tie', sortOrder: 100,
         createdAt: new Date('2000-01-01T00:00:00Z'), updatedAt: new Date('2000-01-01T00:00:00Z'),
       })));
       for (const sortBy of RECIPE_SORT_FIELDS) {

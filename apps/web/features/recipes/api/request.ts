@@ -1,26 +1,27 @@
 import { recipeListResponseSchema } from '@recipe-app/contracts/schemas'
 import type { RecipeFilters, RecipeListResponse } from '@recipe-app/contracts/types'
+import { SessionExpiredError } from '@/features/auth/errors'
 
 export const RECIPE_PAGE_SIZE = 20
 // Leave transport time beyond the API's 15-second request budget, including cold connections.
 const REQUEST_TIMEOUT_MS = 20_000
 
-export class RecipeApiError extends Error {
+class RecipeApiError extends Error {
 	constructor(message: string, options?: ErrorOptions) {
 		super(message, options)
 		this.name = 'RecipeApiError'
 	}
 }
 
-function recipePageUrl(endpoint: string, filters: RecipeFilters, page: number): URL {
-	const url = new URL(endpoint)
+function recipePageUrl(endpoint: string, filters: RecipeFilters, page: number): string {
+	const url = new URL(endpoint, 'http://same-origin.invalid')
 	url.searchParams.set('page', String(page))
 	url.searchParams.set('limit', String(RECIPE_PAGE_SIZE))
 	url.searchParams.set('sortBy', filters.sortBy)
 	url.searchParams.set('order', filters.order)
 	if (filters.category) url.searchParams.set('category', filters.category)
 	if (filters.search) url.searchParams.set('search', filters.search)
-	return url
+	return endpoint.startsWith('/') ? `${url.pathname}${url.search}` : url.href
 }
 
 function isTransportError(cause: unknown): boolean {
@@ -41,18 +42,19 @@ function parseRecipePage(payload: unknown, page: number): RecipeListResponse {
 	return result.data
 }
 
-async function readRecipePayload(url: URL, signal: AbortSignal): Promise<unknown> {
-	const response = await fetch(url, { cache: 'no-store', signal })
+async function readRecipePayload(url: string, signal: AbortSignal, cookie?: string): Promise<unknown> {
+	const response = await fetch(url, { cache: 'no-store', credentials: 'same-origin', redirect: 'error', signal, headers: cookie ? { Cookie: cookie } : undefined })
+	if (response.status === 401) throw new SessionExpiredError()
 	if (!response.ok) throw new RecipeApiError(`GET /recipes failed (${response.status} ${response.statusText}). Check the recipe API response.`)
 	return response.json()
 }
 
-export async function fetchRecipePage(endpoint: string, filters: RecipeFilters, page: number, signal?: AbortSignal): Promise<RecipeListResponse> {
+export async function fetchRecipePage(endpoint: string, filters: RecipeFilters, page: number, signal?: AbortSignal, cookie?: string): Promise<RecipeListResponse> {
 	const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
 	const combined = AbortSignal.any(signal ? [signal, timeout] : [timeout])
 	let payload: unknown
 	try {
-		payload = await readRecipePayload(recipePageUrl(endpoint, filters, page), combined)
+		payload = await readRecipePayload(recipePageUrl(endpoint, filters, page), combined, cookie)
 	} catch (cause) {
 		signal?.throwIfAborted()
 		throwRequestError(cause, timeout)

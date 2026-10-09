@@ -4,7 +4,6 @@ export type User = {
   id: EntityId;
 
   name: string;
-  email: string;
 
   imageUrl: string | null;
 

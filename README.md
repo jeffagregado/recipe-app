@@ -8,7 +8,7 @@ This Turborepo runs Next.js in `apps/web` and NestJS in `apps/api`. From the rep
 
 The recipe list reads NestJS `GET /recipes` on the server. `RECIPE_API_URL` is the API base URL reachable from the Next.js server, defaults to `http://localhost:3001` in the example, and must be set to the deployed API URL in production. NestJS uses `PORT` (default `3001`); update the URL if that port changes. Fetch failures appear with a manual Retry button; there is no local-data substitute.
 
-Validated lists use a `recipes` cache tag with 30 seconds of client reuse, background revalidation after 60 seconds, and expiry after 5 minutes. The configured API endpoint is part of the cache key. Failed reads throw; the grid error boundary shows a user-facing message and Retry while server logs retain technical details.
+Session and recipe reads are private, session-gated and fetched with `cache: 'no-store'`; no recipe data enters a shared server cache. Server reads forward only the session cookie to NestJS. Browser pagination uses the narrow same-origin `/backend/recipes` GET transport, with owner-specific query keys; logout and session expiry clear private query state. Failed reads show an explicit error and Retry.
 
 Use `pnpm build` for production builds and `pnpm typecheck` / `pnpm lint` for checks. A running API is not required during the web build; it is required when visiting `/recipes`. For an individual app build, run `pnpm exec turbo build --filter=@recipe/api` or `--filter=@recipe/web` so contracts are built first.
 

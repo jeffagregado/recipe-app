@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 
 test('searches recipes, combines filters, restores history and clears search', async ({ page }) => {
   const errors: string[] = [];

@@ -4,11 +4,18 @@ import type { Environment } from '../config/environment.js';
 import { DatabaseModule, DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { createAuth } from './auth.js';
+import { AUTH } from './auth.tokens.js';
+import { AuthController } from './auth.controller.js';
+import { AuthService } from './auth.service.js';
+import { AuthRateLimiter } from './auth.rate-limit.js';
+import { SessionGuard } from './session.guard.js';
+import { OriginGuard } from './origin.guard.js';
 
-export const AUTH = Symbol('AUTH');
+export { AUTH } from './auth.tokens.js';
 
 @Module({
   imports: [DatabaseModule],
+  controllers: [AuthController],
   providers: [{
     provide: AUTH,
     inject: [DRIZZLE_DB, ConfigService],
@@ -16,7 +23,7 @@ export const AUTH = Symbol('AUTH');
       BETTER_AUTH_SECRET: config.get('BETTER_AUTH_SECRET', { infer: true }),
       BETTER_AUTH_URL: config.get('BETTER_AUTH_URL', { infer: true }),
     }),
-  }],
-  exports: [AUTH],
+  }, AuthService, AuthRateLimiter, SessionGuard, OriginGuard],
+  exports: [AUTH, AuthService, SessionGuard],
 })
 export class AuthModule {}

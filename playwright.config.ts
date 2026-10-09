@@ -9,12 +9,14 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   workers: process.env.CI ? 2 : undefined,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  // Browser action steps can contain form values; keep only the value-free list output.
+  reporter: [['list']],
   outputDir: './test-results',
   timeout: 60_000,
   use: {
     baseURL: webUrl,
-    trace: 'retain-on-failure',
+    // Auth cookies and form credentials must not be written to trace artifacts.
+    trace: 'off',
     screenshot: 'only-on-failure',
   },
   projects: [
@@ -28,7 +30,7 @@ export default defineConfig({
     {
       name: 'recipe-api',
       command: 'pnpm --filter @recipe/api run test:server',
-      url: `${apiUrl}/recipes`,
+      url: `${apiUrl}/api/auth/ok`,
       env: { PORT: '4101' },
       reuseExistingServer: false,
       timeout: 60_000,
@@ -36,7 +38,7 @@ export default defineConfig({
     {
       name: 'recipe-web',
       command: 'pnpm --filter @recipe/web exec next start --hostname 127.0.0.1 --port 4100',
-      url: `${webUrl}/recipes`,
+      url: `${webUrl}/`,
       env: { RECIPE_API_URL: apiUrl },
       reuseExistingServer: false,
       timeout: 60_000,

@@ -10,6 +10,7 @@ import { DatabaseModule } from './database/database.module.js';
 import { StorageModule } from './storage/storage.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { recipeResiliencePresets } from './recipes/recipes.resilience.js';
+import { authResiliencePresets } from './auth/auth.resilience.js';
 
 @Module({
   imports: [
@@ -19,7 +20,7 @@ import { recipeResiliencePresets } from './recipes/recipes.resilience.js';
       skipProcessEnv: true,
       validate: validateEnvironment,
     }),
-    ResilienceModule.forRoot({ presets: recipeResiliencePresets }),
+    ResilienceModule.forRoot({ presets: { ...recipeResiliencePresets, ...authResiliencePresets } }),
     DatabaseModule,
     StorageModule,
     AuthModule,

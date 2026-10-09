@@ -15,6 +15,13 @@
       "when": 1791455481950,
       "tag": "0001_flowery_susan_delgado",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791526904658,
+      "tag": "0002_simple_kabuki",
+      "breakpoints": true
     }
   ]
 }

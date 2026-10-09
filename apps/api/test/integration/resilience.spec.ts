@@ -1,5 +1,5 @@
 import type { AddressInfo } from 'node:net';
-import type { INestApplication } from '@nestjs/common';
+import type { ExecutionContext, INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ResilienceModule, ResilienceService } from '@nestjs/resilience';
 import type { ResiliencePolicy } from '@nestjs/resilience';
@@ -9,6 +9,8 @@ import { DatabaseError } from '../../src/database/database.service.js';
 import { RecipesController } from '../../src/recipes/recipes.controller.js';
 import { RecipesService } from '../../src/recipes/recipes.service.js';
 import { recipeResiliencePresets } from '../../src/recipes/recipes.resilience.js';
+import { SessionGuard } from '../../src/auth/session.guard.js';
+import type { AuthRequest } from '../../src/auth/auth.request.js';
 
 // Deterministic dependency faults exercise the real controller/interceptor over HTTP.
 // Actual PostgreSQL deadlines and normal recipe reads are covered in paging.spec.ts.
@@ -29,7 +31,8 @@ class ControlledReader {
     this.gate = new Promise((resolve) => { this.release = resolve; });
   }
 
-  findAll(query: RecipeListQuery): Promise<RecipeListResponse> {
+  findAll(query: RecipeListQuery, userId: string): Promise<RecipeListResponse> {
+    if (userId !== 'controlled-owner') throw new Error('Session owner was not forwarded.');
     return this.readPolicy.execute(({ signal }) => {
       this.signals.push(signal);
       return this.policy.execute(async () => {
@@ -64,7 +67,10 @@ describe('Recipe resilience over HTTP', () => {
       providers: [{ provide: ControlledReader, inject: [ResilienceService],
         useFactory: (service: ResilienceService) => new ControlledReader(service) },
       { provide: RecipesService, useExisting: ControlledReader }],
-    }).compile();
+    }).overrideGuard(SessionGuard).useValue({ canActivate: (context: ExecutionContext) => {
+      context.switchToHttp().getRequest<AuthRequest>().user = { id: 'controlled-owner', displayName: 'Controlled owner', username: 'controlled_owner' };
+      return true;
+    } }).compile();
     app = module.createNestApplication({ logger: false });
     reader = app.get(ControlledReader);
     resilience = app.get(ResilienceService);
@@ -87,7 +93,7 @@ describe('Recipe resilience over HTTP', () => {
     expect(resilience.circuitBreaker('recipeDatabase').stats.total).toBe(0);
     const valid = await fetch(`${baseUrl}/recipes?page=2`);
     expect(valid.status).toBe(200);
-    expect(valid.headers.get('cache-control')).toBe('no-store');
+    expect(valid.headers.get('cache-control')).toBe('private, no-store');
     expect(await valid.json()).toMatchObject({ meta: { page: 2, limit: 20 }, data: [] });
   });
 

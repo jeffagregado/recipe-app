@@ -1,7 +1,8 @@
 import { mkdir } from 'node:fs/promises';
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 
-const api = 'http://127.0.0.1:4101';
+const api = 'http://127.0.0.1:4100/backend';
 const cards = (page: Page) => page.getByRole('list', { name: 'Recipes' }).locator(':scope > li');
 const category = (page: Page, name: string) => page.getByRole('group', { name: 'Recipe categories' }).getByRole('button', { name: new RegExp(`^${name}(?: |$)`) });
 const firstTitle = (page: Page) => cards(page).first().getByRole('heading');
@@ -209,8 +210,11 @@ test('accepts healthy filter responses beyond the former five-second client limi
   });
   await page.goto('/recipes');
   await expect(cards(page)).toHaveCount(20);
+  // The owner's unfiltered first card can match the filtered one, so wait for the slow response itself.
+  const filtered = page.waitForResponse((response) => new URL(response.url()).searchParams.get('category') === 'Breakfast', { timeout: 15_000 });
   await category(page, 'Breakfast').click();
-  await expect(firstTitle(page)).toHaveText('Banana Oat Pancakes', { timeout: 15_000 });
+  expect((await filtered).status()).toBe(200);
+  await expect(firstTitle(page)).toHaveText('Banana Oat Pancakes');
   await expect(cards(page)).toHaveCount(20);
   await expect(requestAlert(page)).toHaveCount(0);
 });

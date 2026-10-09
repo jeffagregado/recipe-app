@@ -21,12 +21,12 @@ export class RecipesService {
     this.databasePolicy = resilience.preset('recipeDatabase');
   }
 
-  findAll(query: RecipeListQuery): Promise<RecipeListResponse> {
+  findAll(query: RecipeListQuery, userId: string): Promise<RecipeListResponse> {
     // Promise execution holds the bulkhead slot until SQL really settles, even after an HTTP timeout.
-    return this.readPolicy.execute(({ signal }) => this.readAll(query, signal), { source: 'RecipesService.findAll' });
+    return this.readPolicy.execute(({ signal }) => this.readAll(query, userId, signal), { source: 'RecipesService.findAll' });
   }
 
-  private async readAll(query: RecipeListQuery, signal: AbortSignal): Promise<RecipeListResponse> {
+  private async readAll(query: RecipeListQuery, userId: string, signal: AbortSignal): Promise<RecipeListResponse> {
     try {
       // EXISTS filters each recipe once, even when it belongs to several categories.
       const category = query.category === undefined ? undefined : sql`exists (
@@ -35,15 +35,17 @@ export class RecipesService {
       )`;
       // Escape LIKE metacharacters so searches match literal text, not SQL wildcards.
       const search = query.search === undefined ? undefined : `%${query.search.replace(/[\\%_]/g, '\\$&')}%`;
-      const where = and(category, search === undefined ? undefined : or(ilike(recipes.title, search), ilike(recipes.description, search)));
+      const owner = eq(recipes.userId, userId);
+      const where = and(owner, category, search === undefined ? undefined : or(ilike(recipes.title, search), ilike(recipes.description, search)));
       const direction = query.order === 'asc' ? asc : desc;
       const { rows, total, counts } = await this.databasePolicy.execute(async () => {
         return this.db.transaction(async (tx) => {
           const read = createReadDeadline(signal);
           const total = await read(tx, () => tx.$count(recipes, where));
-          const overall = await read(tx, () => tx.$count(recipes));
-          const categoryTotals = await read(tx, async () => tx.select({ name: categories.name, total: count(recipeCategories.recipeId) })
-            .from(categories).leftJoin(recipeCategories, eq(categories.id, recipeCategories.categoryId)).groupBy(categories.name));
+          const overall = await read(tx, () => tx.$count(recipes, owner));
+          const categoryTotals = await read(tx, async () => tx.select({ name: categories.name, total: count(recipes.id) })
+            .from(categories).leftJoin(recipeCategories, eq(categories.id, recipeCategories.categoryId))
+            .leftJoin(recipes, and(eq(recipes.id, recipeCategories.recipeId), owner)).groupBy(categories.name));
           const counts: RecipeCounts = { total: overall, categories: { Breakfast: 0, Lunch: 0, Dinner: 0, Snacks: 0, Desserts: 0 } };
           for (const category of categoryTotals) counts.categories[category.name] = category.total;
           const rows = await read(tx, async () => tx.query.recipes.findMany({

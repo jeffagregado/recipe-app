@@ -1,0 +1,85 @@
+import { randomBytes } from 'node:crypto';
+import type { AddressInfo } from 'node:net';
+import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { inArray, like, or } from 'drizzle-orm';
+import { authUserResponseSchema } from '@recipe-app/contracts/schemas';
+import type { AuthUser, RecipeSummary } from '@recipe-app/contracts/types';
+import { mountAuth } from '../src/auth/auth.http.js';
+import { rateLimitKey } from '../src/auth/auth.rate-limit.js';
+import { DatabaseService } from '../src/database/database.service.js';
+import type { DrizzleDb } from '../src/database/database.service.js';
+import { authRateLimits, categories, recipeCategories, recipes, users } from '../src/database/schema.js';
+import { seedRecipes } from '../src/recipes/seed-recipes.js';
+import { getDevDatabaseUrl } from './neon-dev.js';
+
+export const TEST_ORIGIN = 'http://localhost:3000';
+
+/** Loopback callers may name a documentation-range client address; counters stay isolated per suite. */
+export const testAddress = () => `198.51.100.${Math.floor(Math.random() * 250) + 1}`;
+export const testUsername = () => `t_${randomBytes(10).toString('hex')}`;
+export const testPassword = () => randomBytes(24).toString('base64url');
+
+export async function startApi(): Promise<{ app: NestExpressApplication; baseUrl: string; db: DrizzleDb }> {
+  process.env.DATABASE_URL = await getDevDatabaseUrl();
+  process.env.BETTER_AUTH_URL = 'http://127.0.0.1:4101';
+  const { AppModule } = await import('../src/app.module.js');
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: false, bodyParser: false, abortOnError: false });
+  mountAuth(app);
+  await app.listen(0, '127.0.0.1');
+  const baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
+  return { app, baseUrl, db: app.get(DatabaseService).db };
+}
+
+type RequestOptions = { cookie?: string; origin?: string | null; address?: string };
+
+export function apiClient(baseUrl: string, defaultAddress: string) {
+  const headers = ({ cookie, origin = TEST_ORIGIN, address = defaultAddress }: RequestOptions) => ({
+    'X-Forwarded-For': address,
+    ...(origin === null ? {} : { Origin: origin }),
+    ...(cookie ? { Cookie: cookie } : {}),
+  });
+  return {
+    post: (path: string, body: unknown, options: RequestOptions = {}) => fetch(`${baseUrl}${path}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...headers(options) }, body: JSON.stringify(body),
+    }),
+    get: (path: string, options: RequestOptions = {}) => fetch(`${baseUrl}${path}`, { headers: headers({ origin: null, ...options }) }),
+  };
+}
+
+/** Name=value pairs for a Cookie header; attributes stay on the response under test. */
+export const cookiePair = (response: Response) => response.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ');
+
+export async function signupUser(client: ReturnType<typeof apiClient>, username = testUsername(), password = testPassword()) {
+  const response = await client.post('/auth/signup', { displayName: 'Temporary verification', username, password });
+  if (response.status !== 201) throw new Error(`Temporary signup failed with HTTP ${response.status}.`);
+  const { user } = authUserResponseSchema.parse(await response.json());
+  return { user, username, password, cookie: cookiePair(response) };
+}
+
+export const ownedId = (tag: string, id: string) => `${tag}-${id}`;
+
+/** Copies seed summaries under a temporary owner; deleting that user cascades every row. */
+export async function insertOwnedRecipes(db: DrizzleDb, user: Pick<AuthUser, 'id'>, tag: string, samples: readonly RecipeSummary[] = seedRecipes): Promise<void> {
+  const categoryRows = await db.select().from(categories);
+  await db.insert(recipes).values(samples.map((sample) => ({
+    id: ownedId(tag, sample.id), userId: user.id, title: sample.title, description: sample.description,
+    servings: sample.servings, prepTimeMinutes: sample.prepTimeMinutes, cookTimeMinutes: sample.cookTimeMinutes,
+    sortOrder: seedRecipes.findIndex(({ id }) => id === sample.id), createdAt: new Date(sample.createdAt), updatedAt: new Date(sample.updatedAt),
+  })));
+  await db.insert(recipeCategories).values(samples.flatMap((sample) => sample.categories.map((name, sortOrder) => {
+    const category = categoryRows.find((row) => row.name === name);
+    if (!category) throw new Error('Verification category missing.');
+    return { recipeId: ownedId(tag, sample.id), categoryId: category.id, sortOrder };
+  })));
+}
+
+/** Removes temporary users (cascading sessions, accounts and recipes) and their wrapper counters. */
+export async function removeTestData(db: DrizzleDb, data: { usernames: string[]; addresses: string[] }): Promise<void> {
+  if (data.usernames.length > 0) await db.delete(users).where(inArray(users.username, data.usernames));
+  const keys = [
+    ...data.usernames.map((username) => rateLimitKey('login:username', username)),
+    ...data.addresses.flatMap((address) => [rateLimitKey('login:address', address), rateLimitKey('signup:address', address)]),
+  ];
+  await db.delete(authRateLimits).where(or(inArray(authRateLimits.key, keys), ...data.addresses.map((address) => like(authRateLimits.key, `${address}%`))));
+}

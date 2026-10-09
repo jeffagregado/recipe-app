@@ -3,6 +3,7 @@
 import { BookOpen, Folder, Heart, Plus, Settings, Utensils, type LucideIcon } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import type { ReactNode } from 'react'
 
 type NavigationItem = {
 	label: string
@@ -38,7 +39,7 @@ const navigationItems: NavigationItem[] = [
 	},
 ]
 
-export default function Sidebar() {
+export default function Sidebar({ footer }: { footer?: ReactNode }) {
 	const pathname = usePathname()
 
 	const isActive = (href: string) => {
@@ -56,6 +57,7 @@ export default function Sidebar() {
 					<SidebarItem key={item.href} item={item} active={isActive(item.href)} />
 				))}
 			</nav>
+			<div className="border-t border-border px-5 py-4">{footer}</div>
 		</aside>
 	)
 }

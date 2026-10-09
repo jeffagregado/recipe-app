@@ -6,7 +6,7 @@ import { loadRecipeFilters, recipeFilterError, recipeParsers, recipeUrlOptions }
 import { RecipeFilterErrorView } from './recipe-filter-error'
 import { RecipeResults } from './recipe-results'
 
-export function RecipeBrowser({ endpoint }: { endpoint: string }) {
+export function RecipeBrowser({ userId, endpoint }: { userId: string; endpoint: string }) {
 	const [, setFilters] = useQueryStates(recipeParsers, recipeUrlOptions)
 	const params = useSearchParams()
 	const error = recipeFilterError(new URLSearchParams(params))
@@ -15,6 +15,7 @@ export function RecipeBrowser({ endpoint }: { endpoint: string }) {
 	return <RecipeResults
 		key={JSON.stringify(filters)}
 		endpoint={endpoint}
+		userId={userId}
 		filters={filters}
 		onCategory={(category) => { void setFilters({ category }) }}
 		onSort={(sort) => { void setFilters(sort) }}
