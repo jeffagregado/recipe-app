@@ -125,12 +125,19 @@ export async function openCreate(page: Page) {
   await page.waitForFunction(() => Object.keys(document.querySelector('form[aria-label]') ?? {}).some((key) => key.startsWith('__reactProps')));
 }
 
+/** Picks a unit from the dropdown: opens it from its trigger and clicks the option (`to-taste` reads "to taste"). */
+export async function chooseUnit(page: Page, position: number, unit: string) {
+  await field.ingredientUnit(page, position).click();
+  await page.getByRole('listbox').getByRole('option', { name: unit === 'to-taste' ? 'to taste' : unit, exact: true }).click();
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+}
+
 export async function fillIngredient(page: Page, position: number, name: string, amount: string, unit: string) {
   await field.ingredientName(page, position).fill(name);
-  if (unit === 'to-taste') await field.ingredientUnit(page, position).selectOption('to-taste');
+  if (unit === 'to-taste') await chooseUnit(page, position, 'to-taste');
   else {
     await field.ingredientAmount(page, position).fill(amount);
-    await field.ingredientUnit(page, position).selectOption(unit);
+    await chooseUnit(page, position, unit);
   }
 }
 

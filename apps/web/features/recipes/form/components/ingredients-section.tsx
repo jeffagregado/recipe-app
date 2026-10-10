@@ -1,11 +1,12 @@
 import { MEASUREMENT_UNITS } from '@recipe-app/contracts/types'
 import { ClipboardList, Plus } from 'lucide-react'
-import { useFieldArray, useFormContext, useWatch, useFormState, type FieldErrors } from 'react-hook-form'
+import { useController, useFieldArray, useFormContext, useFormState, type FieldErrors } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { emptyIngredientRow, MAX_ROWS, TO_TASTE, type RecipeFormValues } from '../lib/recipe-form-schema'
-import { fieldA11y, inputClass, selectClass } from '../lib/field-props'
+import { fieldA11y, inputClass } from '../lib/field-props'
 import { FieldError } from './form-field'
 import { RowControls } from './row-controls'
 import { SectionCard } from './section-card'
@@ -54,6 +55,13 @@ export function IngredientsSection() {
 	)
 }
 
+/** A null value is the "no unit" choice; the trigger then shows the placeholder. */
+const UNIT_ITEMS = [
+	{ value: null, label: 'Unit' },
+	...MEASUREMENT_UNITS.map((value) => ({ value, label: value })),
+	{ value: TO_TASTE, label: 'to taste' },
+]
+
 type RowErrors = Partial<Record<'name' | 'amount' | 'unit', string>>
 
 function ingredientRowErrors(errors: FieldErrors<RecipeFormValues>, index: number): RowErrors {
@@ -68,12 +76,11 @@ function RowFieldErrors({ base, errors }: { base: string; errors: RowErrors }) {
 function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
 	const { register, setValue, control } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
-	const unit = useWatch({ control, name: `ingredients.${index}.unit` })
+	const { field: { value: unit, onChange: changeUnit, onBlur: blurUnit, ref: unitRef } } = useController({ control, name: `ingredients.${index}.unit` })
 	const rowErrors = ingredientRowErrors(errors, index)
 	const position = index + 1
 	const base = `recipe-ingredient-${index}`
 	const toTaste = unit === TO_TASTE
-	const unitField = register(`ingredients.${index}.unit`)
 
 	return (
 		<li className="space-y-1.5">
@@ -96,20 +103,27 @@ function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
 					disabled={toTaste}
 					placeholder={toTaste ? '—' : undefined}
 				/>
-				<select
-					{...fieldA11y(`${base}-unit`, rowErrors.unit)}
-					{...unitField}
-					onChange={(event) => {
-						void unitField.onChange(event)
-						if (event.target.value === TO_TASTE) setValue(`ingredients.${index}.amount`, '', { shouldDirty: true })
+				<Select
+					items={UNIT_ITEMS}
+					value={unit || null}
+					onValueChange={(value) => {
+						changeUnit(value ?? '')
+						if (value === TO_TASTE) setValue(`ingredients.${index}.amount`, '', { shouldDirty: true })
 					}}
-					className={cn(selectClass, 'min-w-20 flex-1 sm:min-w-0 sm:flex-none')}
-					aria-label={`Ingredient ${position} unit`}
 				>
-					<option value="">Unit</option>
-					{MEASUREMENT_UNITS.map((value) => <option key={value} value={value}>{value}</option>)}
-					<option value={TO_TASTE}>to taste</option>
-				</select>
+					<SelectTrigger
+						{...fieldA11y(`${base}-unit`, rowErrors.unit)}
+						ref={unitRef}
+						onBlur={blurUnit}
+						aria-label={`Ingredient ${position} unit`}
+						className="h-11 min-w-20 flex-1 scroll-mt-24 text-base data-[size=default]:h-11 sm:w-full sm:min-w-0 sm:flex-none"
+					>
+						<SelectValue placeholder="Unit" />
+					</SelectTrigger>
+					<SelectContent>
+						{UNIT_ITEMS.map(({ value, label }) => <SelectItem key={label} value={value} className="min-h-9 text-base">{label}</SelectItem>)}
+					</SelectContent>
+				</Select>
 				<RowControls noun="ingredient" position={position} count={count} onMove={onMove} onRemove={onRemove} className="ml-auto" />
 			</div>
 			<RowFieldErrors base={base} errors={rowErrors} />

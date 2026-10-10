@@ -5,7 +5,7 @@ import { authRateLimits, recipeImages, recipes } from '../apps/api/src/database/
 import { seedRecipes } from '../apps/api/src/recipes/seed-recipes.js';
 import { creatorTest as test, expect, WEB_URL } from './fixtures.js';
 import {
-  COVER, RICH, RICH_FILES, STEP_ONE, STEP_THREE, WIDTHS, createRecipeViaApi, field, imageState, imagesLoaded, ingredientRows, metadataWith, minimalMetadata,
+  COVER, RICH, RICH_FILES, STEP_ONE, STEP_THREE, WIDTHS, chooseUnit, createRecipeViaApi, field, imageState, imagesLoaded, ingredientRows, metadataWith, minimalMetadata,
   noOverflow, openRecipe, photo, recipeCards, richMetadata, stepTexts, stubVideoHosts, toast, waitHydrated, watchConsole,
   type CreateMetadata, type Photo,
 } from './create-recipe-helpers.js';
@@ -66,7 +66,7 @@ async function formState(page: Page) {
     notes: await field.notes(page).inputValue(),
     ingredientNames: await values(page.getByLabel(/^Ingredient \d+ name$/)),
     ingredientAmounts: await values(page.getByLabel(/^Ingredient \d+ amount$/)),
-    ingredientUnits: await values(page.getByLabel(/^Ingredient \d+ unit$/)),
+    ingredientUnits: await page.getByLabel(/^Ingredient \d+ unit$/).locator('[data-slot="select-value"]').allTextContents(),
     steps: await values(page.getByLabel(/^Step \d+ instructions$/)),
   };
 }
@@ -213,7 +213,7 @@ test.describe('edit: pre-fill and no-op save', () => {
     expect(await formState(page)).toEqual({
       title: 'Prefilled', description: RICH.description, categories: [...RICH.categories].sort(), prep: '10', cook: '20', servings: '4',
       video: 'https://youtu.be/dQw4w9WgXcQ', notes: RICH.notes,
-      ingredientNames: ['Spaghetti', 'Olive oil', 'Salt'], ingredientAmounts: ['200', '1.5', ''], ingredientUnits: ['g', 'tbsp', 'to-taste'],
+      ingredientNames: ['Spaghetti', 'Olive oil', 'Salt'], ingredientAmounts: ['200', '1.5', ''], ingredientUnits: ['g', 'tbsp', 'to taste'],
       steps: RICH.steps,
     });
     await expect(page.getByText('Choose up to 3 · 3 selected')).toBeVisible();
@@ -284,7 +284,7 @@ test.describe('edit: changing everything', () => {
     await page.getByRole('button', { name: 'Add ingredient' }).click();
     await field.ingredientName(page, 4).fill('Parmesan');
     await field.ingredientAmount(page, 4).fill('0.25');
-    await field.ingredientUnit(page, 4).selectOption('cup');
+    await chooseUnit(page, 4, 'cup');
 
     // Steps: move "Toss everything together." (kept photo) up, drop the photo of step 1, delete step 4 (it had a photo), add a new step with a new photo.
     await page.getByRole('button', { name: 'Move step 3 up' }).click();

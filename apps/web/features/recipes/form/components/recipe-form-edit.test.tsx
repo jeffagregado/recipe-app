@@ -83,10 +83,10 @@ it('pre-fills every field and shows the stored photos as current photos', () => 
 
 	expect(screen.getByLabelText('Ingredient 1 name')).toHaveValue('Flour')
 	expect(screen.getByLabelText('Ingredient 1 amount')).toHaveValue('200')
-	expect(screen.getByLabelText('Ingredient 1 unit')).toHaveValue('g')
+	expect(screen.getByLabelText('Ingredient 1 unit').querySelector('[data-slot="select-value"]')).toHaveTextContent(/^g$/)
 	expect(screen.getByLabelText('Ingredient 2 name')).toHaveValue('Salt')
 	expect(screen.getByLabelText('Ingredient 2 amount')).toBeDisabled()
-	expect(screen.getByLabelText('Ingredient 2 unit')).toHaveValue('to-taste')
+	expect(screen.getByLabelText('Ingredient 2 unit')).toHaveTextContent('to taste')
 	expect(screen.getByLabelText('Step 1 instructions')).toHaveValue('Mix.')
 	expect(screen.getByLabelText('Step 2 instructions')).toHaveValue('Bake.')
 	expect(screen.getByLabelText('Step 3 instructions')).toHaveValue('Cool.')
@@ -252,7 +252,8 @@ it('keeps the slot as kept and shows a placeholder when a stored preview can no 
 	const user = userEvent.setup()
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	renderEdit()
-	fireEvent.error(screen.getByAltText('Current cover photo'))
+	// Optimizer, optimizer retry, then the direct URL: the placeholder appears only after all three fail.
+	for (let attempt = 0; attempt < 3; attempt++) fireEvent.error(screen.getByAltText('Current cover photo'))
 
 	expect(await screen.findByRole('img', { name: 'Current cover photo (preview unavailable)' })).toBeInTheDocument()
 	expect(screen.getAllByText('Current photo')).toHaveLength(3)

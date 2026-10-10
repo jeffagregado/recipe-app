@@ -6,7 +6,7 @@ import { seedRecipes } from '../apps/api/src/recipes/seed-recipes.js';
 import { creatorTest as test, expect, WEB_URL } from './fixtures.js';
 import {
   COVER, PLAIN_LINK, RICH, RICH_FILES, STEP_ONE, WIDTHS,
-  createRecipeViaApi, field, fillIngredient, fillMinimal, fillRich, ingredientRows, noOverflow, openCreate, photo, richMetadata, stepTexts, stubVideoHosts, toast, watchConsole,
+  chooseUnit, createRecipeViaApi, field, fillIngredient, fillMinimal, fillRich, ingredientRows, noOverflow, openCreate, photo, richMetadata, stepTexts, stubVideoHosts, toast, watchConsole,
 } from './create-recipe-helpers.js';
 
 // The one-time notice is removed from the URL once the toast shows, so the saved page is just /recipes/<id>.
@@ -71,7 +71,7 @@ test.describe('validation', () => {
     await openCreate(page);
     await fillMinimal(page, 'Validation soup');
     await field.ingredientAmount(page, 1).fill('1/2');
-    await field.ingredientUnit(page, 1).selectOption('g');
+    await chooseUnit(page, 1, 'g');
     for (const name of ['Breakfast', 'Lunch', 'Dinner']) await field.category(page, name).click();
     await expect(page.getByText('Choose up to 3 · 3 selected')).toBeVisible();
     await expect(field.category(page, 'Snacks')).toBeDisabled();
@@ -120,10 +120,10 @@ test.describe('rows', () => {
     expect(await rowValues(page, /^Ingredient \d+ name$/)).toEqual(['Eggs', 'Flour (sifted)']);
 
     await field.ingredientAmount(page, 1).fill('3');
-    await field.ingredientUnit(page, 1).selectOption('to-taste');
+    await chooseUnit(page, 1, 'to-taste');
     await expect(field.ingredientAmount(page, 1)).toBeDisabled();
     await expect(field.ingredientAmount(page, 1)).toHaveValue('');
-    await field.ingredientUnit(page, 1).selectOption('piece');
+    await chooseUnit(page, 1, 'piece');
     await expect(field.ingredientAmount(page, 1)).toBeEnabled();
 
     // The last remaining row is cleared, never removed: one row is always required.
@@ -546,7 +546,8 @@ test.describe('layout', () => {
 
   async function expectUsableControls(page: Page, width: number) {
     const small = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('form input:not([type=file]), form select, form textarea, form button'))
-      .filter((element) => element.getClientRects().length > 0)
+      // The unit dropdown keeps a visually hidden form input next to its 44px trigger; it is not a touch target.
+      .filter((element) => element.getClientRects().length > 0 && element.getAttribute('aria-hidden') !== 'true')
       .map((element) => ({ height: element.getBoundingClientRect().height, label: element.getAttribute('aria-label') ?? element.id ?? element.textContent?.trim() ?? '' }))
       .filter(({ height }) => height < 43.5).map(({ label }) => label));
     expect(small).toEqual([]);

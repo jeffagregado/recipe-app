@@ -1,10 +1,10 @@
-import Image from 'next/image'
+import { RecipePhoto } from '@/features/recipes/components/recipe-photo'
 
 /** Banner only when a cover exists; with none, the page simply starts at the title. */
 export function RecipeCover({ src, title }: { src: string; title: string }) {
 	return (
 		<div className="relative aspect-8/5 overflow-hidden rounded-xl bg-muted sm:aspect-2/1 lg:aspect-[3.8/1]">
-			<Image
+			<RecipePhoto
 				src={src}
 				alt={title}
 				fill

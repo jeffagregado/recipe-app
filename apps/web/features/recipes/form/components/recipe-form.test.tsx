@@ -34,11 +34,17 @@ const image = (name: string, size = 1024, type = 'image/jpeg') => {
 	return file
 }
 
+/** Picks from the unit dropdown: open it from its trigger, then choose the option by its visible label. */
+async function chooseUnit(user: ReturnType<typeof userEvent.setup>, position: number, label: string) {
+	await user.click(screen.getByLabelText(`Ingredient ${position} unit`))
+	await user.click(await screen.findByRole('option', { name: label }))
+}
+
 async function fillMinimum(user: ReturnType<typeof userEvent.setup>) {
 	await user.type(screen.getByLabelText('Title'), 'Creamy Garlic Pasta')
 	await user.type(screen.getByLabelText('Ingredient 1 name'), 'Spaghetti')
 	await user.type(screen.getByLabelText('Ingredient 1 amount'), '200')
-	await user.selectOptions(screen.getByLabelText('Ingredient 1 unit'), 'g')
+	await chooseUnit(user, 1, 'g')
 	await user.type(screen.getByLabelText('Step 1 instructions'), 'Boil the pasta.')
 }
 
@@ -95,10 +101,10 @@ it('clears and disables the amount when the unit is "to taste"', async () => {
 	const user = userEvent.setup()
 	renderForm()
 	await user.type(screen.getByLabelText('Ingredient 1 amount'), '3')
-	await user.selectOptions(screen.getByLabelText('Ingredient 1 unit'), 'to taste')
+	await chooseUnit(user, 1, 'to taste')
 	expect(screen.getByLabelText('Ingredient 1 amount')).toBeDisabled()
 	expect(screen.getByLabelText('Ingredient 1 amount')).toHaveValue('')
-	await user.selectOptions(screen.getByLabelText('Ingredient 1 unit'), 'g')
+	await chooseUnit(user, 1, 'g')
 	expect(screen.getByLabelText('Ingredient 1 amount')).toBeEnabled()
 })
 

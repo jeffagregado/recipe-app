@@ -1,9 +1,9 @@
 'use client'
 
 import { CirclePlay, ExternalLink, Play } from 'lucide-react'
-import Image from 'next/image'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { RecipePhoto } from '@/features/recipes/components/recipe-photo'
 import type { VideoLink } from '@/features/recipes/lib/video-link'
 import { DetailCard } from './detail-card'
 
@@ -47,7 +47,7 @@ function VideoPlayer({ title, kind, embedUrl, posterUrl }: { title: string; kind
 
 	return (
 		<div className="relative aspect-video overflow-hidden rounded-xl bg-muted">
-			{posterUrl && <Image src={posterUrl} alt="" fill sizes="(min-width: 1280px) 400px, (min-width: 640px) 560px, 100vw" className="object-cover" />}
+			{posterUrl && <RecipePhoto src={posterUrl} alt="" fill sizes="(min-width: 1280px) 400px, (min-width: 640px) 560px, 100vw" className="object-cover" />}
 			<div aria-hidden="true" className="absolute inset-0 bg-linear-to-t from-black/50 via-black/10 to-black/10" />
 			<Button
 				type="button"
