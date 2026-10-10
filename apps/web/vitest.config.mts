@@ -9,6 +9,8 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['{app,components,features,lib}/**/*.{test,spec}.{ts,tsx}'],
     setupFiles: ['./test/setup.ts'],
+    // Form tests type through a large form; beside lint, typecheck and build on a shared runner they outlast the 5 s default.
+    testTimeout: 20_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],

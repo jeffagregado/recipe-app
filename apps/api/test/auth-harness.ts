@@ -15,8 +15,18 @@ import { getDevDatabaseUrl } from './neon-dev.js';
 
 export const TEST_ORIGIN = 'http://localhost:3000';
 
+const ADDRESS_POOL = 250;
+const issuedAddresses = new Set<string>();
+
 /** Loopback callers may name a documentation-range client address; counters stay isolated per suite. */
-export const testAddress = () => `198.51.100.${Math.floor(Math.random() * 250) + 1}`;
+export function testAddress(): string {
+  // Signup is capped per address, so a repeat inside one suite would spend another test's allowance.
+  if (issuedAddresses.size === ADDRESS_POOL) issuedAddresses.clear();
+  let address: string;
+  do { address = `198.51.100.${Math.floor(Math.random() * ADDRESS_POOL) + 1}`; } while (issuedAddresses.has(address));
+  issuedAddresses.add(address);
+  return address;
+}
 export const testUsername = () => `t_${randomBytes(10).toString('hex')}`;
 export const testPassword = () => randomBytes(24).toString('base64url');
 
