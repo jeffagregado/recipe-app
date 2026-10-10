@@ -17,7 +17,8 @@ describe('Neon relational persistence', () => {
   }, 60_000);
   afterAll(async () => { await pool?.end(); });
 
-  it('repeats seed without duplicates and preserves complete public samples', async () => {
+  // Skipped while the sample seed is out of use (2026-10-10): running it would put the 100 sample recipes back into recipe-app-dev.
+  it.skip('repeats seed without duplicates and preserves complete public samples', async () => {
     const db = drizzle(pool, { schema });
     await seedDatabase(db);
     await seedDatabase(db);

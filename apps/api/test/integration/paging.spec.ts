@@ -7,7 +7,6 @@ import { recipeListResponseSchema } from '@recipe-app/contracts/schemas';
 import { RECIPE_CATEGORIES, RECIPE_SORT_FIELDS } from '@recipe-app/contracts/types';
 import type { AuthUser, RecipeListQuery, RecipeSummary } from '@recipe-app/contracts/types';
 import { DatabaseService } from '../../src/database/database.service.js';
-import { seedDatabase } from '../../src/database/seed.js';
 import { recipes } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
 import { createReadDeadline } from '../../src/recipes/recipe-read-deadline.js';
@@ -25,7 +24,7 @@ describe('Owner-scoped SQL recipe pagination', () => {
     const started = await startApi();
     app = started.app;
     baseUrl = started.baseUrl;
-    await seedDatabase(started.db);
+    // The sample seed is out of use for now (2026-10-10); the five categories this suite needs stay in recipe-app-dev.
     ({ user, cookie } = await signupUser(apiClient(baseUrl, address), username));
     await insertOwnedRecipes(started.db, user, tag);
   }, 60_000);
