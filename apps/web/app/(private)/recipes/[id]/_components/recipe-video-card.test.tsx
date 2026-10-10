@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ImgHTMLAttributes } from 'react'
+import { Activity, type ImgHTMLAttributes } from 'react'
 import { expect, it, vi } from 'vitest'
 import { parseVideoLink } from '@/features/recipes/lib/video-link'
 
@@ -56,6 +56,27 @@ it('swaps the poster for the validated embed after Play and moves focus to the p
 	expect(frame).not.toHaveAttribute('allowfullscreen')
 	expect(screen.queryByRole('button', { name: 'Play video' })).not.toBeInTheDocument()
 	expect(frame).toHaveFocus()
+})
+
+// Next.js keeps the page it navigated away from mounted but hidden (Activity), and hiding does not stop an iframe.
+it('removes the player when its page is hidden and offers Play again when it is shown', async () => {
+	const user = userEvent.setup()
+	const video = parseVideoLink('https://youtu.be/dQw4w9WgXcQ')!
+	const page = (mode: 'visible' | 'hidden') => (
+		<Activity mode={mode}>
+			<RecipeVideoCard title="Pasta" video={video} posterUrl={null} />
+		</Activity>
+	)
+	const { container, rerender } = render(page('visible'))
+	await user.click(screen.getByRole('button', { name: 'Play video' }))
+	expect(container.querySelector('iframe')).not.toBeNull()
+
+	rerender(page('hidden'))
+	expect(container.querySelector('iframe')).toBeNull()
+
+	rerender(page('visible'))
+	expect(container.querySelector('iframe')).toBeNull()
+	expect(screen.getByRole('button', { name: 'Play video' })).toBeVisible()
 })
 
 it('embeds only the Vimeo player host after Play', async () => {

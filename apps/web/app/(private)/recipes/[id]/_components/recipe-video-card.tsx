@@ -1,7 +1,7 @@
 'use client'
 
 import { CirclePlay, ExternalLink, Play } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { RecipePhoto } from '@/features/recipes/components/recipe-photo'
 import type { VideoLink } from '@/features/recipes/lib/video-link'
@@ -26,6 +26,12 @@ function VideoPlayer({ title, kind, embedUrl, posterUrl }: { title: string; kind
 	useEffect(() => {
 		if (playing) frame.current?.focus()
 	}, [playing])
+
+	// Next.js keeps the page it navigated away from mounted but hidden, and a hidden iframe keeps playing.
+	// Dropping back to the poster removes the iframe, which is the only way to stop a cross-origin player.
+	useLayoutEffect(() => {
+		return () => setPlaying(false)
+	}, [])
 
 	if (playing) {
 		// Autoplay is requested only because Play was just pressed.
