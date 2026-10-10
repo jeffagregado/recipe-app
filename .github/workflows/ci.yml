@@ -1,0 +1,174 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The dev branch of the recipe-app-v2 Neon project; the same target apps/api/test/neon-dev.ts pins locally.
+  NEON_PARENT_BRANCH: br-hidden-waterfall-b3dj0mm5
+  # Unique per run and attempt, so a cancelled run's cleanup can never delete a newer run's branch.
+  NEON_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  check:
+    name: Lint, typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # --affected compares against the base branch and needs its history.
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup
+
+      # Pull requests only run packages the branch touches (and their dependents); master runs everything.
+      - name: Lint, typecheck, unit test and build
+        run: pnpm exec turbo run lint typecheck test build ${{ github.event_name == 'pull_request' && '--affected' || '' }}
+        env:
+          TURBO_SCM_BASE: origin/${{ github.base_ref || 'master' }}
+
+      # The test typecheck reads the contracts build output, which --affected may have skipped.
+      - name: Typecheck tests
+        run: |
+          pnpm exec turbo run build --filter=@recipe-app/contracts
+          pnpm run typecheck:tests
+
+  integration:
+    name: API integration tests
+    needs: check
+    if: github.event.pull_request.draft != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: dev
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+
+      - name: Build contracts
+        run: pnpm exec turbo run build --filter=@recipe-app/contracts
+
+      - uses: ./.github/actions/neon-branch
+        with:
+          name: ci/integration-${{ env.NEON_BRANCH_SUFFIX }}
+          parent: ${{ env.NEON_PARENT_BRANCH }}
+          project-id: ${{ vars.NEON_PROJECT_ID }}
+          api-key: ${{ secrets.NEON_API_KEY }}
+
+      - name: Apply migrations
+        run: pnpm --filter @recipe/api run db:migrate
+
+      - name: Run integration tests
+        run: pnpm --filter @recipe/api run test:integration
+        env:
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_URL: http://127.0.0.1:4101
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL_S3: ${{ vars.AWS_ENDPOINT_URL_S3 }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+
+      - name: Delete database branch
+        if: always()
+        run: pnpm exec neon --no-analytics branches delete "ci/integration-$NEON_BRANCH_SUFFIX" --project-id "$NEON_PROJECT_ID" || true
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+
+  e2e:
+    name: End-to-end tests
+    needs: check
+    if: github.event.pull_request.draft != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: dev
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+
+      - name: Build
+        run: pnpm build
+
+      # Pull requests cover one desktop and one mobile engine; master runs all five browser projects.
+      - name: Install browsers
+        run: pnpm exec playwright install --with-deps ${{ github.event_name == 'pull_request' && 'chromium webkit' || '' }}
+
+      - uses: ./.github/actions/neon-branch
+        with:
+          name: ci/e2e-${{ env.NEON_BRANCH_SUFFIX }}
+          parent: ${{ env.NEON_PARENT_BRANCH }}
+          project-id: ${{ vars.NEON_PROJECT_ID }}
+          api-key: ${{ secrets.NEON_API_KEY }}
+
+      - name: Apply migrations
+        run: pnpm --filter @recipe/api run db:migrate
+
+      - name: Run Playwright
+        run: pnpm exec playwright test ${{ github.event_name == 'pull_request' && '--project=chromium --project=mobile-webkit' || '' }}
+        env:
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_URL: http://127.0.0.1:4101
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL_S3: ${{ vars.AWS_ENDPOINT_URL_S3 }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+
+      - name: Delete database branch
+        if: always()
+        run: pnpm exec neon --no-analytics branches delete "ci/e2e-$NEON_BRANCH_SUFFIX" --project-id "$NEON_PROJECT_ID" || true
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+
+  review:
+    name: Claude review
+    needs: [check, integration, e2e]
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: dev
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      actions: read
+      id-token: write
+    env:
+      HAS_CLAUDE_CREDENTIAL: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' || secrets.ANTHROPIC_API_KEY != '' }}
+    steps:
+      - name: Explain skipped review
+        if: env.HAS_CLAUDE_CREDENTIAL != 'true'
+        run: echo "::notice::Claude review skipped. Add a CLAUDE_CODE_OAUTH_TOKEN (from 'claude setup-token') or ANTHROPIC_API_KEY secret to enable it."
+
+      - uses: actions/checkout@v7
+        if: env.HAS_CLAUDE_CREDENTIAL == 'true'
+        with:
+          fetch-depth: 0
+
+      # Runs only after every check above passed, so the review reads working code and can see the CI results.
+      - uses: anthropics/claude-code-action@v1
+        if: env.HAS_CLAUDE_CREDENTIAL == 'true'
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          claude_args: |
+            --max-turns 30
+            --allowedTools "mcp__github_inline_comment__create_inline_comment"
+            --append-system-prompt "Review for correctness against the spec or task named in the pull request description, and against these repository rules. Shared types and Zod schemas live in packages/contracts and are imported through its public exports. Each rule is tested once at the layer that owns it: contracts own validation limits, form libs own form-specific mapping, server actions own status mapping and leak prevention, components own interactions, API integration tests own the HTTP contract, auth, persistence and concurrency, and end-to-end tests own user journeys. Flag assertions duplicated across those layers. HTTP APIs belong in NestJS, not Next.js API routes. New dependencies need a stated reason. Environment values, cookies, tokens and object keys must never be logged or returned. Do not comment on lint, formatting or type errors because CI already enforces them."

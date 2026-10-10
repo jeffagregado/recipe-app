@@ -11,8 +11,10 @@ import { StorageService } from '../src/storage/storage.service.js';
 /** Plain function calls: the E2E runner compiles this file without Nest's legacy decorator metadata. */
 function cleanupModule(envFilePath: string) {
   class StorageCleanupModule {}
+  // CI has no env file: the workflow supplies the same settings through the process environment.
+  const source = process.env.CI ? { ignoreEnvFile: true } : { envFilePath, skipProcessEnv: true };
   Module({
-    imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath, skipProcessEnv: true, validate: validateEnvironment }), StorageModule],
+    imports: [ConfigModule.forRoot({ isGlobal: true, ...source, validate: validateEnvironment }), StorageModule],
   })(StorageCleanupModule);
   return StorageCleanupModule;
 }
