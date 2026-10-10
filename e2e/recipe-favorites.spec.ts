@@ -116,6 +116,61 @@ test.describe('persistence and agreement', () => {
   });
 });
 
+test.describe('favorites filter', () => {
+  const chip = (page: Page, name: string) => page.getByRole('group', { name: 'Recipe categories' }).getByRole('button', { name: new RegExp(`^${name}(?: |$)`) });
+
+  test('lists only favorites and drops a recipe as soon as its heart is cleared, from the card or the recipe page', async ({ page, creator, workerData }) => {
+    const first = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Filter one'));
+    const second = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Filter two'));
+    await createRecipeViaApi(creator, workerData.address, minimalMetadata('Filter plain'));
+    await workerData.db.insert(favorites).values([first, second].map((recipeId) => ({ userId: creator.user.id, recipeId })));
+
+    await openList(page, 'Filter plain');
+    await expect(recipeCards(page)).toHaveCount(3);
+    await expect(chip(page, 'Favorites')).toContainText('2');
+    await chip(page, 'Favorites').click();
+    await expect(chip(page, 'Favorites')).toHaveAttribute('aria-pressed', 'true');
+    await expect(chip(page, 'All')).toHaveAttribute('aria-pressed', 'false');
+    await expect(recipeCards(page)).toHaveCount(2);
+    await expect(card(page, 'Filter plain')).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.get('favorites')).toBe('true');
+
+    // Card heart off: the recipe leaves the list without a reload.
+    await cardHeart(page, 'Filter one').click();
+    await expect(card(page, 'Filter one')).toHaveCount(0);
+    await expect(recipeCards(page)).toHaveCount(1);
+    await expect(chip(page, 'Favorites')).toContainText('1');
+    await expect.poll(() => isStored(workerData, creator.user.id, first)).toBe(false);
+
+    // The filter is part of the URL, so a reload keeps it.
+    await page.reload();
+    await expect(chip(page, 'Favorites')).toHaveAttribute('aria-pressed', 'true');
+    await expect(recipeCards(page)).toHaveCount(1);
+    await waitHydrated(cardHeart(page, 'Filter two'));
+
+    // Recipe page heart off: going back shows the list without it, now empty.
+    await card(page, 'Filter two').getByRole('link', { name: 'Filter two' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Filter two' })).toBeVisible();
+    await waitHydrated(pageHeart(page, 'Filter two'));
+    await pageHeart(page, 'Filter two').click();
+    await expect(pageHeart(page, 'Filter two')).toHaveAttribute('aria-pressed', 'false');
+    await expect.poll(() => isStored(workerData, creator.user.id, second)).toBe(false);
+    await page.goBack();
+    await expect(page.getByRole('heading', { name: 'No favorites yet.' })).toBeVisible();
+    await expect(recipeCards(page)).toHaveCount(0);
+    await expect(chip(page, 'Favorites')).toContainText('0');
+
+    await chip(page, 'All').click();
+    await expect(recipeCards(page)).toHaveCount(3);
+    expect(new URL(page.url()).searchParams.has('favorites')).toBe(false);
+
+    // A heart set in another list moves the count at once.
+    await cardHeart(page, 'Filter plain').click();
+    await expect(cardHeart(page, 'Filter plain')).toHaveAttribute('aria-pressed', 'true');
+    await expect(chip(page, 'Favorites')).toContainText('1');
+  });
+});
+
 test.describe('failures', () => {
   // The real API answers 429 once the per-user favorite budget is spent, so the failure is deterministic and needs no stub.
   const exhaust = (workerData: Data, userId: string) => workerData.db.insert(authRateLimits).values({ id: randomUUID(), key: `wrapper:recipe-favorite:user:${userId}`, count: 120, lastRequest: Date.now() });

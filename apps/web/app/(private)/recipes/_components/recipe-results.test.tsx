@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import type { RecipeFilters } from '@recipe-app/contracts/types'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { SessionExpiredError } from '@/features/auth/errors'
 import { RecipeResults } from './recipe-results'
@@ -9,8 +10,9 @@ vi.mock('./recipe-controls', () => ({ RecipeControls: () => <div>Controls</div> 
 vi.mock('./recipe-list', () => ({ RecipeList: ({ recipes }: { recipes: unknown[] }) => <p>{recipes.length} recipes listed</p> }))
 
 const filters = { sortBy: 'createdAt', order: 'desc' } as const
-const page = (total: number) => ({ data: Array.from({ length: Math.min(total, 2) }, (_, index) => ({ id: `r${index}` })), meta: { total }, counts: { total } })
-const renderResults = () => render(<RecipeResults userId="user-1" endpoint="/backend/recipes" filters={filters} onCategory={vi.fn()} onSort={vi.fn()} />)
+const page = (total: number) => ({ data: Array.from({ length: Math.min(total, 2) }, (_, index) => ({ id: `r${index}` })), meta: { total }, counts: { total, favorites: 0 } })
+const renderResults = (extra: Partial<RecipeFilters> = {}) => render(<RecipeResults userId="user-1" endpoint="/backend/recipes" filters={{ ...filters, ...extra }} onFilter={vi.fn()} onSort={vi.fn()} />)
+const unmatched = (favorites: number) => ({ data: [], meta: { total: 0 }, counts: { total: 3, favorites } })
 const state = (query: object) => hook.useRecipePages.mockReturnValue({ sentinel: { current: null }, query: { error: null, isPending: false, isFetching: false, isLoading: false, isFetchNextPageError: false, isFetchingNextPage: false, ...query } })
 
 beforeEach(() => { hook.useRecipePages.mockReset() })
@@ -35,6 +37,21 @@ it('lists owned recipes when the library has entries', () => {
 	renderResults()
 	expect(screen.getByText('2 recipes listed')).toBeInTheDocument()
 	expect(screen.queryByText('Your recipe library is empty.')).not.toBeInTheDocument()
+})
+
+it('explains an empty favorites list instead of blaming the filters', () => {
+	state({ data: { pages: [unmatched(0)] } })
+	renderResults({ favorites: true })
+	expect(screen.getByText('No favorites yet.')).toBeInTheDocument()
+	expect(screen.queryByText('Your recipe library is empty.')).not.toBeInTheDocument()
+	expect(screen.queryByText(/recipes listed/)).not.toBeInTheDocument()
+})
+
+it('keeps the no-match message when a search finds none of the favorites', () => {
+	state({ data: { pages: [unmatched(2)] } })
+	renderResults({ favorites: true, search: 'rice' })
+	expect(screen.getByText('0 recipes listed')).toBeInTheDocument()
+	expect(screen.queryByText('No favorites yet.')).not.toBeInTheDocument()
 })
 
 it('reports session expiry instead of a recipe outage', () => {

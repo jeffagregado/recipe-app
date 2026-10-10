@@ -8,7 +8,7 @@ import { DRIZZLE_DB } from '../database/database.module.js';
 import { DatabaseError } from '../database/database.service.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { StorageService } from '../storage/storage.service.js';
-import { categories, recipeCategories, recipes } from '../database/schema.js';
+import { categories, favorites, recipeCategories, recipes } from '../database/schema.js';
 import { createReadDeadline } from './recipe-read-deadline.js';
 
 @Injectable()
@@ -33,24 +33,29 @@ export class RecipesService {
         select 1 from ${recipeCategories} rc join ${categories} c on c.id = rc.category_id
         where rc.recipe_id = ${recipes.id} and c.name = ${query.category}
       )`;
+      // Favorites are per user; the session user's row is the only one that can match.
+      const favorite = sql`exists (
+        select 1 from ${favorites} f where f.recipe_id = ${recipes.id} and f.user_id = ${userId}
+      )`;
       // Escape LIKE metacharacters so searches match literal text, not SQL wildcards.
       const search = query.search === undefined ? undefined : `%${query.search.replace(/[\\%_]/g, '\\$&')}%`;
       const owner = eq(recipes.userId, userId);
-      const filter = and(category, search === undefined ? undefined : or(ilike(recipes.title, search), ilike(recipes.description, search)));
+      const filter = and(category, query.favorites === undefined ? undefined : favorite, search === undefined ? undefined : or(ilike(recipes.title, search), ilike(recipes.description, search)));
       const where = and(owner, filter);
       const direction = query.order === 'asc' ? asc : desc;
       const { rows, total, counts } = await this.databasePolicy.execute(async () => {
         return this.db.transaction(async (tx) => {
           const read = createReadDeadline(signal);
-          // One statement for both totals: every statement is a network round trip inside the read budget.
-          const [{ total, overall }] = await read(tx, async () => tx.select({
+          // One statement for every total: every statement is a network round trip inside the read budget.
+          const [{ total, overall, favorited }] = await read(tx, async () => tx.select({
             total: filter === undefined ? count() : sql<number>`count(*) filter (where ${filter})`.mapWith(Number),
             overall: count(),
+            favorited: sql<number>`count(*) filter (where ${favorite})`.mapWith(Number),
           }).from(recipes).where(owner));
           const categoryTotals = await read(tx, async () => tx.select({ name: categories.name, total: count(recipes.id) })
             .from(categories).leftJoin(recipeCategories, eq(categories.id, recipeCategories.categoryId))
             .leftJoin(recipes, and(eq(recipes.id, recipeCategories.recipeId), owner)).groupBy(categories.name));
-          const counts: RecipeCounts = { total: overall, categories: { Breakfast: 0, Lunch: 0, Dinner: 0, Snacks: 0, Desserts: 0 } };
+          const counts: RecipeCounts = { total: overall, favorites: favorited, categories: { Breakfast: 0, Lunch: 0, Dinner: 0, Snacks: 0, Desserts: 0 } };
           for (const category of categoryTotals) counts.categories[category.name] = category.total;
           const rows = await read(tx, async () => tx.query.recipes.findMany({
             where,

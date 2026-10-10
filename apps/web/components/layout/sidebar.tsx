@@ -1,6 +1,6 @@
 'use client'
 
-import { BookOpen, Folder, Heart, Plus, Settings, Utensils, type LucideIcon } from 'lucide-react'
+import { BookOpen, Folder, Plus, Settings, Utensils, type LucideIcon } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
@@ -26,11 +26,6 @@ const navigationItems: NavigationItem[] = [
 		label: 'Categories',
 		href: '/categories',
 		icon: Folder,
-	},
-	{
-		label: 'Favorites',
-		href: '/favorites',
-		icon: Heart,
 	},
 	{
 		label: 'Settings',

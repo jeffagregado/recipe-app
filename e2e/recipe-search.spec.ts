@@ -45,7 +45,7 @@ test('searches recipes, combines filters, restores history and clears search', a
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(errors).toEqual([]);
   // Existing desktop sidebar links prefetch routes that are not implemented yet.
-  for (const path of missingRoutes) expect(['/categories', '/favorites', '/settings']).toContain(path);
+  for (const path of missingRoutes) expect(['/categories', '/settings']).toContain(path);
   expect(consoleErrors).toHaveLength(missingRoutes.length);
 });
 

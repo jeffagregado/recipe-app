@@ -14,13 +14,13 @@ export class RecipesController {
   @Get()
   @Header('Cache-Control', 'private, no-store')
   findAll(@Query() query: Record<string, unknown>, @Req() request: AuthRequest): Promise<RecipeListResponse> {
-    const unknownKeys = Object.keys(query).filter((key) => !['search', 'page', 'limit', 'category', 'sortBy', 'order'].includes(key));
+    const unknownKeys = Object.keys(query).filter((key) => !['search', 'page', 'limit', 'category', 'favorites', 'sortBy', 'order'].includes(key));
     if (unknownKeys.length) throw new BadRequestException({ message: 'Invalid recipe query. Unknown parameters.',
       errors: unknownKeys.map((parameter) => ({ parameter, message: 'Unexpected parameter.' })) });
     const result = recipeListQuerySchema.safeParse(query);
     if (!result.success) {
       throw new BadRequestException({
-        message: 'Invalid recipe query. Use search up to 200 characters, page >= 1, limit 1-20, a supported category/sortBy, and order asc or desc.',
+        message: 'Invalid recipe query. Use search up to 200 characters, page >= 1, limit 1-20, a supported category/sortBy, favorites=true, and order asc or desc.',
         errors: result.error.issues.map(({ path, message }) => ({ parameter: path.join('.'), message })),
       });
     }

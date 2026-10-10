@@ -39,7 +39,7 @@ class ControlledReader {
         await this.gate;
         signal.throwIfAborted();
         if (this.failure) throw this.failure;
-        return { data: [], counts: { total: 0, categories: { Breakfast: 0, Lunch: 0, Dinner: 0, Snacks: 0, Desserts: 0 } },
+        return { data: [], counts: { total: 0, favorites: 0, categories: { Breakfast: 0, Lunch: 0, Dinner: 0, Snacks: 0, Desserts: 0 } },
           meta: { page: query.page, limit: query.limit, total: 0, totalPages: 0 } };
       }, { signal });
     });

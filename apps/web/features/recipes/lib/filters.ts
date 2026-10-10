@@ -6,6 +6,7 @@ import { createLoader, parseAsString, parseAsStringLiteral, type SearchParams } 
 export const recipeParsers = {
 	search: parseAsString,
 	category: parseAsStringLiteral(RECIPE_CATEGORIES),
+	favorites: parseAsStringLiteral(['true'] as const),
 	sortBy: parseAsStringLiteral(RECIPE_SORT_FIELDS).withDefault('createdAt'),
 	order: parseAsStringLiteral(['asc', 'desc'] as const).withDefault('desc'),
 }
@@ -15,7 +16,7 @@ const loadFilters = createLoader(recipeParsers)
 
 export class RecipeFilterError extends Error {
 	constructor(options?: ErrorOptions) {
-		super('Use search up to 200 characters, a supported category, sortBy (createdAt, updatedAt, title), and order (asc, desc), or reset filters.', options)
+		super('Use search up to 200 characters, a supported category, favorites=true, sortBy (createdAt, updatedAt, title), and order (asc, desc), or reset filters.', options)
 		this.name = 'RecipeFilterError'
 	}
 }
@@ -38,7 +39,7 @@ export function loadRecipeFilters(input: SearchParams | URLSearchParams): Recipe
 	try {
 		const filters = loadFilters(input, { strict: true })
 		const search = recipeSearchSchema.parse(filters.search ?? undefined)
-		return { ...filters, search, category: filters.category ?? undefined }
+		return { ...filters, search, category: filters.category ?? undefined, favorites: filters.favorites ? true : undefined }
 	} catch (cause) {
 		throw new RecipeFilterError({ cause })
 	}

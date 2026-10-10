@@ -1,7 +1,7 @@
 'use client'
 
 import { RECIPE_CATEGORIES } from '@recipe-app/contracts/types'
-import type { RecipeCategory, RecipeCounts, RecipeFilters } from '@recipe-app/contracts/types'
+import type { RecipeCounts, RecipeFilters } from '@recipe-app/contracts/types'
 import { ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -22,30 +22,37 @@ const sortLabels = {
 	title: { asc: 'Title A-Z', desc: 'Title Z-A' },
 }
 
+/** The category row is a single choice: every recipe, favorites, or one category. */
+export type RecipeChoice = Pick<RecipeFilters, 'category' | 'favorites'>
+
+type RecipeChip = { label: string; choice: RecipeChoice; pressed: boolean; total?: number }
+
 type RecipeControlsProps = {
 	filters: RecipeFilters
 	counts?: RecipeCounts
 	loading: boolean
-	onCategory: (category: RecipeCategory | null) => void
+	onFilter: (choice: RecipeChoice) => void
 	onSort: (sort: Pick<RecipeFilters, 'sortBy' | 'order'>) => void
 }
 
-export function RecipeControls({ filters, counts, loading, onCategory, onSort }: RecipeControlsProps) {
-	const categories = [{ label: 'All', value: undefined, total: counts?.total },
-		...RECIPE_CATEGORIES.map((value) => ({ label: value, value, total: counts?.categories[value] })),
+export function RecipeControls({ filters, counts, loading, onFilter, onSort }: RecipeControlsProps) {
+	const chips: RecipeChip[] = [
+		{ label: 'All', choice: {}, pressed: !filters.category && !filters.favorites, total: counts?.total },
+		{ label: 'Favorites', choice: { favorites: true }, pressed: filters.favorites === true, total: counts?.favorites },
+		...RECIPE_CATEGORIES.map((value) => ({ label: value, choice: { category: value }, pressed: filters.category === value, total: counts?.categories[value] })),
 	]
 	return <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center">
 		<div role="group" aria-label="Recipe categories" aria-busy={loading} className="flex min-w-0 gap-2 overflow-x-auto pb-1 xl:flex-1">
-			{categories.map((category) => <Button
-				key={category.label}
-				variant={filters.category === category.value ? 'default' : 'secondary'}
-				aria-pressed={filters.category === category.value}
-				onClick={() => onCategory(category.value ?? null)}
+			{chips.map((chip) => <Button
+				key={chip.label}
+				variant={chip.pressed ? 'default' : 'secondary'}
+				aria-pressed={chip.pressed}
+				onClick={() => onFilter(chip.choice)}
 				className="h-10 shrink-0 gap-1.5 px-3"
 			>
-				{category.label}
-				{category.total !== undefined ? <span className="rounded-full bg-foreground/10 px-1.5 text-xs tabular-nums">
-					{category.total}
+				{chip.label}
+				{chip.total !== undefined ? <span className="rounded-full bg-foreground/10 px-1.5 text-xs tabular-nums">
+					{chip.total}
 				</span> : loading && <Skeleton aria-hidden="true" className="h-4 w-6 rounded-full" />}
 			</Button>)}
 		</div>

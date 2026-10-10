@@ -73,13 +73,13 @@ describe('Recipe favorites and delete HTTP', () => {
     expect(await favoriteRows(id)).toBe(0);
   }, 60_000);
 
-  it('leaves list paging, totals and counts unchanged when a recipe is favorited', async () => {
+  it('adds a favorited recipe to the favorites count and leaves list paging, totals and other counts unchanged', async () => {
     const ids = [await create({ ...minimalRecipe(s.name), categories: ['Dinner'] }, [], s.other.cookie),await create(undefined, [], s.other.cookie), await create(undefined, [], s.other.cookie)];
     const pages = async () => Promise.all([1, 2, 3, 4].map((page) => s.list(`?limit=1&page=${page}`, s.other.cookie)));
     const before = await pages();
     await s.expectEmpty(await favorite('PUT', ids[1], { cookie: s.other.cookie }));
     const after = await pages();
-    expect(after.map(({ meta, counts }) => ({ meta, counts }))).toEqual(before.map(({ meta, counts }) => ({ meta, counts })));
+    expect(after.map(({ meta, counts }) => ({ meta, counts }))).toEqual(before.map(({ meta, counts }) => ({ meta, counts: { ...counts, favorites: counts.favorites + 1 } })));
     expect(after[0].meta).toMatchObject({ total: 3, totalPages: 3 }); expect(after[0].counts.total).toBe(3); expect(after[3].data).toEqual([]);
     expect(after.flatMap(({ data }) => data.map(({ id }) => id))).toEqual(before.flatMap(({ data }) => data.map(({ id }) => id)));
     expect(after.flatMap(({ data }) => data).filter(({ isFavorite }) => isFavorite).map(({ id }) => id)).toEqual([ids[1]]);
