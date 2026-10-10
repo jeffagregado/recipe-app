@@ -36,13 +36,17 @@ export class RecipesService {
       // Escape LIKE metacharacters so searches match literal text, not SQL wildcards.
       const search = query.search === undefined ? undefined : `%${query.search.replace(/[\\%_]/g, '\\$&')}%`;
       const owner = eq(recipes.userId, userId);
-      const where = and(owner, category, search === undefined ? undefined : or(ilike(recipes.title, search), ilike(recipes.description, search)));
+      const filter = and(category, search === undefined ? undefined : or(ilike(recipes.title, search), ilike(recipes.description, search)));
+      const where = and(owner, filter);
       const direction = query.order === 'asc' ? asc : desc;
       const { rows, total, counts } = await this.databasePolicy.execute(async () => {
         return this.db.transaction(async (tx) => {
           const read = createReadDeadline(signal);
-          const total = await read(tx, () => tx.$count(recipes, where));
-          const overall = await read(tx, () => tx.$count(recipes, owner));
+          // One statement for both totals: every statement is a network round trip inside the read budget.
+          const [{ total, overall }] = await read(tx, async () => tx.select({
+            total: filter === undefined ? count() : sql<number>`count(*) filter (where ${filter})`.mapWith(Number),
+            overall: count(),
+          }).from(recipes).where(owner));
           const categoryTotals = await read(tx, async () => tx.select({ name: categories.name, total: count(recipes.id) })
             .from(categories).leftJoin(recipeCategories, eq(categories.id, recipeCategories.categoryId))
             .leftJoin(recipes, and(eq(recipes.id, recipeCategories.recipeId), owner)).groupBy(categories.name));
