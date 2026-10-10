@@ -6,15 +6,10 @@ const nextConfig: NextConfig = {
 	cacheComponents: true,
 	partialPrefetching: true,
 	images: {
-		// Signed recipe photos come from the storage host of the Neon recipe-app-dev branch (checked against a real signed URL).
+		// Signed recipe photos come from the storage host of the dev branch of the Neon recipe-app-v2 project.
 		// The signature lives in the query string, so `search` stays open; the path starts with the bucket, which is not narrowed.
 		remotePatterns: [
 			{
-				protocol: 'https',
-				hostname: 'br-raspy-waterfall-b4necsu5.storage.c-6.us-east-2.aws.neon.tech',
-				pathname: '/**',
-			},
-      {
 				protocol: 'https',
 				hostname: 'br-hidden-waterfall-b3dj0mm5.storage.c-4.ap-southeast-1.aws.neon.tech',
 				pathname: '/**',

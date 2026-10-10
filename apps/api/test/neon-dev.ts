@@ -4,8 +4,8 @@ import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
 const cli = createRequire(import.meta.url).resolve('neon/cli');
-const projectId = 'rapid-leaf-53002806';
-const DEV_BRANCH = 'br-raspy-waterfall-b4necsu5';
+const projectId = 'round-term-82774312';
+const DEV_BRANCH = 'br-hidden-waterfall-b3dj0mm5';
 
 async function neon(args: string[]): Promise<string> {
   try {
@@ -21,8 +21,8 @@ async function neon(args: string[]): Promise<string> {
 export async function getDevDatabaseUrl(): Promise<string> {
   const target: unknown = JSON.parse(await neon(['branches', 'get', DEV_BRANCH, '--project-id', projectId, '--output', 'json']));
   const branch = Array.isArray(target) ? target[0] as unknown : target;
-  if (!branch || typeof branch !== 'object' || !('id' in branch) || branch.id !== DEV_BRANCH || !('name' in branch) || branch.name !== 'recipe-app-dev') {
-    throw new Error('Neon target mismatch: expected recipe-app-dev. No database writes allowed.');
+  if (!branch || typeof branch !== 'object' || !('id' in branch) || branch.id !== DEV_BRANCH || !('name' in branch) || branch.name !== 'dev') {
+    throw new Error('Neon target mismatch: expected the dev branch of recipe-app-v2. No database writes allowed.');
   }
   const connection = await neon(['connection-string', DEV_BRANCH, '--project-id', projectId, '--database-name', 'neondb', '--role-name', 'neondb_owner', '--ssl', 'verify-full']);
   const url = new URL(connection);
