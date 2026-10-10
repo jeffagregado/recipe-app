@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseVideoLink } from './video-link'
 
 const ID = 'dQw4w9WgXcQ'
-const youtube = { kind: 'youtube', embedUrl: `https://www.youtube-nocookie.com/embed/${ID}` }
+const youtube = { kind: 'youtube', id: ID, embedUrl: `https://www.youtube-nocookie.com/embed/${ID}` }
 
 describe('parseVideoLink', () => {
 	it.each([
@@ -18,10 +18,10 @@ describe('parseVideoLink', () => {
 	})
 
 	it.each([
-		['https://vimeo.com/123456789', 'https://player.vimeo.com/video/123456789'],
-		['https://player.vimeo.com/video/987', 'https://player.vimeo.com/video/987'],
-	])('embeds Vimeo link %s', (url, embedUrl) => {
-		expect(parseVideoLink(url)).toEqual({ kind: 'vimeo', embedUrl })
+		['https://vimeo.com/123456789', '123456789'],
+		['https://player.vimeo.com/video/987', '987'],
+	])('embeds Vimeo link %s', (url, id) => {
+		expect(parseVideoLink(url)).toEqual({ kind: 'vimeo', id, embedUrl: `https://player.vimeo.com/video/${id}` })
 	})
 
 	it.each([

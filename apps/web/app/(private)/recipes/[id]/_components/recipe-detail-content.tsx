@@ -1,5 +1,6 @@
 import { PageNotFoundBlock } from '@/components/layout/page-not-found'
 import { getRecipe } from '@/features/recipes/queries/get-recipe'
+import { getVideoThumbnailUrl } from '@/features/recipes/queries/video-thumbnail'
 import { RecipeDetailView } from './recipe-detail-view'
 
 type RecipeDetailContentProps = {
@@ -14,5 +15,5 @@ export async function RecipeDetailContent({ params }: RecipeDetailContentProps) 
 	const { id } = await params
 	const recipe = await getRecipe(id)
 	if (!recipe) return <PageNotFoundBlock />
-	return <RecipeDetailView recipe={recipe} />
+	return <RecipeDetailView recipe={recipe} videoThumbnailUrl={await getVideoThumbnailUrl(recipe.videoUrl)} />
 }

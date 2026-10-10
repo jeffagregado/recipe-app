@@ -1,5 +1,5 @@
 export type VideoLink =
-	| { kind: 'youtube' | 'vimeo'; embedUrl: string }
+	| { kind: 'youtube' | 'vimeo'; id: string; embedUrl: string }
 	| { kind: 'link'; href: string }
 
 const YOUTUBE_HOSTS = new Set(['www.youtube.com', 'youtube.com', 'm.youtube.com'])
@@ -29,8 +29,8 @@ export function parseVideoLink(value: string): VideoLink | null {
 	if (url.protocol !== 'https:') return null
 
 	const youtube = youtubeId(url)
-	if (youtube && YOUTUBE_ID.test(youtube)) return { kind: 'youtube', embedUrl: `https://www.youtube-nocookie.com/embed/${youtube}` }
+	if (youtube && YOUTUBE_ID.test(youtube)) return { kind: 'youtube', id: youtube, embedUrl: `https://www.youtube-nocookie.com/embed/${youtube}` }
 	const vimeo = vimeoId(url)
-	if (vimeo && VIMEO_ID.test(vimeo)) return { kind: 'vimeo', embedUrl: `https://player.vimeo.com/video/${vimeo}` }
+	if (vimeo && VIMEO_ID.test(vimeo)) return { kind: 'vimeo', id: vimeo, embedUrl: `https://player.vimeo.com/video/${vimeo}` }
 	return { kind: 'link', href: url.href }
 }

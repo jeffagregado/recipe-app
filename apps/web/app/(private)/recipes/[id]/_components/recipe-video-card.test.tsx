@@ -1,23 +1,26 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Activity, type ImgHTMLAttributes } from 'react'
 import { expect, it, vi } from 'vitest'
 import { parseVideoLink } from '@/features/recipes/lib/video-link'
 
 vi.mock('next/image', () => ({
-	default: ({ src, alt }: ImgHTMLAttributes<HTMLImageElement>) => (
+	default: ({ src, alt, onError, unoptimized }: ImgHTMLAttributes<HTMLImageElement> & { unoptimized?: boolean }) => (
 		// eslint-disable-next-line @next/next/no-img-element
-		<img src={src} alt={alt} />
+		<img src={src} alt={alt} onError={onError} data-unoptimized={unoptimized ? '' : undefined} />
 	),
 }))
 
 import { RecipeVideoCard } from './recipe-video-card'
 
-function renderVideo(videoUrl: string, posterUrl: string | null = null) {
+function renderVideo(videoUrl: string, posterUrl: string | null = null, thumbnailUrl: string | null = null) {
 	const video = parseVideoLink(videoUrl)
 	if (!video) throw new Error('test video link must parse')
-	return render(<RecipeVideoCard title="Pasta" video={video} posterUrl={posterUrl} />)
+	return render(<RecipeVideoCard title="Pasta" video={video} posterUrl={posterUrl} thumbnailUrl={thumbnailUrl} />)
 }
+
+const THUMBNAIL = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'
+const COVER = 'https://storage.example/cover.jpg'
 
 const THIRD_PARTY = /youtube|youtu\.be|vimeo|ytimg/i
 
@@ -35,9 +38,26 @@ it('names Vimeo as the source in the caption', () => {
 	expect(screen.getByText('Plays from Vimeo')).toBeInTheDocument()
 })
 
-it('uses the recipe cover as the poster when there is one', () => {
-	renderVideo('https://youtu.be/dQw4w9WgXcQ', 'https://storage.example/cover.jpg')
-	expect(document.querySelector('img')).toHaveAttribute('src', 'https://storage.example/cover.jpg')
+it('uses the recipe cover as the poster when the video has no thumbnail', () => {
+	renderVideo('https://youtu.be/dQw4w9WgXcQ', COVER)
+	expect(document.querySelector('img')).toHaveAttribute('src', COVER)
+})
+
+// The optimizer fetches the thumbnail on the server; loading it directly would contact the video host before Play.
+it('shows the video thumbnail as the poster, only ever through the image optimizer', () => {
+	const { container } = renderVideo('https://youtu.be/dQw4w9WgXcQ', COVER, THUMBNAIL)
+	const images = container.querySelectorAll('img')
+	expect(images).toHaveLength(1)
+	expect(images[0]).toHaveAttribute('src', THUMBNAIL)
+	expect(images[0]).not.toHaveAttribute('data-unoptimized')
+	expect(container.querySelector('iframe, link, script, video')).toBeNull()
+})
+
+it('falls back to the recipe cover when the thumbnail cannot be loaded', () => {
+	const { container } = renderVideo('https://youtu.be/dQw4w9WgXcQ', COVER, THUMBNAIL)
+	fireEvent.error(container.querySelector('img')!)
+	expect(container.querySelector('img')).toHaveAttribute('src', COVER)
+	expect(screen.getByRole('button', { name: 'Play video' })).toBeInTheDocument()
 })
 
 it('swaps the poster for the validated embed after Play and moves focus to the player', async () => {
@@ -64,7 +84,7 @@ it('removes the player when its page is hidden and offers Play again when it is 
 	const video = parseVideoLink('https://youtu.be/dQw4w9WgXcQ')!
 	const page = (mode: 'visible' | 'hidden') => (
 		<Activity mode={mode}>
-			<RecipeVideoCard title="Pasta" video={video} posterUrl={null} />
+			<RecipeVideoCard title="Pasta" video={video} posterUrl={null} thumbnailUrl={null} />
 		</Activity>
 	)
 	const { container, rerender } = render(page('visible'))

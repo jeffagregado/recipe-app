@@ -12,13 +12,14 @@ import { RecipeVideoCard } from './recipe-video-card'
 
 type RecipeDetailViewProps = {
 	recipe: RecipeDetail
+	videoThumbnailUrl: string | null
 }
 
 /**
  * DOM order is the mobile order: Ingredients, Video, Instructions, Notes. From `xl` the first two sit in a sticky
  * left column and the last two in the right one, so the columns need no reordering.
  */
-export function RecipeDetailView({ recipe }: RecipeDetailViewProps) {
+export function RecipeDetailView({ recipe, videoThumbnailUrl }: RecipeDetailViewProps) {
 	const ingredients = recipe.ingredients.toSorted((a, b) => a.sortOrder - b.sortOrder)
 	const instructions = recipe.instructions.toSorted((a, b) => a.stepNumber - b.stepNumber)
 	const video = recipe.videoUrl ? parseVideoLink(recipe.videoUrl) : null
@@ -50,7 +51,7 @@ export function RecipeDetailView({ recipe }: RecipeDetailViewProps) {
 				{/* Tall content scrolls inside the sticky column instead of being cut off below the viewport. */}
 				<div className="space-y-4 sm:space-y-5 xl:sticky xl:top-6 xl:col-span-5 xl:-m-1 xl:max-h-[calc(100dvh-3rem)] xl:self-start xl:overflow-y-auto xl:p-1">
 					<IngredientsCard key={recipe.updatedAt} ingredients={ingredients} servings={recipe.servings} />
-					{video && <RecipeVideoCard title={recipe.title} video={video} posterUrl={recipe.imageUrl} />}
+					{video && <RecipeVideoCard title={recipe.title} video={video} posterUrl={recipe.imageUrl} thumbnailUrl={videoThumbnailUrl} />}
 				</div>
 				<div className="space-y-4 sm:space-y-5 xl:col-span-7">
 					<InstructionsCard instructions={instructions} />
