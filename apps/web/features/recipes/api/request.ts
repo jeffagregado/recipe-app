@@ -20,6 +20,7 @@ function recipePageUrl(endpoint: string, filters: RecipeFilters, page: number): 
 	url.searchParams.set('sortBy', filters.sortBy)
 	url.searchParams.set('order', filters.order)
 	if (filters.category) url.searchParams.set('category', filters.category)
+	if (filters.favorites) url.searchParams.set('favorites', 'true')
 	if (filters.search) url.searchParams.set('search', filters.search)
 	return endpoint.startsWith('/') ? `${url.pathname}${url.search}` : url.href
 }

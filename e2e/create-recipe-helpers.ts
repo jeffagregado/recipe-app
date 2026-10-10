@@ -82,10 +82,10 @@ export function recordRequests(page: Page) {
   };
 }
 
-/** Console errors/warnings and page errors; the desktop sidebar's three unbuilt routes answer 404 by design. */
+/** Console errors/warnings and page errors; the desktop sidebar's two unbuilt routes answer 404 by design. */
 export function watchConsole(page: Page): string[] {
   const issues: string[] = [];
-  const unbuilt = /\/(categories|favorites|settings)(\?|$)/;
+  const unbuilt = /\/(categories|settings)(\?|$)/;
   page.on('pageerror', (error) => issues.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
     if (message.type() !== 'error' && message.type() !== 'warning') return;

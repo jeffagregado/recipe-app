@@ -45,8 +45,8 @@ test('server-renders 20, appends five disjoint pages and stops at 100', async ({
   await expect(page.getByText('Showing 100 of 100 recipes', { exact: true })).toBeVisible();
   expect(requests).toEqual([2, 3, 4, 5]);
   expect(new URL(page.url()).search).toBe('');
-  // Desktop sidebar prefetches three existing routes outside this feature's scope.
-  for (const path of missingRoutes) expect(['/categories', '/favorites', '/settings']).toContain(path);
+  // Desktop sidebar prefetches two existing routes outside this feature's scope.
+  for (const path of missingRoutes) expect(['/categories', '/settings']).toContain(path);
   expect(consoleErrors).toHaveLength(missingRoutes.length);
   expect(consoleErrors.every((message) => message.includes('404 (Not Found)'))).toBe(true);
 });

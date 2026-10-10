@@ -169,6 +169,8 @@ export type RecipeSortField = (typeof RECIPE_SORT_FIELDS)[number];
 export type RecipeFilters = {
   search?: string;
   category?: RecipeCategory;
+  /** Present only when the list is narrowed to the signed-in user's favorites. */
+  favorites?: true;
   sortBy: RecipeSortField;
   order: SortDirection;
 };

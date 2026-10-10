@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { inArray, sql, TransactionRollbackError } from 'drizzle-orm';
+import { eq, inArray, sql, TransactionRollbackError } from 'drizzle-orm';
 import { ResilienceTimeoutError } from '@nestjs/resilience';
 import { recipeListResponseSchema } from '@recipe-app/contracts/schemas';
 import { RECIPE_CATEGORIES, RECIPE_SORT_FIELDS } from '@recipe-app/contracts/types';
 import type { AuthUser, RecipeListQuery, RecipeSummary } from '@recipe-app/contracts/types';
 import { DatabaseService } from '../../src/database/database.service.js';
-import { recipes } from '../../src/database/schema.js';
+import { favorites, recipes } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
 import { createReadDeadline } from '../../src/recipes/recipe-read-deadline.js';
 import { apiClient, insertOwnedRecipes, ownedId, removeTestData, signupUser, startApi, testAddress, testUsername } from '../auth-harness.js';
@@ -19,6 +19,7 @@ describe('Owner-scoped SQL recipe pagination', () => {
   let cookie: string;
   const address = testAddress();
   const username = testUsername();
+  const otherUsername = testUsername();
   const tag = `verify-paging-${randomUUID()}`;
   beforeAll(async () => {
     const started = await startApi();
@@ -30,7 +31,7 @@ describe('Owner-scoped SQL recipe pagination', () => {
   }, 60_000);
   afterAll(async () => {
     if (!app) return;
-    try { await removeTestData(app.get(DatabaseService).db, { usernames: [username], addresses: [address] }); }
+    try { await removeTestData(app.get(DatabaseService).db, { usernames: [username, otherUsername], addresses: [address] }); }
     finally { await app.close(); }
   });
 
@@ -102,6 +103,35 @@ describe('Owner-scoped SQL recipe pagination', () => {
     expect((await list({ search: '   ' })).meta.total).toBe(100);
   }, 60_000);
 
+  it('lists only favorites of the session user before counting, searching, sorting and paging', async () => {
+    const db = app.get(DatabaseService).db;
+    const picked = seedRecipes.filter((_, index) => index % 4 === 0);
+    const empty = await list({ favorites: true });
+    expect(empty.data).toEqual([]);
+    expect(empty.meta).toMatchObject({ total: 0, totalPages: 0 });
+    expect(empty.counts.total).toBe(100);
+    try {
+      await db.insert(favorites).values(picked.map((recipe) => ({ userId: user.id, recipeId: ownedId(tag, recipe.id) })));
+      // Recipes are owner-only, so another user's row can only exist out of band; it must never widen this list.
+      const other = await signupUser(apiClient(baseUrl, address), otherUsername);
+      await db.insert(favorites).values({ userId: other.user.id, recipeId: ownedId(tag, seedRecipes[1].id) });
+      const first = await list({ favorites: true, limit: 10 });
+      const pages = [first];
+      for (let page = 2; page <= first.meta.totalPages; page++) pages.push(await list({ favorites: true, limit: 10, page }));
+      const records = pages.flatMap(({ data }) => data);
+      expect(first.meta).toMatchObject({ total: picked.length, totalPages: Math.ceil(picked.length / 10) });
+      expect(first.counts.total).toBe(100);
+      expect(records.map(({ id }) => id)).toEqual(ordered('createdAt', 'desc', picked));
+      expect(records.every((recipe) => recipe.isFavorite)).toBe(true);
+      const narrowed = picked.filter((recipe) => recipe.categories.includes('Breakfast') && `${recipe.title} ${recipe.description ?? ''}`.toLowerCase().includes('oat'));
+      expect(narrowed.length).toBeGreaterThan(0);
+      expect(narrowed.length).toBeLessThan(picked.length);
+      const combined = await list({ favorites: true, category: 'Breakfast', search: 'oat', sortBy: 'title', order: 'asc' });
+      expect(combined.data.map(({ id }) => id)).toEqual(ordered('title', 'asc', narrowed));
+      expect(combined.meta.total).toBe(narrowed.length);
+    } finally { await db.delete(favorites).where(eq(favorites.userId, user.id)); }
+  }, 60_000);
+
   it('treats search wildcard characters and quotes as literal text', async () => {
     const db = app.get(DatabaseService).db;
     const id = `verify-search-${randomUUID()}`;
@@ -133,7 +163,7 @@ describe('Owner-scoped SQL recipe pagination', () => {
   }, 60_000);
 
   it('rejects malformed supported parameters with actionable HTTP 400 errors', async () => {
-    for (const query of ['page=0', 'page=-1', 'page=1.5', 'page=no', 'page=', 'page=1&page=2', 'limit=0', 'limit=21', 'limit=', 'category=no', 'category=', 'category=Dinner&category=Lunch', 'sortBy=no', 'sortBy=', 'order=no', 'order=', 'order=ASC']) {
+    for (const query of ['page=0', 'page=-1', 'page=1.5', 'page=no', 'page=', 'page=1&page=2', 'limit=0', 'limit=21', 'limit=', 'category=no', 'category=', 'category=Dinner&category=Lunch', 'favorites=false', 'favorites=true&favorites=true', 'sortBy=no', 'sortBy=', 'order=no', 'order=', 'order=ASC']) {
       const response = await fetch(`${baseUrl}/recipes?${query}`, { headers: { Cookie: cookie } });
       expect(response.status, query).toBe(400);
       const payload: unknown = await response.json();

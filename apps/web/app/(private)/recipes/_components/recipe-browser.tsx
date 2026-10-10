@@ -17,7 +17,7 @@ export function RecipeBrowser({ userId, endpoint }: { userId: string; endpoint: 
 		endpoint={endpoint}
 		userId={userId}
 		filters={filters}
-		onCategory={(category) => { void setFilters({ category }) }}
+		onFilter={({ category, favorites }) => { void setFilters({ category: category ?? null, favorites: favorites ? 'true' : null }) }}
 		onSort={(sort) => { void setFilters(sort) }}
 	/>
 }

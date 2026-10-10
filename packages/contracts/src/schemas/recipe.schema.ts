@@ -158,6 +158,8 @@ export const recipeSearchSchema = z.string().trim().max(200).transform((value) =
 export const recipeListQuerySchema: z.ZodType<RecipeListQuery> = z.object({
   search: recipeSearchSchema,
   category: recipeCategorySchema.optional(),
+  // Only the literal flag turns the filter on; leave it out to list every recipe.
+  favorites: z.literal("true").transform(() => true as const).optional(),
   page: queryInteger(z.number().int().positive().max(Math.floor(Number.MAX_SAFE_INTEGER / 20))).default(1),
   limit: queryInteger(z.number().int().positive().max(20)).default(20),
   sortBy: recipeSortFieldSchema.default("createdAt"),

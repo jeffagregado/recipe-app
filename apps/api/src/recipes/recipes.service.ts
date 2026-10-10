@@ -8,7 +8,7 @@ import { DRIZZLE_DB } from '../database/database.module.js';
 import { DatabaseError } from '../database/database.service.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { StorageService } from '../storage/storage.service.js';
-import { categories, recipeCategories, recipes } from '../database/schema.js';
+import { categories, favorites, recipeCategories, recipes } from '../database/schema.js';
 import { createReadDeadline } from './recipe-read-deadline.js';
 
 @Injectable()
@@ -33,10 +33,14 @@ export class RecipesService {
         select 1 from ${recipeCategories} rc join ${categories} c on c.id = rc.category_id
         where rc.recipe_id = ${recipes.id} and c.name = ${query.category}
       )`;
+      // Favorites are per user; the session user's row is the only one that can match.
+      const favorite = query.favorites === undefined ? undefined : sql`exists (
+        select 1 from ${favorites} f where f.recipe_id = ${recipes.id} and f.user_id = ${userId}
+      )`;
       // Escape LIKE metacharacters so searches match literal text, not SQL wildcards.
       const search = query.search === undefined ? undefined : `%${query.search.replace(/[\\%_]/g, '\\$&')}%`;
       const owner = eq(recipes.userId, userId);
-      const filter = and(category, search === undefined ? undefined : or(ilike(recipes.title, search), ilike(recipes.description, search)));
+      const filter = and(category, favorite, search === undefined ? undefined : or(ilike(recipes.title, search), ilike(recipes.description, search)));
       const where = and(owner, filter);
       const direction = query.order === 'asc' ? asc : desc;
       const { rows, total, counts } = await this.databasePolicy.execute(async () => {

@@ -8,6 +8,7 @@ import {
   expectedRecipeUpdateFileFields,
   recipeDetailSchema,
   recipeListItemSchema,
+  recipeListQuerySchema,
   updateRecipeMetadataSchema,
 } from "./recipe.schema.js";
 import { apiErrorEnvelopeSchema } from "./common.schema.js";
@@ -190,5 +191,16 @@ describe("favorite state in recipe responses", () => {
     const item = { id: "r1", title: "Soup", categories: [], description: null, imageUrl: null, servings: null, prepTimeMinutes: null, cookTimeMinutes: null, createdAt: "2026-10-09T00:00:00.000Z", updatedAt: "2026-10-09T00:00:00.000Z" };
     expect(recipeListItemSchema.safeParse({ ...item, isFavorite: true }).success).toBe(true);
     expect(recipeListItemSchema.safeParse(item).success).toBe(false);
+  });
+});
+
+describe("favorites filter in the recipe list query", () => {
+  it("is off by default and on only for the literal true", () => {
+    expect(recipeListQuerySchema.parse({}).favorites).toBeUndefined();
+    expect(recipeListQuerySchema.parse({ favorites: "true" }).favorites).toBe(true);
+  });
+
+  it.each([["false"], [""], ["1"], ["TRUE"], [["true", "true"]]])("rejects favorites=%j", (favorites) => {
+    expect(recipeListQuerySchema.safeParse({ favorites }).success).toBe(false);
   });
 });

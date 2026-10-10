@@ -20,6 +20,8 @@ type Entry = { favorite: boolean; pending: boolean }
  */
 const entries = new Map<string, Entry>()
 const listeners = new Set<() => void>()
+/** Changes the server has confirmed in this tab; a list that filters on favorites reloads when it moves. */
+let saves = 0
 
 function subscribe(listener: () => void) {
 	listeners.add(listener)
@@ -46,6 +48,7 @@ export function useFavorite(recipeId: string, saved: boolean) {
 
 		const result: FavoriteResult = await setFavorite(recipeId, next).catch(() => ({ ok: false, reason: 'failed' }))
 		if (result.ok) {
+			saves += 1
 			write(recipeId, { favorite: next, pending: false })
 			return
 		}
@@ -54,4 +57,8 @@ export function useFavorite(recipeId: string, saved: boolean) {
 	}
 
 	return { favorite: entry?.favorite ?? saved, toggle }
+}
+
+export function useFavoriteSaves() {
+	return useSyncExternalStore(subscribe, () => saves, () => 0)
 }
