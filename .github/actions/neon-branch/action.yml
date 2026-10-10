@@ -1,0 +1,42 @@
+name: Create Neon test branch
+description: >
+  Create a disposable child of the Neon dev branch and export its connection string as DATABASE_URL for later steps.
+  Uses the repository's Neon CLI rather than neondatabase/create-branch-action because that action leaves the
+  connection string and role password unmasked in its outputs, and child branches inherit the parent's password.
+
+inputs:
+  name:
+    description: Name of the branch to create
+    required: true
+  parent:
+    description: Parent branch name or id
+    required: true
+  project-id:
+    description: Neon project id
+    required: true
+  api-key:
+    description: Neon API key
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Create branch and export masked DATABASE_URL
+      shell: bash
+      env:
+        NEON_API_KEY: ${{ inputs.api-key }}
+        NEON_PROJECT_ID: ${{ inputs.project-id }}
+        BRANCH_NAME: ${{ inputs.name }}
+        PARENT_BRANCH: ${{ inputs.parent }}
+      run: |
+        set -euo pipefail
+        # A run that is cancelled before its delete step still disappears within a day.
+        expires_at=$(date -u -d '+1 day' +%Y-%m-%dT%H:%M:%SZ)
+        pnpm exec neon --no-analytics branches create --project-id "$NEON_PROJECT_ID" --name "$BRANCH_NAME" \
+          --parent "$PARENT_BRANCH" --expires-at "$expires_at" --no-secrets > /dev/null
+        url=$(pnpm exec neon --no-analytics connection-string "$BRANCH_NAME" --project-id "$NEON_PROJECT_ID" \
+          --database-name neondb --role-name neondb_owner --ssl verify-full)
+        # Mask before the value reaches the environment file; nothing above prints it.
+        echo "::add-mask::$url"
+        node -e 'const { password } = new URL(process.argv[1]); for (const value of new Set([password, decodeURIComponent(password)])) console.log(`::add-mask::${value}`);' "$url"
+        echo "DATABASE_URL=$url" >> "$GITHUB_ENV"

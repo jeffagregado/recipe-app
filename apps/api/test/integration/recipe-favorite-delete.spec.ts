@@ -6,7 +6,7 @@ import { favorites, ingredients, recipeCategories, recipeImages, recipeIngredien
 import { RECIPE_FAVORITE_LIMIT } from '../../src/recipes/recipe-guards.js';
 import { RECIPE_CLEANUP_BUDGET_MS, reconcileRecipeWrites } from '../../src/recipes/recipe-reconcile.js';
 import { RECIPE_WRITE_LIMIT } from '../../src/recipes/recipe-upload.js';
-import { jpeg, minimalRecipe, openRecipeSuite } from '../recipe-suite.js';
+import { CI_LATENCY_MS, jpeg, minimalRecipe, openRecipeSuite } from '../recipe-suite.js';
 import type { Photo, RecipeSuite } from '../recipe-suite.js';
 
 describe('Recipe favorites and delete HTTP', () => {
@@ -141,7 +141,7 @@ describe('Recipe favorites and delete HTTP', () => {
     try {
       const response = await Promise.race([request, new Promise<null>((resolve) => { setTimeout(resolve, RECIPE_CLEANUP_BUDGET_MS + 5000, null); })]);
       expect(response === null, 'DELETE waited for object cleanup').toBe(false);
-      await s.expectEmpty(response!); expect(Date.now() - started < RECIPE_CLEANUP_BUDGET_MS + 3000).toBe(true);
+      await s.expectEmpty(response!); expect(Date.now() - started < RECIPE_CLEANUP_BUDGET_MS + 3000 + CI_LATENCY_MS).toBe(true);
       expect(await rowCounts(id)).toEqual([0, 0, 0, 0, 0, 0]);
       // Deletions run a few at a time, and none starts once the budget is spent.
       expect(deletion.mock.calls.length > 1 && deletion.mock.calls.length < keys.length).toBe(true);

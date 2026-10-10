@@ -8,6 +8,11 @@ import { StorageService } from '../src/storage/storage.service.js';
 import { apiClient, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testUsername } from './auth-harness.js';
 
 /** Smallest bytes the JPEG check accepts; the marker makes each photo distinguishable after a round trip. */
+/**
+ * Extra allowance for wall-clock bounds in CI, where the runner is an ocean away from the database and object storage.
+ * The bounds still prove a response did not wait for cleanup that the test holds open indefinitely.
+ */
+export const CI_LATENCY_MS = process.env.CI ? 15_000 : 0;
 export const jpeg = (marker = 0) => Buffer.from([255, 216, 255, 224, 0, 2, marker, 255, 217]);
 export type Photo = { field: string; bytes: Buffer; mime?: string };
 type CallOptions = { cookie?: string | null; origin?: string | null };

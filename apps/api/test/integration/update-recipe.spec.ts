@@ -11,7 +11,7 @@ import { RECIPE_WRITE_LIMIT, RecipeWriteGuard } from '../../src/recipes/recipe-u
 import type { RecipeUploadRequest } from '../../src/recipes/recipe-upload.js';
 import { RecipeWriteHook } from '../../src/recipes/recipe-write-hook.js';
 import { TEST_ORIGIN } from '../auth-harness.js';
-import { jpeg, minimalRecipe, openRecipeSuite } from '../recipe-suite.js';
+import { CI_LATENCY_MS, jpeg, minimalRecipe, openRecipeSuite } from '../recipe-suite.js';
 import type { Photo, RecipeSuite } from '../recipe-suite.js';
 
 describe('Update recipe HTTP', () => {
@@ -235,7 +235,7 @@ describe('Update recipe HTTP', () => {
     try {
       // A committed update is never reported as timed out because its cleanup is slow.
       expect(await s.savedId(await request, 200)).toBe(id);
-      expect(Date.now() - started < Math.min(deadlineMs, RECIPE_CLEANUP_BUDGET_MS) + 4000).toBe(true);
+      expect(Date.now() - started < Math.min(deadlineMs, RECIPE_CLEANUP_BUDGET_MS) + 4000 + CI_LATENCY_MS).toBe(true);
       const committed = await s.detail(id);
       expect(committed.title).toBe('Slow cleanup'); expect((await s.bytesAt(committed.imageUrl))?.equals(jpeg(100))).toBe(true);
       const attempt = await attemptFor(key);

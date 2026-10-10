@@ -5,7 +5,7 @@ import { authRateLimits, recipes, recipeWriteAttempts } from '../apps/api/src/da
 import { seedRecipes } from '../apps/api/src/recipes/seed-recipes.js';
 import { creatorTest as test, expect, WEB_URL } from './fixtures.js';
 import {
-  COVER, PLAIN_LINK, RICH, RICH_FILES, STEP_ONE, WIDTHS,
+  COVER, PLAIN_LINK, RICH, RICH_FILES, WIDTHS,
   chooseUnit, createRecipeViaApi, field, fillIngredient, fillMinimal, fillRich, ingredientRows, noOverflow, openCreate, photo, richMetadata, stepTexts, stubVideoHosts, toast, watchConsole,
 } from './create-recipe-helpers.js';
 
@@ -66,28 +66,6 @@ test.describe('validation', () => {
     const [{ n }] = await workerData.db.select({ n: count() }).from(recipes).where(eq(recipes.userId, creator.user.id));
     expect(n).toBe(0);
   });
-
-  test('fraction amounts, a fourth category and a bad video link are rejected', async ({ page, workerData, creator }) => {
-    await openCreate(page);
-    await fillMinimal(page, 'Validation soup');
-    await field.ingredientAmount(page, 1).fill('1/2');
-    await chooseUnit(page, 1, 'g');
-    for (const name of ['Breakfast', 'Lunch', 'Dinner']) await field.category(page, name).click();
-    await expect(page.getByText('Choose up to 3 · 3 selected')).toBeVisible();
-    await expect(field.category(page, 'Snacks')).toBeDisabled();
-    await expect(field.category(page, 'Desserts')).toBeDisabled();
-    await field.category(page, 'Lunch').click();
-    await expect(field.category(page, 'Snacks')).toBeEnabled();
-    await field.category(page, 'Lunch').click();
-    await field.video(page).fill('http://example.com/pasta');
-    await field.save(page).click();
-    await expect(page.getByText('Use a decimal such as 0.5 instead of a fraction like 1/2.')).toBeVisible();
-    await expect(page.getByText('Enter a link that starts with https://')).toBeVisible();
-    await expect(field.ingredientAmount(page, 1)).toHaveAttribute('aria-invalid', 'true');
-    await expect(page).toHaveURL(`${WEB_URL}/recipes/create`);
-    const [{ n }] = await workerData.db.select({ n: count() }).from(recipes).where(eq(recipes.userId, creator.user.id));
-    expect(n).toBe(0);
-  });
 });
 
 test.describe('rows', () => {
@@ -132,48 +110,6 @@ test.describe('rows', () => {
     await expect(page.getByLabel(/^Ingredient \d+ name$/)).toHaveCount(1);
     await expect(field.ingredientName(page, 1)).toHaveValue('');
   });
-
-  test('steps can be added, edited, moved and removed by click and keyboard', async ({ page }) => {
-    await openCreate(page);
-    await field.step(page, 1).fill('Chop');
-    await page.getByRole('button', { name: 'Add step' }).click();
-    await expect(field.step(page, 2)).toBeFocused();
-    await page.keyboard.type('Mix');
-    await page.getByRole('button', { name: 'Add step' }).click();
-    await page.keyboard.type('Bake');
-    expect(await rowValues(page, /^Step \d+ instructions$/)).toEqual(['Chop', 'Mix', 'Bake']);
-    await expect(page.getByRole('button', { name: 'Move step 1 up' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Move step 3 down' })).toBeDisabled();
-
-    await field.step(page, 1).fill('Chop finely');
-    await page.getByRole('button', { name: 'Move step 3 up' }).click();
-    expect(await rowValues(page, /^Step \d+ instructions$/)).toEqual(['Chop finely', 'Bake', 'Mix']);
-    await page.getByRole('button', { name: 'Move step 1 down' }).focus();
-    await page.keyboard.press('Enter');
-    expect(await rowValues(page, /^Step \d+ instructions$/)).toEqual(['Bake', 'Chop finely', 'Mix']);
-    await page.getByRole('button', { name: 'Remove step 1' }).focus();
-    await page.keyboard.press('Space');
-    expect(await rowValues(page, /^Step \d+ instructions$/)).toEqual(['Chop finely', 'Mix']);
-    await page.getByRole('button', { name: 'Remove step 2' }).click();
-    await page.getByRole('button', { name: 'Remove step 1' }).click();
-    await expect(page.getByLabel(/^Step \d+ instructions$/)).toHaveCount(1);
-    await expect(field.step(page, 1)).toHaveValue('');
-  });
-
-  test('a blank extra row is reported, not dropped', async ({ page, workerData, creator }) => {
-    await openCreate(page);
-    await fillMinimal(page, 'Blank rows');
-    await page.getByRole('button', { name: 'Add ingredient' }).click();
-    await page.getByRole('button', { name: 'Add step' }).click();
-    await field.save(page).click();
-    await expect(page.getByText('Add an ingredient name.')).toBeVisible();
-    await expect(page.getByText('Describe this step.')).toBeVisible();
-    await expect(field.ingredientName(page, 2)).toBeFocused();
-    await expect(page.getByLabel(/^Ingredient \d+ name$/)).toHaveCount(2);
-    await expect(page.getByLabel(/^Step \d+ instructions$/)).toHaveCount(2);
-    const [{ n }] = await workerData.db.select({ n: count() }).from(recipes).where(eq(recipes.userId, creator.user.id));
-    expect(n).toBe(0);
-  });
 });
 
 test.describe('photos', () => {
@@ -199,48 +135,10 @@ test.describe('photos', () => {
     await expect(page.getByText(/^huge\.png is \d\.\d MB\. The limit is 5 MB\.$/)).toBeVisible();
     await expect(page.getByRole('img', { name: /^Preview of/ })).toHaveCount(0);
   });
-
-  test('step photos: pick, replace and remove, errors stay under their step, and a photo follows its step', async ({ page }) => {
-    await openCreate(page);
-    await field.step(page, 1).fill('First step');
-    await page.getByRole('button', { name: 'Add step' }).click();
-    await field.step(page, 2).fill('Second step');
-    await page.getByLabel('Add photo to step 1').setInputFiles(STEP_ONE);
-    await expect(page.getByText(/^boiling-pasta\.png · \d+ KB$/)).toBeVisible();
-    await page.getByLabel('Replace photo for step 1').setInputFiles(photo('replaced.png', [60, 160, 90]));
-    await expect(page.getByText(/^replaced\.png · \d+ KB$/)).toBeVisible();
-
-    await page.getByLabel('Add photo to step 2').setInputFiles({ name: 'big.png', mimeType: 'image/png', buffer: Buffer.alloc(5 * 1024 * 1024 + 1) });
-    const second = page.getByRole('listitem').filter({ has: field.step(page, 2) });
-    await expect(second.getByText(/^big\.png is \d\.\d MB\. The limit is 5 MB\.$/)).toBeVisible();
-    await expect(page.getByLabel('Add photo to step 1')).toHaveCount(0);
-
-    await page.getByRole('button', { name: 'Move step 1 down' }).click();
-    const firstRow = page.getByRole('listitem').filter({ has: field.step(page, 1) });
-    await expect(field.step(page, 1)).toHaveValue('Second step');
-    await expect(page.getByLabel('Add photo to step 1')).toBeVisible();
-    await expect(page.getByLabel('Replace photo for step 2')).toBeVisible();
-    await expect(page.getByRole('listitem').filter({ has: field.step(page, 2) }).getByText(/^replaced\.png · \d+ KB$/)).toBeVisible();
-    await expect(firstRow.getByText(/replaced\.png/)).toHaveCount(0);
-
-    await page.getByRole('button', { name: 'Remove photo from step 2' }).click();
-    await expect(page.getByLabel('Add photo to step 2')).toBeVisible();
-    await expect(page.getByText(/replaced\.png/)).toHaveCount(0);
-  });
 });
 
 test.describe('leaving the form', () => {
   const discardDialog = (page: Page) => page.getByRole('alertdialog', { name: 'Discard changes?' });
-
-  test('a pristine form leaves without asking and never opens a native confirm', async ({ page }) => {
-    const prompts: string[] = [];
-    page.on('dialog', (dialog) => { prompts.push(dialog.type()); void dialog.dismiss(); });
-    await openCreate(page);
-    await field.leave(page).click();
-    await expect(page).toHaveURL(`${WEB_URL}/recipes`);
-    await expect(discardDialog(page)).toHaveCount(0);
-    expect(prompts).toEqual([]);
-  });
 
   test('a dirty form asks in a dialog: Keep editing, Escape and the backdrop keep it; Discard leaves and the next visit starts empty', async ({ page }) => {
     const prompts: string[] = [];

@@ -12,7 +12,10 @@ export default defineConfig({
   // Browser action steps can contain form values; keep only the value-free list output.
   reporter: [['list']],
   outputDir: './test-results',
-  timeout: 60_000,
+  // CI runners are in another region from the database, so a login or save can take longer than the default five seconds.
+  // The longer waits change how long an assertion may take to become true, not what it asserts.
+  timeout: process.env.CI ? 120_000 : 60_000,
+  expect: { timeout: process.env.CI ? 15_000 : 5_000 },
   use: {
     baseURL: webUrl,
     // Auth cookies and form credentials must not be written to trace artifacts.
