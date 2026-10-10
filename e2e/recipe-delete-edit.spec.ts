@@ -146,6 +146,28 @@ test.describe('delete', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Goes away' })).toHaveCount(0);
   });
 
+  test('the list card menu edits and deletes like the recipe page menu', async ({ page, creator, workerData }) => {
+    const kept = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Card kept'));
+    await createRecipeViaApi(creator, workerData.address, minimalMetadata('Card removed'));
+    await page.goto('/recipes');
+    await expect(recipeCards(page)).toHaveCount(2);
+    const cardFor = (title: string) => recipeCards(page).filter({ hasText: title });
+
+    await cardFor('Card kept').getByRole('button', { name: 'More options for Card kept' }).click();
+    await page.getByRole('menuitem', { name: 'Edit recipe' }).click();
+    await expect(page).toHaveURL(`${WEB_URL}/recipes/${kept}/edit`);
+    await expect(page.getByRole('heading', { level: 1, name: 'Edit Recipe' })).toBeVisible();
+
+    await page.goBack();
+    await cardFor('Card removed').getByRole('button', { name: 'More options for Card removed' }).click();
+    await page.getByRole('menuitem', { name: 'Delete recipe' }).click();
+    await deleteDialog(page).getByRole('button', { name: 'Delete recipe' }).click();
+    await expect(toast.success(page, 'Recipe deleted')).toBeVisible();
+    await expect(page).toHaveURL(`${WEB_URL}/recipes`);
+    await expect(recipeCards(page)).toHaveCount(1);
+    await expect(cardFor('Card kept')).toHaveCount(1);
+  });
+
   test('browser Back after a delete never shows the deleted recipe', async ({ page, creator, workerData }) => {
     const target = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Back after delete'));
     await createRecipeViaApi(creator, workerData.address, minimalMetadata('Other survivor'));

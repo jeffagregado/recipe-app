@@ -1,6 +1,6 @@
 'use client'
 
-import { EllipsisVertical, Pencil, Trash2 } from 'lucide-react'
+import { EllipsisVertical, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -11,12 +11,20 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { cn } from '@/lib/utils'
 import { DeleteRecipeDialog } from './delete-recipe-dialog'
 
 const ITEM_CLASS = 'min-h-11 sm:min-h-8'
 
-/** The ⋮ menu beside the title: Edit recipe, and Delete recipe behind a confirmation. */
-export function RecipeMenu({ recipeId, title }: { recipeId: string; title: string }) {
+type RecipeMenuProps = {
+	recipeId: string
+	title: string
+	/** `page` is the round ⋮ beside the recipe title; `card` is the square ⋯ over a list card's photo. */
+	variant?: 'page' | 'card'
+}
+
+/** The options menu of one recipe: Edit recipe, and Delete recipe behind a confirmation. */
+export function RecipeMenu({ recipeId, title, variant = 'page' }: RecipeMenuProps) {
 	const [confirmingDelete, setConfirmingDelete] = useState(false)
 	const triggerRef = useRef<HTMLButtonElement>(null)
 
@@ -27,10 +35,10 @@ export function RecipeMenu({ recipeId, title }: { recipeId: string; title: strin
 		<>
 			<DropdownMenu>
 				<DropdownMenuTrigger
-					render={<Button ref={triggerRef} variant="outline" size="icon" className="size-11 rounded-full sm:size-9" />}
+					render={<Button ref={triggerRef} variant="outline" size="icon" className={cn('size-11 sm:size-9', variant === 'card' ? 'rounded-[6px]' : 'rounded-full')} />}
 					aria-label={`More options for ${title}`}
 				>
-					<EllipsisVertical aria-hidden="true" />
+					{variant === 'card' ? <MoreHorizontal aria-hidden="true" /> : <EllipsisVertical aria-hidden="true" />}
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end" className="min-w-44">
 					<DropdownMenuGroup>

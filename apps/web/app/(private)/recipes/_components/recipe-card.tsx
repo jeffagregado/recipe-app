@@ -1,23 +1,14 @@
 'use client'
 
 import type { RecipeListItem } from '@recipe-app/contracts/types'
-import { BookOpen, Heart, MoreHorizontal } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useId } from 'react'
 
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuGroup,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { FavoriteButton } from '@/features/recipes/components/favorite-button'
-import { useFavorite } from '@/features/recipes/hooks/use-favorite'
+import { RecipeMenu } from '@/features/recipes/components/recipe-menu'
 import { categoryVariants } from '@/features/recipes/lib/category-variants'
 
 export type RecipeCardData = Pick<RecipeListItem, 'id' | 'title' | 'imageUrl' | 'categories' | 'updatedAt' | 'isFavorite'> & {
@@ -30,8 +21,6 @@ type RecipeCardProps = {
 }
 
 export function RecipeCard({ recipe, preload = false }: RecipeCardProps) {
-	const { favorite, toggle } = useFavorite(recipe.id, recipe.isFavorite)
-
 	const titleId = useId()
 	const href = `/recipes/${encodeURIComponent(recipe.id)}`
 
@@ -52,26 +41,7 @@ export function RecipeCard({ recipe, preload = false }: RecipeCardProps) {
 					className="object-cover transition-transform duration-300 motion-safe:group-hover/recipe:scale-105"
 				/>
 				<div className="absolute top-2 right-2 z-10">
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={<Button variant="outline" size="icon" className="size-11 rounded-[6px] sm:size-9" />}
-							aria-label={`More options for ${recipe.title}`}
-						>
-							<MoreHorizontal aria-hidden="true" />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end" className="min-w-44">
-							<DropdownMenuGroup>
-								<DropdownMenuItem render={<Link href={href} />}>
-									<BookOpen aria-hidden="true" />
-									View recipe
-								</DropdownMenuItem>
-								<DropdownMenuItem onClick={() => void toggle()}>
-									<Heart aria-hidden="true" />
-									{favorite ? 'Remove from favorites' : 'Add to favorites'}
-								</DropdownMenuItem>
-							</DropdownMenuGroup>
-						</DropdownMenuContent>
-					</DropdownMenu>
+					<RecipeMenu recipeId={recipe.id} title={recipe.title} variant="card" />
 				</div>
 			</div>
 

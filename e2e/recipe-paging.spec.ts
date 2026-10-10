@@ -248,8 +248,10 @@ test('preserves card controls and keeps mobile chips inside horizontal scroller'
   await Promise.all([page.waitForResponse((response) => response.request().method() === 'POST'), favorite.click()]);
   await expect(card.getByRole('button', { name: 'Remove Banana Oat Pancakes from favorites' })).toHaveAttribute('aria-pressed', 'true');
   await card.getByRole('button', { name: 'More options for Banana Oat Pancakes' }).click();
-  await expect(page.getByRole('menuitem', { name: 'View recipe' })).toBeVisible();
-  await Promise.all([page.waitForResponse((response) => response.request().method() === 'POST'), page.getByRole('menuitem', { name: 'Remove from favorites' }).click()]);
+  await expect(page.getByRole('menuitem', { name: 'Edit recipe' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Delete recipe' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await Promise.all([page.waitForResponse((response) => response.request().method() === 'POST'), card.getByRole('button', { name: 'Remove Banana Oat Pancakes from favorites' }).click()]);
   await expect(favorite).toHaveAttribute('aria-pressed', 'false');
   if (isMobile) {
     const scroller = page.getByRole('group', { name: 'Recipe categories' });

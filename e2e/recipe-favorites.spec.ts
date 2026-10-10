@@ -16,18 +16,11 @@ const FAVORITE_ERROR = 'Couldn’t save favorite. Try again.';
 const pageHeart = (page: Page, title: string) => page.getByRole('button', { name: new RegExp(`^(Add|Remove) ${title} (to|from) favorites$`) });
 const card = (page: Page, title: string) => recipeCards(page).filter({ has: page.getByRole('heading', { name: title }) });
 const cardHeart = (page: Page, title: string) => card(page, title).getByRole('button', { name: new RegExp(`^(Add|Remove) ${title} (to|from) favorites$`) });
-const cardMenu = (page: Page, title: string) => card(page, title).getByRole('button', { name: `More options for ${title}` });
-const pressed = async (heart: Locator) => (await heart.getAttribute('aria-pressed')) === 'true';
 
 async function openList(page: Page, title: string) {
   await page.goto('/recipes');
   await expect(cardHeart(page, title)).toBeVisible();
   await waitHydrated(cardHeart(page, title));
-}
-
-async function openCardMenuItem(page: Page, title: string) {
-  await cardMenu(page, title).click();
-  return page.getByRole('menu');
 }
 
 type Data = { db: DrizzleDb };
@@ -56,11 +49,11 @@ test.describe('persistence and agreement', () => {
     await expect(pageHeart(page, 'Persisted heart')).toHaveAttribute('aria-pressed', 'false');
   });
 
-  test('the card heart, the card menu item and the recipe page agree in both directions', async ({ page, creator, workerData }) => {
+  test('the card heart and the recipe page agree in both directions', async ({ page, creator, workerData }) => {
     const first = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Agree one'));
     const second = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Agree two'));
 
-    // Page -> list: the heart and the menu item both show the new state.
+    // Page -> list: the card heart shows the new state.
     await openRecipe(page, first, 'Agree one');
     await pageHeart(page, 'Agree one').click();
     await expect(pageHeart(page, 'Agree one')).toHaveAttribute('aria-pressed', 'true');
@@ -69,14 +62,9 @@ test.describe('persistence and agreement', () => {
     await expect(cardHeart(page, 'Agree one')).toHaveAttribute('aria-pressed', 'true');
     await expect(cardHeart(page, 'Agree two')).toHaveAttribute('aria-pressed', 'false');
     await waitHydrated(cardHeart(page, 'Agree one'));
-    let menu = await openCardMenuItem(page, 'Agree one');
-    await expect(menu.getByRole('menuitem', { name: 'Remove from favorites' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    menu = await openCardMenuItem(page, 'Agree two');
-    await expect(menu.getByRole('menuitem', { name: 'Add to favorites' })).toBeVisible();
 
-    // List -> page: the card menu item toggles, the card heart follows, and the recipe page agrees.
-    await menu.getByRole('menuitem', { name: 'Add to favorites' }).click();
+    // List -> page: the card heart toggles and the recipe page agrees.
+    await cardHeart(page, 'Agree two').click();
     await expect(cardHeart(page, 'Agree two')).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(() => isStored(workerData, creator.user.id, second)).toBe(true);
     await card(page, 'Agree two').getByRole('link', { name: 'Agree two' }).click();
@@ -155,22 +143,13 @@ test.describe('failures', () => {
     await expect(toast.error(page, FAVORITE_ERROR)).toHaveCount(0);
   });
 
-  test('a failed toggle from a card heart or the card menu reverts both and shows the error toast', async ({ page, creator, workerData }) => {
+  test('a failed toggle from a card heart reverts it and shows the error toast', async ({ page, creator, workerData }) => {
     const id = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Failing card'));
     await exhaust(workerData, creator.user.id);
     await openList(page, 'Failing card');
     await cardHeart(page, 'Failing card').click();
     await expect(toast.error(page, FAVORITE_ERROR)).toBeVisible();
     await expect(cardHeart(page, 'Failing card')).toHaveAttribute('aria-pressed', 'false');
-    await toast.dismiss(toast.error(page, FAVORITE_ERROR)).click();
-    await expect(toast.error(page, FAVORITE_ERROR)).toHaveCount(0);
-
-    const menu = await openCardMenuItem(page, 'Failing card');
-    await menu.getByRole('menuitem', { name: 'Add to favorites' }).click();
-    await expect(toast.error(page, FAVORITE_ERROR)).toBeVisible();
-    expect(await pressed(cardHeart(page, 'Failing card'))).toBe(false);
-    const reopened = await openCardMenuItem(page, 'Failing card');
-    await expect(reopened.getByRole('menuitem', { name: 'Add to favorites' })).toBeVisible();
     expect(await isStored(workerData, creator.user.id, id)).toBe(false);
   });
 });
