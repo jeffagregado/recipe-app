@@ -14,6 +14,9 @@ const nextConfig: NextConfig = {
 				hostname: 'br-hidden-waterfall-b3dj0mm5.storage.c-4.ap-southeast-1.aws.neon.tech',
 				pathname: '/**',
 			},
+			// Video posters, fetched by the optimizer so the browser does not contact the video host before Play.
+			{ protocol: 'https', hostname: 'i.ytimg.com', pathname: '/vi/**' },
+			{ protocol: 'https', hostname: 'i.vimeocdn.com', pathname: '/video/**' },
 		],
 	},
 }
