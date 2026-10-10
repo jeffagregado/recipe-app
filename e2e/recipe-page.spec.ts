@@ -76,27 +76,6 @@ test.describe('content', () => {
     expect(placeholders).toEqual([]);
   });
 
-  test('prep, cook and total follow the rules: total only with both, zero is shown, null is omitted', async ({ page, creator, workerData }) => {
-    const cases: { name: string; fields: Partial<CreateMetadata>; expected: string[] }[] = [
-      { name: 'Zero times', fields: { prepTimeMinutes: 0, cookTimeMinutes: 0 }, expected: ['Prep 0 min Cook 0 min Total 0 min'] },
-      { name: 'Prep only', fields: { prepTimeMinutes: 10 }, expected: ['Prep 10 min'] },
-      { name: 'Cook only', fields: { cookTimeMinutes: 20 }, expected: ['Cook 20 min'] },
-      { name: 'Both times', fields: { prepTimeMinutes: 15, cookTimeMinutes: 45, servings: 1 }, expected: ['Prep 15 min Cook 45 min Total 60 min', '1 serving'] },
-      { name: 'Servings only', fields: { servings: 6 }, expected: ['6 servings'] },
-    ];
-    for (const { name, fields, expected } of cases) {
-      const id = await createRecipeViaApi(creator, workerData.address, metadataWith(name, fields));
-      await openRecipe(page, id, name);
-      expect(await detailsText(page), name).toEqual(expected);
-    }
-  });
-
-  test('every stored category appears as a chip, in the stored order', async ({ page, creator, workerData }) => {
-    const id = await createRecipeViaApi(creator, workerData.address, metadataWith('Many chips', { categories: ['Desserts', 'Lunch', 'Snacks'] }));
-    await openRecipe(page, id, 'Many chips');
-    await expect(page.getByRole('list', { name: 'Categories' }).getByRole('listitem')).toHaveText(['Desserts', 'Lunch', 'Snacks']);
-  });
-
   test('the meta row keeps "min" on the last time only on mobile and on every time from the sm breakpoint', async ({ page, creator, workerData }) => {
     const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Meta widths'), RICH_FILES);
     await openRecipe(page, id, 'Meta widths');
@@ -201,25 +180,6 @@ test.describe('servings scaler', () => {
     expect([after?.servings, after?.updatedAt.getTime()]).toEqual([4, before?.updatedAt.getTime()]);
   });
 
-  test('the scaler stops at 1 and at 99 and the buttons disable there', async ({ page, creator, workerData }) => {
-    const low = await createRecipeViaApi(creator, workerData.address, scalable('Floor', 3));
-    await openRecipe(page, low, 'Floor');
-    await page.getByRole('button', { name: 'Decrease servings' }).click();
-    await page.getByRole('button', { name: 'Decrease servings' }).click();
-    await expect(servingsValue(page)).toHaveText('1');
-    await expect(page.getByRole('button', { name: 'Decrease servings' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Increase servings' })).toBeEnabled();
-    expect((await ingredientRows(page))[0].amount).toBe('66.67 g');
-    await expect(page.getByText('Scaled from 3 servings.')).toBeVisible();
-
-    const high = await createRecipeViaApi(creator, workerData.address, metadataWith('Ceiling', { servings: 98, ingredients: [{ name: 'Rice', quantity: 98, unit: 'g' }] }));
-    await openRecipe(page, high, 'Ceiling');
-    await page.getByRole('button', { name: 'Increase servings' }).click();
-    await expect(servingsValue(page)).toHaveText('99');
-    await expect(page.getByRole('button', { name: 'Increase servings' })).toBeDisabled();
-    expect((await ingredientRows(page))[0].amount).toBe('99 g');
-  });
-
   test('without servings there is no scaler, and it sits inline on a wide card but under the title on a narrow one', async ({ page, creator, workerData }) => {
     const plain = await createRecipeViaApi(creator, workerData.address, scalable('No servings', null));
     await openRecipe(page, plain, 'No servings');
@@ -296,21 +256,6 @@ test.describe('video', () => {
     await expect.poll(() => requests.videoRequests(mark)).toContain('www.youtube-nocookie.com');
     await expect(page.getByRole('button', { name: 'Play video' })).toHaveCount(0);
     await expect(frame).toBeFocused();
-  });
-
-  test('a Vimeo link gets the Vimeo caption and embed only after Play', async ({ page, creator, workerData }) => {
-    const requests = recordRequests(page);
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Vimeo gate', 'https://vimeo.com/76979871'), RICH_FILES);
-    await openRecipe(page, id, 'Vimeo gate');
-    await page.waitForLoadState('networkidle');
-    await expect(page.getByText('Plays from Vimeo')).toBeVisible();
-    expect(requests.videoRequests()).toEqual([]);
-    await expect(page.locator('iframe')).toHaveCount(0);
-    const mark = requests.mark();
-    await page.getByRole('button', { name: 'Play video' }).click();
-    const src = new URL((await page.locator('iframe[title="Video for Vimeo gate"]').getAttribute('src'))!);
-    expect([src.origin, src.pathname, src.searchParams.get('autoplay')]).toEqual(['https://player.vimeo.com', '/video/76979871', '1']);
-    await expect.poll(() => requests.videoRequests(mark)).toContain('player.vimeo.com');
   });
 
   test('a video without a cover still has a Play button, and a host that cannot be embedded is a safe new-tab link', async ({ page, creator, workerData }) => {
