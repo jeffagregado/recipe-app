@@ -429,6 +429,8 @@ test.describe('saving', () => {
     await expect(page).toHaveURL(`${WEB_URL}/recipes/create`);
     const [{ n }] = await workerData.db.select({ n: count() }).from(recipes).where(eq(recipes.userId, creator.user.id));
     expect(n).toBe(0);
+    // The save endpoint answers a missing session with 401, which the browser logs itself; nothing else may be reported.
+    expect(issues.get(page)!.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 401 (Unauthorized) (/api/recipes)']);
   });
 
   // Rate limiting is the deterministic failure: the real API refuses the 61st write in ten minutes with a 429.

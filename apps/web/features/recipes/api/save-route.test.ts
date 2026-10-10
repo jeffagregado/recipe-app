@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const next = vi.hoisted(() => ({ headers: new Headers(), cookies: new Map<string, string>() }))
@@ -12,12 +13,21 @@ vi.mock('@/features/auth/queries', () => ({
 		return session.result === 'anonymous' ? { status: 'anonymous' } : { status: 'authenticated', user: { id: 'user-1' } }
 	},
 }))
-const cache = vi.hoisted(() => ({ refresh: vi.fn() }))
-vi.mock('next/cache', () => cache)
-vi.mock('next/navigation', () => ({ redirect: (path: string) => { throw new Error(`NEXT_REDIRECT:${path}`) } }))
+vi.mock('server-only', () => ({}))
 
-import { saveRecipe } from './actions'
-import { SAVE_MESSAGES } from '@/features/recipes/form/lib/save-recipe-result'
+import { SAVE_MESSAGES, type SaveRecipeResponse } from '@/features/recipes/form/lib/save-recipe-result'
+import { handleCreateRecipe } from './save-route'
+
+let lastStatus = 0
+/** Sends the payload the way the browser does: same-site Origin, the page's Host, and whatever the test put in the headers. */
+async function saveRecipe(formData: FormData) {
+	const headers = new Headers(next.headers)
+	headers.set('host', 'localhost:3000')
+	const response = await handleCreateRecipe(new Request('http://localhost:3000/api/recipes', { method: 'POST', headers, body: formData }))
+	lastStatus = response.status
+	expect(response.headers.get('cache-control')).toBe('private, no-store')
+	return await response.json() as SaveRecipeResponse & { message?: string }
+}
 
 const KEY = '2c1d3c2e-8a9b-4f6a-9d1f-0a7f6a1b2c3d'
 const fetchMock = vi.fn<typeof fetch>()
@@ -42,15 +52,15 @@ beforeEach(() => {
 	next.headers = new Headers({ origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', cookie: 'analytics=1' })
 	next.cookies = new Map([['better-auth.session_token', 'abc'], ['other-cookie', 'secret-value']])
 	fetchMock.mockReset()
-	cache.refresh.mockReset()
 	vi.stubEnv('RECIPE_API_URL', 'http://api.example')
 	vi.stubGlobal('fetch', fetchMock)
 })
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
-it('forwards multipart parts with only the session cookie, origin, key and client address, then redirects', async () => {
+it('forwards multipart parts with only the session cookie, origin, key and client address, then answers with the saved id', async () => {
 	fetchMock.mockResolvedValue(json({ id: 'recipe/1' }, 201))
-	await expect(saveRecipe(payload({ files: { cover: image('cover.png'), 'step-0': image('boil.png') } }))).rejects.toThrow('NEXT_REDIRECT:/recipes/recipe%2F1?notice=recipe-saved')
+	expect(await saveRecipe(payload({ files: { cover: image('cover.png'), 'step-0': image('boil.png') } }))).toEqual({ status: 'saved', id: 'recipe/1' })
+	expect(lastStatus).toBe(200)
 	const [url, init] = fetchMock.mock.calls[0]
 	expect(url).toBe('http://api.example/recipes')
 	expect(init).toMatchObject({ method: 'POST', cache: 'no-store', redirect: 'error' })
@@ -61,32 +71,48 @@ it('forwards multipart parts with only the session cookie, origin, key and clien
 	const body = init?.body as FormData
 	expect([...body.keys()].sort()).toEqual(['cover', 'recipe', 'step-0'])
 	expect(JSON.parse(body.get('recipe') as string)).toEqual(metadata)
-	// A revalidation makes the router drop preserved pages, so Back cannot restore a list without the new recipe.
-	expect(cache.refresh).toHaveBeenCalledOnce()
 })
 
 it('treats a 200 replay like a first save', async () => {
 	fetchMock.mockResolvedValue(json({ id: 'r1' }, 200))
-	await expect(saveRecipe(payload())).rejects.toThrow('NEXT_REDIRECT:/recipes/r1?notice=recipe-saved')
-})
-
-it('does not revalidate when nothing was saved', async () => {
-	fetchMock.mockResolvedValue(json({ code: 'UNAVAILABLE', message: 'x' }, 503))
-	await saveRecipe(payload())
-	expect(cache.refresh).not.toHaveBeenCalled()
+	expect(await saveRecipe(payload())).toEqual({ status: 'saved', id: 'r1' })
 })
 
 it('refuses a missing or null Origin without contacting the API', async () => {
 	for (const origin of [undefined, 'null']) {
 		next.headers = new Headers(origin ? { origin } : {})
 		expect(await saveRecipe(payload())).toEqual({ status: 'failed', message: SAVE_MESSAGES.unverified })
+		expect(lastStatus).toBe(403)
 	}
+	expect(fetchMock).not.toHaveBeenCalled()
+})
+
+it('refuses a request from another site with 403 before checking the session or reading the body', async () => {
+	next.headers.set('origin', 'https://evil.example')
+	expect(await saveRecipe(payload())).toEqual({ status: 'failed', message: SAVE_MESSAGES.unverified })
+	expect(lastStatus).toBe(403)
+	expect(fetchMock).not.toHaveBeenCalled()
+})
+
+it('answers 413 for a body declared larger than a recipe can be, without contacting the API', async () => {
+	const headers = { origin: 'http://localhost:3000', host: 'localhost:3000', 'content-type': 'multipart/form-data; boundary=x', 'content-length': String(200 * 1024 * 1024) }
+	const response = await handleCreateRecipe(new Request('http://localhost:3000/api/recipes', { method: 'POST', headers, body: 'x' }))
+	expect(response.status).toBe(413)
+	expect(await response.json()).toMatchObject({ status: 'invalid', fieldErrors: { recipe: [expect.any(String)] } })
+	expect(fetchMock).not.toHaveBeenCalled()
+})
+
+it('reports a body that is not multipart as invalid without contacting the API', async () => {
+	const headers = { origin: 'http://localhost:3000', host: 'localhost:3000', 'content-type': 'application/json' }
+	const response = await handleCreateRecipe(new Request('http://localhost:3000/api/recipes', { method: 'POST', headers, body: '{}' }))
+	expect(await response.json()).toMatchObject({ status: 'invalid', fieldErrors: { recipe: [expect.any(String)] } })
 	expect(fetchMock).not.toHaveBeenCalled()
 })
 
 it('reports an expired session without calling the API when there is no session cookie', async () => {
 	next.cookies.delete('better-auth.session_token')
 	expect(await saveRecipe(payload())).toEqual({ status: 'session-expired', message: SAVE_MESSAGES.sessionExpired })
+	expect(lastStatus).toBe(401)
 	expect(fetchMock).not.toHaveBeenCalled()
 })
 
@@ -166,6 +192,7 @@ it('never leaks cookies, upstream bodies or stack traces in results', async () =
 it('rejects a stale session before forwarding any photo bytes', async () => {
 	session.result = 'anonymous'
 	expect(await saveRecipe(payload())).toEqual({ status: 'session-expired', message: SAVE_MESSAGES.sessionExpired })
+	expect(lastStatus).toBe(401)
 	expect(fetchMock).not.toHaveBeenCalled()
 })
 

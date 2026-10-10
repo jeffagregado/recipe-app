@@ -2,15 +2,14 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { RecipeDetail } from '@recipe-app/contracts/types'
 import type { ImgHTMLAttributes } from 'react'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AppToaster } from '@/components/layout/app-toaster'
-import type { SaveRecipeResult } from '@/features/recipes/form/lib/save-recipe-result'
 import { recipeDetailFixture } from '@/features/recipes/queries/recipe-detail.fixture'
 
 const read = vi.hoisted(() => ({ getRecipe: vi.fn<(id: string) => Promise<RecipeDetail | null>>() }))
 vi.mock('@/features/recipes/queries/get-recipe', () => ({ getRecipe: read.getRecipe }))
-const action = vi.hoisted(() => ({ updateRecipe: vi.fn<(id: string, formData: FormData) => Promise<SaveRecipeResult>>() }))
-vi.mock('../actions', () => action)
+vi.mock('@/features/recipes/actions/open-saved-recipe', () => ({ openSavedRecipe: vi.fn() }))
+const fetchMock = vi.fn<typeof fetch>()
 const router = vi.hoisted(() => ({ push: vi.fn() }))
 const replace = vi.hoisted(() => vi.fn())
 vi.mock('next/navigation', () => ({ useRouter: () => ({ ...router, replace }), unstable_rethrow: () => undefined }))
@@ -30,7 +29,8 @@ async function renderEdit(recipe: RecipeDetail | null, id = 'recipe-1') {
 
 beforeEach(() => {
 	read.getRecipe.mockReset()
-	action.updateRecipe.mockReset()
+	fetchMock.mockReset()
+	vi.stubGlobal('fetch', fetchMock)
 	router.push.mockReset()
 })
 
@@ -45,16 +45,17 @@ it('renders the shared form as Edit Recipe, pre-filled from the stored recipe', 
 	expect(screen.getByAltText('Current cover photo')).toHaveAttribute('src', 'https://storage.example/cover.jpg')
 })
 
-it('saves through the update action bound to this recipe', async () => {
+it('saves with a PATCH to this recipe\'s save endpoint', async () => {
 	const user = userEvent.setup()
-	action.updateRecipe.mockResolvedValue({ status: 'failed', message: 'x' })
+	fetchMock.mockResolvedValue(Response.json({ status: 'failed', message: 'x' }))
 	await renderEdit(recipeDetailFixture({ id: 'recipe-9' }), 'recipe-9')
 	await user.click(screen.getByRole('button', { name: 'Save Changes' }))
 
-	await waitFor(() => expect(action.updateRecipe).toHaveBeenCalledOnce())
-	const [recipeId, data] = action.updateRecipe.mock.calls[0]
-	expect(recipeId).toBe('recipe-9')
-	expect(JSON.parse(data.get('recipe') as string)).toMatchObject({ title: 'Tomato Soup', cover: 'remove', instructions: [{ id: 'step-1', image: 'remove' }] })
+	await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+	const [url, init] = fetchMock.mock.calls[0]
+	expect(url).toBe('/api/recipes/recipe-9')
+	expect(init).toMatchObject({ method: 'PATCH', credentials: 'same-origin' })
+	expect(JSON.parse((init?.body as FormData).get('recipe') as string)).toMatchObject({ title: 'Tomato Soup', cover: 'remove', instructions: [{ id: 'step-1', image: 'remove' }] })
 })
 
 it('cancels back to the recipe page', async () => {
@@ -70,3 +71,4 @@ it('renders the not-found page, without throwing, for an unknown or foreign reci
 	expect(screen.getByRole('link', { name: 'Go now' })).toHaveAttribute('href', '/recipes')
 	expect(screen.queryByRole('form')).not.toBeInTheDocument()
 })
+afterEach(() => { vi.unstubAllGlobals() })

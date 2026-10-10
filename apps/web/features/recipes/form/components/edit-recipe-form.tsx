@@ -1,0 +1,15 @@
+'use client'
+
+import type { RecipeFormValues } from '../lib/recipe-form-schema'
+import { recipeSaveRequest } from '../lib/request-save'
+import { UPDATE_MESSAGES } from '../lib/save-recipe-result'
+import { RecipeForm } from './recipe-form'
+
+type EditRecipeFormProps = { recipeId: string; initialValues: RecipeFormValues }
+
+export function EditRecipeForm({ recipeId, initialValues }: EditRecipeFormProps) {
+	const path = encodeURIComponent(recipeId)
+	const save = recipeSaveRequest({ url: `/api/recipes/${path}`, method: 'PATCH', notice: 'recipe-updated', messages: UPDATE_MESSAGES })
+
+	return <RecipeForm mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref={`/recipes/${path}`} onSave={save} initialValues={initialValues} />
+}

@@ -2,3 +2,6 @@ export type FavoriteResult = { ok: true } | { ok: false; reason: 'session-expire
 
 /** A confirmed delete redirects, so the only value that reaches the caller is a failure. */
 export type DeleteResult = { ok: false; reason: 'session-expired' | 'failed' }
+
+/** Notices a confirmed save can land with on the recipe page. */
+export type SavedNotice = 'recipe-saved' | 'recipe-updated'

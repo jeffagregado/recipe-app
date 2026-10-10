@@ -2,13 +2,10 @@ import 'server-only'
 
 import { createRecipeResultSchema } from '@recipe-app/contracts/schemas'
 import { RECIPE_LIMITS, type ApiErrorEnvelope } from '@recipe-app/contracts/types'
-import { refresh } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { getSession } from '@/features/auth/queries'
 import { checkRecipeImage } from '@/features/recipes/form/lib/recipe-files'
-import type { SaveMessages, SaveRecipeFieldErrors, SaveRecipeResult } from '@/features/recipes/form/lib/save-recipe-result'
-import { withNotice, type NoticeCode } from '@/lib/notice'
+import type { SaveMessages, SaveRecipeFieldErrors, SaveRecipeResponse, SaveRecipeResult } from '@/features/recipes/form/lib/save-recipe-result'
 import { readErrorEnvelope, readWriteContext, sendWrite, type WriteContext } from './write-request'
 
 const UPLOAD_TIMEOUT_MS = 40_000
@@ -26,7 +23,6 @@ export type SaveConfig<Metadata> = {
 	expectedFiles: (metadata: Metadata, files: Map<string, File>) => string[]
 	/** Message for a 404 (the recipe being updated is gone). Without it a 404 is an unexpected status. */
 	notFound?: string
-	notice: Extract<NoticeCode, 'recipe-saved' | 'recipe-updated'>
 }
 
 type Submission<Metadata> = { metadata: Metadata; key: string; files: Map<string, File> }
@@ -156,26 +152,25 @@ async function send<Metadata>(submission: Submission<Metadata>, config: SaveConf
 }
 
 /**
- * The create and update actions: validate the browser's FormData, forward the multipart request, and on success land on
- * the recipe page with a notice. Resolves only with the result the form should show; a confirmed save redirects.
+ * Who is saving: rejects a stale session and an unverifiable request before any photo bytes are read or forwarded.
+ * The API still authorizes the write itself.
  */
-export async function submitRecipe<Metadata>(formData: FormData, config: SaveConfig<Metadata>): Promise<SaveRecipeResult> {
-	const { failed, sessionExpired } = resultsFor(config.messages)
-	// Reject a stale session before any photo bytes are forwarded; the API still authorizes the write itself.
+export async function authorizeSave(messages: SaveMessages): Promise<{ context: WriteContext } | { result: SaveRecipeResult }> {
+	const { failed, sessionExpired } = resultsFor(messages)
 	let session: Awaited<ReturnType<typeof getSession>>
-	try { session = await getSession() } catch { return failed() }
-	if (session.status === 'anonymous') return sessionExpired()
+	try { session = await getSession() } catch { return { result: failed() } }
+	if (session.status === 'anonymous') return { result: sessionExpired() }
 
 	const read = await readWriteContext()
-	if ('problem' in read) return read.problem === 'unverified' ? failed(config.messages.unverified) : sessionExpired()
+	if ('problem' in read) return { result: read.problem === 'unverified' ? failed(messages.unverified) : sessionExpired() }
+	return { context: read.context }
+}
 
+/** Validates the browser's FormData and forwards the multipart request. Resolves with the saved id or the result the form should show. */
+export async function submitRecipe<Metadata>(formData: FormData, config: SaveConfig<Metadata>, context: WriteContext): Promise<SaveRecipeResponse> {
 	const parsed = readSubmission(formData, config)
 	if ('errors' in parsed) return resultsFor(config.messages).invalid(parsed.errors)
 
-	const outcome = await send(parsed.submission, config, read.context)
-	if (typeof outcome !== 'string') return outcome
-	// The list and detail are read per request (no 'use cache' or cacheTag), so there is no tag to update. A revalidation
-	// still matters: it makes the router drop preserved pages, so Back or Forward re-reads the list and the recipe.
-	refresh()
-	redirect(withNotice(`/recipes/${encodeURIComponent(outcome)}`, config.notice))
+	const outcome = await send(parsed.submission, config, context)
+	return typeof outcome === 'string' ? { status: 'saved', id: outcome } : outcome
 }

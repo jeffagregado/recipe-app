@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const next = vi.hoisted(() => ({ headers: new Headers(), cookies: new Map<string, string>() }))
@@ -12,12 +13,21 @@ vi.mock('@/features/auth/queries', () => ({
 		return session.result === 'anonymous' ? { status: 'anonymous' } : { status: 'authenticated', user: { id: 'user-1' } }
 	},
 }))
-const cache = vi.hoisted(() => ({ refresh: vi.fn() }))
-vi.mock('next/cache', () => cache)
-vi.mock('next/navigation', () => ({ redirect: (path: string) => { throw new Error(`NEXT_REDIRECT:${path}`) } }))
+vi.mock('server-only', () => ({}))
 
-import { UPDATE_MESSAGES } from '@/features/recipes/form/lib/save-recipe-result'
-import { updateRecipe } from './actions'
+import { UPDATE_MESSAGES, type SaveRecipeResponse } from '@/features/recipes/form/lib/save-recipe-result'
+import { handleUpdateRecipe } from './save-route'
+
+let lastStatus = 0
+/** Sends the payload the way the browser does: same-site Origin, the page's Host, and whatever the test put in the headers. */
+async function updateRecipe(recipeId: string, formData: FormData) {
+	const headers = new Headers(next.headers)
+	headers.set('host', 'localhost:3000')
+	const response = await handleUpdateRecipe(new Request(`http://localhost:3000/api/recipes/${encodeURIComponent(recipeId)}`, { method: 'PATCH', headers, body: formData }), recipeId)
+	lastStatus = response.status
+	expect(response.headers.get('cache-control')).toBe('private, no-store')
+	return await response.json() as SaveRecipeResponse & { message?: string }
+}
 
 const KEY = '2c1d3c2e-8a9b-4f6a-9d1f-0a7f6a1b2c3d'
 const fetchMock = vi.fn<typeof fetch>()
@@ -43,15 +53,14 @@ beforeEach(() => {
 	next.headers = new Headers({ origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', cookie: 'analytics=1' })
 	next.cookies = new Map([['better-auth.session_token', 'abc'], ['other-cookie', 'secret-value']])
 	fetchMock.mockReset()
-	cache.refresh.mockReset()
 	vi.stubEnv('RECIPE_API_URL', 'http://api.example')
 	vi.stubGlobal('fetch', fetchMock)
 })
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
-it('PATCHes the recipe with only the session cookie, origin, key and client address, refreshes the client, then redirects with the updated notice', async () => {
+it('PATCHes the recipe with only the session cookie, origin, key and client address, then answers with the saved id', async () => {
 	fetchMock.mockResolvedValue(json({ id: 'recipe/1' }, 200))
-	await expect(updateRecipe('recipe/1', payload())).rejects.toThrow('NEXT_REDIRECT:/recipes/recipe%2F1?notice=recipe-updated')
+	expect(await updateRecipe('recipe/1', payload())).toEqual({ status: 'saved', id: 'recipe/1' })
 	const [url, init] = fetchMock.mock.calls[0]
 	expect(url).toBe('http://api.example/recipes/recipe%2F1')
 	expect(init).toMatchObject({ method: 'PATCH', cache: 'no-store', redirect: 'error' })
@@ -62,13 +71,12 @@ it('PATCHes the recipe with only the session cookie, origin, key and client addr
 	const body = init?.body as FormData
 	expect([...body.keys()].sort()).toEqual(['recipe', 'step-1'])
 	expect(JSON.parse(body.get('recipe') as string)).toEqual(metadata)
-	expect(cache.refresh).toHaveBeenCalledOnce()
 })
 
 it('sends a cover and step photos only for slots marked replace, named by their final index', async () => {
 	fetchMock.mockResolvedValue(json({ id: 'r1' }, 200))
 	const recipe = { ...metadata, cover: 'replace' }
-	await expect(updateRecipe('r1', payload({ recipe, files: { cover: image('cover.png'), 'step-1': image('serve.png') } }))).rejects.toThrow('NEXT_REDIRECT')
+	expect(await updateRecipe('r1', payload({ recipe, files: { cover: image('cover.png'), 'step-1': image('serve.png') } }))).toMatchObject({ status: 'saved' })
 	expect([...(fetchMock.mock.calls[0][1]?.body as FormData).keys()].sort()).toEqual(['cover', 'recipe', 'step-1'])
 })
 
@@ -93,10 +101,9 @@ it('rejects invalid update metadata, keys and files locally with dotted field er
 	expect(fetchMock).not.toHaveBeenCalled()
 })
 
-it('reports a recipe that no longer exists (404) with its own result and does not redirect or refresh', async () => {
+it('reports a recipe that no longer exists (404) with its own result and saves nothing', async () => {
 	fetchMock.mockResolvedValue(json({ code: 'NOT_FOUND', message: 'x' }, 404))
 	expect(await updateRecipe('r1', payload())).toEqual({ status: 'not-found', message: UPDATE_MESSAGES.notFound })
-	expect(cache.refresh).not.toHaveBeenCalled()
 })
 
 it('maps the remaining statuses exactly as create does, with update wording', async () => {
@@ -121,7 +128,6 @@ it('maps the remaining statuses exactly as create does, with update wording', as
 		expect(result.status).toBe(status)
 		if (message) expect(result.message).toBe(message)
 	}
-	expect(cache.refresh).not.toHaveBeenCalled()
 })
 
 it('treats network errors and timeouts as an unknown outcome', async () => {
@@ -140,6 +146,7 @@ it('refuses without contacting the API: bad id, no origin, no session cookie, st
 	next.headers = new Headers({ origin: 'http://localhost:3000' })
 	next.cookies.delete('better-auth.session_token')
 	expect(await updateRecipe('r1', payload())).toEqual({ status: 'session-expired', message: UPDATE_MESSAGES.sessionExpired })
+	expect(lastStatus).toBe(401)
 	next.cookies.set('better-auth.session_token', 'abc')
 	session.result = 'anonymous'
 	expect(await updateRecipe('r1', payload())).toEqual({ status: 'session-expired', message: UPDATE_MESSAGES.sessionExpired })

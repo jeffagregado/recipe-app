@@ -15,6 +15,9 @@ export type SaveRecipeResult =
 	| { status: 'failed'; message: string }
 	| { status: 'unknown'; message: string }
 
+/** What the save endpoint answers: the saved recipe's id, or the result the form should show. */
+export type SaveRecipeResponse = { status: 'saved'; id: string } | SaveRecipeResult
+
 export const SAVE_MESSAGES = {
 	invalid: 'Check the highlighted fields and try again.',
 	failed: 'Couldn’t save recipe. Try again.',
