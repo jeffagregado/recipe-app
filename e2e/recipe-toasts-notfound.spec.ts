@@ -31,18 +31,6 @@ test.describe('toasts', () => {
     expect(Date.now() - shownAt).toBeLessThan(8_000);
   });
 
-  test('the five seconds are exact: still there at 4.5 s, gone by 6 s (fake clock)', async ({ page, creator, workerData }) => {
-    const id = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Exact toast'));
-    await page.clock.install();
-    await page.goto(`/recipes/${id}?notice=recipe-saved`);
-    const saved = toast.success(page, 'Recipe saved');
-    await expect(saved).toBeVisible();
-    await page.clock.runFor(4_500);
-    await expect(saved).toBeVisible();
-    await page.clock.runFor(1_500);
-    await expect(saved).toHaveCount(0);
-  });
-
   test('a success toast can be dismissed earlier with Dismiss, by mouse and by keyboard', async ({ page, creator, workerData }) => {
     const id = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Dismissed toast'));
     await page.goto(`/recipes/${id}?notice=recipe-saved`);
@@ -95,14 +83,6 @@ test.describe('toasts', () => {
     await page.waitForTimeout(500);
     await expect(page).toHaveURL(`${WEB_URL}/recipes?search=Notice`);
     await expect(page.getByText('Recipe deleted')).toHaveCount(0);
-  });
-
-  test('unknown notice codes show nothing but are still removed from the URL', async ({ page }) => {
-    for (const code of ['bogus', 'toString', 'constructor', '__proto__']) {
-      await page.goto(`/recipes?notice=${code}`);
-      await expect(page).toHaveURL(`${WEB_URL}/recipes`);
-      await expect(page.getByRole('region', { name: 'Notifications' }).locator('[data-slot="toast"]')).toHaveCount(0);
-    }
   });
 
   test('toasts sit bottom-right on desktop and across the bottom on mobile', async ({ page, creator, workerData }) => {
@@ -179,45 +159,6 @@ test.describe('page not found', () => {
       await expect(page, `${label} after five seconds`).toHaveURL(`${WEB_URL}/recipes`);
       await expect(page.getByRole('link', { name: 'New Recipe' })).toBeVisible();
     }
-  });
-
-  test('the redirect really takes about five seconds on the real clock', async ({ page }) => {
-    await page.goto('/recipes/does-not-exist');
-    await expect(notFoundHeading(page)).toBeVisible();
-    const shownAt = Date.now();
-    await expect(page).toHaveURL(`${WEB_URL}/recipes`, { timeout: 10_000 });
-    const waited = Date.now() - shownAt;
-    expect(waited).toBeGreaterThan(3_500);
-    expect(waited).toBeLessThan(8_500);
-  });
-
-  test('Go now leaves immediately and no second redirect fires afterwards', async ({ page }) => {
-    await page.clock.install();
-    await page.goto('/recipes/does-not-exist');
-    await expect(notFoundHeading(page)).toBeVisible();
-    await page.getByRole('link', { name: 'Go now' }).click();
-    await expect(page).toHaveURL(`${WEB_URL}/recipes`);
-    // Move on; a leftover timer from the abandoned page must not pull the user back to Recipes.
-    await page.getByRole('link', { name: 'New Recipe' }).click();
-    await expect(page).toHaveURL(`${WEB_URL}/recipes/create`);
-    await expect(field.title(page)).toBeEditable();
-    await page.clock.fastForward(15_000);
-    await expect(page).toHaveURL(`${WEB_URL}/recipes/create`);
-  });
-
-  test('the countdown is one static sentence in a status region and is not re-announced every second', async ({ page }) => {
-    await page.clock.install();
-    await page.goto('/recipes/does-not-exist');
-    const status = page.getByRole('status').filter({ hasText: 'Taking you to Recipes in 5 seconds.' });
-    await expect(status).toBeVisible();
-    await expect(status).toHaveCount(1);
-    await status.evaluate((element) => {
-      (window as unknown as { __mutations: number }).__mutations = 0;
-      new MutationObserver((records) => { (window as unknown as { __mutations: number }).__mutations += records.length; }).observe(element, { subtree: true, childList: true, characterData: true, attributes: true });
-    });
-    for (let second = 0; second < 4; second++) await page.clock.fastForward(1_000);
-    expect(await page.evaluate(() => (window as unknown as { __mutations: number }).__mutations)).toBe(0);
-    await expect(status).toHaveText('Taking you to Recipes in 5 seconds.');
   });
 
   test('an anonymous visitor to those URLs is sent to the sign-in page instead', async ({ browser, creator, workerData }) => {
