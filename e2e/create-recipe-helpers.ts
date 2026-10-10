@@ -278,6 +278,8 @@ export const recipeCards = (page: Page) => page.getByRole('list', { name: 'Recip
 
 /** Signs in through the form as the given temporary account. */
 export async function logIn(page: Page, { username, password }: { username: string; password: string }) {
+  // Values typed before hydration are reset when React takes over the inputs.
+  await waitHydrated(page.getByRole('button', { name: 'Log in', exact: true }));
   await page.getByLabel('Username', { exact: true }).fill(username);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
@@ -286,6 +288,10 @@ export async function logIn(page: Page, { username, password }: { username: stri
 
 /** Signs out through the visible Log out button (sidebar on desktop, header on mobile) and waits for the sign-in page. */
 export async function logOut(page: Page) {
+  // Logout finishes with a full load of the sign-in page (leavePrivateSession). The form can already be visible
+  // before that load, and anything typed into it then is discarded, so wait for the load itself.
+  const reloaded = page.waitForEvent('load');
   await page.getByRole('button', { name: 'Log out', exact: true }).filter({ visible: true }).click();
+  await reloaded;
   await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
 }
