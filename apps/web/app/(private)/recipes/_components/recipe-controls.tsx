@@ -25,7 +25,7 @@ const sortLabels = {
 /** The category row is a single choice: every recipe, favorites, or one category. */
 export type RecipeChoice = Pick<RecipeFilters, 'category' | 'favorites'>
 
-type RecipeChip = { label: string; choice: RecipeChoice; pressed: boolean; total?: number; counted: boolean }
+type RecipeChip = { label: string; choice: RecipeChoice; pressed: boolean; total?: number }
 
 type RecipeControlsProps = {
 	filters: RecipeFilters
@@ -37,9 +37,9 @@ type RecipeControlsProps = {
 
 export function RecipeControls({ filters, counts, loading, onFilter, onSort }: RecipeControlsProps) {
 	const chips: RecipeChip[] = [
-		{ label: 'All', choice: {}, pressed: !filters.category && !filters.favorites, total: counts?.total, counted: true },
-		{ label: 'Favorites', choice: { favorites: true }, pressed: filters.favorites === true, counted: false },
-		...RECIPE_CATEGORIES.map((value) => ({ label: value, choice: { category: value }, pressed: filters.category === value, total: counts?.categories[value], counted: true })),
+		{ label: 'All', choice: {}, pressed: !filters.category && !filters.favorites, total: counts?.total },
+		{ label: 'Favorites', choice: { favorites: true }, pressed: filters.favorites === true, total: counts?.favorites },
+		...RECIPE_CATEGORIES.map((value) => ({ label: value, choice: { category: value }, pressed: filters.category === value, total: counts?.categories[value] })),
 	]
 	return <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center">
 		<div role="group" aria-label="Recipe categories" aria-busy={loading} className="flex min-w-0 gap-2 overflow-x-auto pb-1 xl:flex-1">
@@ -53,7 +53,7 @@ export function RecipeControls({ filters, counts, loading, onFilter, onSort }: R
 				{chip.label}
 				{chip.total !== undefined ? <span className="rounded-full bg-foreground/10 px-1.5 text-xs tabular-nums">
 					{chip.total}
-				</span> : loading && chip.counted && <Skeleton aria-hidden="true" className="h-4 w-6 rounded-full" />}
+				</span> : loading && <Skeleton aria-hidden="true" className="h-4 w-6 rounded-full" />}
 			</Button>)}
 		</div>
 		<div role="group" aria-label="Recipe sorting" className="flex gap-2 self-end xl:self-auto">

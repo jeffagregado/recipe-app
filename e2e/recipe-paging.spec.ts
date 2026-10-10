@@ -68,7 +68,7 @@ test('shows category/count and card skeletons while real filter and next-page re
     const categories = page.getByRole('group', { name: 'Recipe categories' });
     const loading = page.getByRole('status', { name: 'Loading recipes', exact: true });
     await expect(categories).toHaveAttribute('aria-busy', 'true');
-    await expect(categories.locator('[data-slot="skeleton"]')).toHaveCount(6);
+    await expect(categories.locator('[data-slot="skeleton"]')).toHaveCount(7);
     await expect(loading).toBeVisible();
     await expect(category(page, 'Dinner')).toBeEnabled();
     await mkdir('output/playwright', { recursive: true });

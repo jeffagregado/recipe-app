@@ -9,6 +9,7 @@ import {
   recipeDetailSchema,
   recipeListItemSchema,
   recipeListQuerySchema,
+  recipeListResponseSchema,
   updateRecipeMetadataSchema,
 } from "./recipe.schema.js";
 import { apiErrorEnvelopeSchema } from "./common.schema.js";
@@ -191,6 +192,14 @@ describe("favorite state in recipe responses", () => {
     const item = { id: "r1", title: "Soup", categories: [], description: null, imageUrl: null, servings: null, prepTimeMinutes: null, cookTimeMinutes: null, createdAt: "2026-10-09T00:00:00.000Z", updatedAt: "2026-10-09T00:00:00.000Z" };
     expect(recipeListItemSchema.safeParse({ ...item, isFavorite: true }).success).toBe(true);
     expect(recipeListItemSchema.safeParse(item).success).toBe(false);
+  });
+
+  it("requires the favorites total beside the other list counts", () => {
+    const meta = { page: 1, limit: 20, total: 0, totalPages: 0 };
+    const counts = { total: 2, categories: { Breakfast: 0, Lunch: 0, Dinner: 2, Snacks: 0, Desserts: 0 } };
+    expect(recipeListResponseSchema.safeParse({ data: [], meta, counts: { ...counts, favorites: 1 } }).success).toBe(true);
+    expect(recipeListResponseSchema.safeParse({ data: [], meta, counts }).success).toBe(false);
+    expect(recipeListResponseSchema.safeParse({ data: [], meta, counts: { ...counts, favorites: -1 } }).success).toBe(false);
   });
 });
 

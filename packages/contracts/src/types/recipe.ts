@@ -179,6 +179,7 @@ export type RecipeListQuery = Required<PaginationParams> & RecipeFilters;
 
 export type RecipeCounts = {
   total: number;
+  favorites: number;
   categories: Record<RecipeCategory, number>;
 };
 

@@ -5,7 +5,7 @@ import { expect, it, vi } from 'vitest'
 import { RecipeControls } from './recipe-controls'
 
 const sorting = { sortBy: 'createdAt', order: 'desc' } as const
-const counts = { total: 7, categories: { Breakfast: 1, Lunch: 2, Dinner: 3, Snacks: 0, Desserts: 1 } }
+const counts = { total: 7, favorites: 2, categories: { Breakfast: 1, Lunch: 2, Dinner: 3, Snacks: 0, Desserts: 1 } }
 
 function renderControls(filters: Partial<RecipeFilters> = {}) {
 	const onFilter = vi.fn()
@@ -16,12 +16,12 @@ function renderControls(filters: Partial<RecipeFilters> = {}) {
 
 it('places Favorites right after All, ahead of the categories', () => {
 	const { chips } = renderControls()
-	expect(chips.getAllByRole('button').map((chip) => chip.textContent)).toEqual(['All7', 'Favorites', 'Breakfast1', 'Lunch2', 'Dinner3', 'Snacks0', 'Desserts1'])
+	expect(chips.getAllByRole('button').map((chip) => chip.textContent)).toEqual(['All7', 'Favorites2', 'Breakfast1', 'Lunch2', 'Dinner3', 'Snacks0', 'Desserts1'])
 })
 
 it.each([
 	[{}, ['All7']],
-	[{ favorites: true }, ['Favorites']],
+	[{ favorites: true }, ['Favorites2']],
 	[{ category: 'Dinner' }, ['Dinner3']],
 ] as const)('marks the chip for %j as the pressed one', (filters, expected) => {
 	expect(renderControls(filters).pressed()).toEqual(expected)

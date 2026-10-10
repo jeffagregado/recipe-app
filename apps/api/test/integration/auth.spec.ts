@@ -286,7 +286,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     const empty = await list(cookie);
     expect(empty.data).toEqual([]);
     expect(empty.meta).toMatchObject({ total: 0, totalPages: 0 });
-    expect(empty.counts).toEqual({ total: 0, categories: { Breakfast: 0, Lunch: 0, Dinner: 0, Snacks: 0, Desserts: 0 } });
+    expect(empty.counts).toEqual({ total: 0, favorites: 0, categories: { Breakfast: 0, Lunch: 0, Dinner: 0, Snacks: 0, Desserts: 0 } });
 
     const first = await db.query.users.findFirst({ where: eq(users.username, username), columns: { id: true } });
     const other = await signupUser(apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]), track());
@@ -300,11 +300,11 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
 
     const a = await list(cookie);
     expect(a.meta.total).toBe(mine.length);
-    expect(a.counts).toEqual({ total: mine.length, categories: countsFor(mine) });
+    expect(a.counts).toEqual({ total: mine.length, favorites: 0, categories: countsFor(mine) });
     expect(a.data.map(({ id }) => id).sort()).toEqual(mine.map(({ id }) => ownedId(tagA, id)).sort());
     const b = await list(other.cookie, '?limit=20');
     expect(b.meta.total).toBe(theirs.length);
-    expect(b.counts).toEqual({ total: theirs.length, categories: countsFor(theirs) });
+    expect(b.counts).toEqual({ total: theirs.length, favorites: 0, categories: countsFor(theirs) });
     expect(b.data.every(({ id }) => id.startsWith(tagB))).toBe(true);
     // The same search and category return only each owner's matches, including shared seed titles.
     const shared = seedRecipes[5];

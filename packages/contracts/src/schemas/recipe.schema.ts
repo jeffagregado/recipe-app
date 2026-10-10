@@ -171,6 +171,7 @@ export const recipeListResponseSchema: z.ZodType<RecipeListResponse> = z.object(
   meta: paginationMetaSchema,
   counts: z.object({
     total: z.number().int().nonnegative(),
+    favorites: z.number().int().nonnegative(),
     categories: z.record(z.enum(RECIPE_CATEGORIES), z.number().int().nonnegative()),
   }),
 });

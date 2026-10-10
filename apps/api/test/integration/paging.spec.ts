@@ -109,7 +109,7 @@ describe('Owner-scoped SQL recipe pagination', () => {
     const empty = await list({ favorites: true });
     expect(empty.data).toEqual([]);
     expect(empty.meta).toMatchObject({ total: 0, totalPages: 0 });
-    expect(empty.counts.total).toBe(100);
+    expect(empty.counts).toMatchObject({ total: 100, favorites: 0 });
     try {
       await db.insert(favorites).values(picked.map((recipe) => ({ userId: user.id, recipeId: ownedId(tag, recipe.id) })));
       // Recipes are owner-only, so another user's row can only exist out of band; it must never widen this list.
@@ -120,7 +120,7 @@ describe('Owner-scoped SQL recipe pagination', () => {
       for (let page = 2; page <= first.meta.totalPages; page++) pages.push(await list({ favorites: true, limit: 10, page }));
       const records = pages.flatMap(({ data }) => data);
       expect(first.meta).toMatchObject({ total: picked.length, totalPages: Math.ceil(picked.length / 10) });
-      expect(first.counts.total).toBe(100);
+      expect(first.counts).toMatchObject({ total: 100, favorites: picked.length });
       expect(records.map(({ id }) => id)).toEqual(ordered('createdAt', 'desc', picked));
       expect(records.every((recipe) => recipe.isFavorite)).toBe(true);
       const narrowed = picked.filter((recipe) => recipe.categories.includes('Breakfast') && `${recipe.title} ${recipe.description ?? ''}`.toLowerCase().includes('oat'));
@@ -129,6 +129,9 @@ describe('Owner-scoped SQL recipe pagination', () => {
       const combined = await list({ favorites: true, category: 'Breakfast', search: 'oat', sortBy: 'title', order: 'asc' });
       expect(combined.data.map(({ id }) => id)).toEqual(ordered('title', 'asc', narrowed));
       expect(combined.meta.total).toBe(narrowed.length);
+      // Like the other counts, the favorites total ignores the active filters.
+      expect(combined.counts.favorites).toBe(picked.length);
+      expect((await list({ category: 'Breakfast' })).counts.favorites).toBe(picked.length);
     } finally { await db.delete(favorites).where(eq(favorites.userId, user.id)); }
   }, 60_000);
 

@@ -18,21 +18,19 @@ type RecipeResultsProps = {
 }
 
 export function RecipeResults({ userId, endpoint, filters, onFilter, onSort }: RecipeResultsProps) {
-	const { query, sentinel } = useRecipePages(userId, endpoint, filters)
+	const { query, sentinel, counts } = useRecipePages(userId, endpoint, filters)
 	if (query.error instanceof SessionExpiredError) return <p role="status">Your session has expired. Returning to login...</p>
-	const controls = <RecipeControls filters={filters} counts={query.data?.pages[0].counts} loading={query.isLoading} onFilter={onFilter} onSort={onSort} />
+	const controls = <RecipeControls filters={filters} counts={counts} loading={query.isLoading} onFilter={onFilter} onSort={onSort} />
 	const error = <RecipeRequestError error={query.error} laterPage={query.isFetchNextPageError} pending={query.isFetching} onRetry={() => {
 		if (query.isFetchNextPageError) void query.fetchNextPage({ cancelRefetch: false })
 		else void query.refetch()
 	}} />
 	if (!query.data) return <div className="flex flex-col gap-4">{controls}{query.isPending ? <RecipeListSkeleton /> : error}</div>
 	const recipes = query.data.pages.flatMap((page) => page.data)
-	const meta = query.data.pages[0].meta
-	// Favorites with no other narrowing and no results means none are saved, not that a filter missed.
-	const noFavorites = filters.favorites && !filters.search && !filters.category && meta.total === 0
+	const { meta, counts: loaded } = query.data.pages[0]
 	return <div className="space-y-4">
 		{controls}
-		{query.data.pages[0].counts.total === 0 ? <EmptyLibrary /> : noFavorites ? <EmptyFavorites /> : <RecipeList recipes={recipes} />}
+		{loaded.total === 0 ? <EmptyLibrary /> : filters.favorites && loaded.favorites === 0 ? <EmptyFavorites /> : <RecipeList recipes={recipes} />}
 		{error}
 		<RecipeProgress loaded={recipes.length} total={meta.total} fetching={query.isFetchingNextPage} sentinel={sentinel} />
 	</div>
