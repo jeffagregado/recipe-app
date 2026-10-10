@@ -50,13 +50,27 @@ jobs:
           pnpm run typecheck:tests
 
   integration:
-    name: API integration tests
+    name: API integration tests (${{ matrix.shard }})
     needs: check
     if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
-    # The suites run serially against a database in another region; the first run took 19 minutes.
-    timeout-minutes: 35
+    # Suites within a shard run serially against a database in another region; unsplit, they took 19 minutes.
+    timeout-minutes: 25
     environment: dev
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each shard gets its own Neon branch, so shards cannot disturb each other's count assertions.
+        # The two named shards hold the slowest suites. "rest" excludes exactly those files, so a new
+        # spec file always runs there without editing this list. When moving a file into a named shard,
+        # also add it to `named` in the run step below, or it will run twice.
+        include:
+          - shard: update
+            files: update-recipe.spec
+          - shard: create-delete
+            files: create-recipe.spec recipe-favorite-delete.spec
+          - shard: rest
+            files: ""
     steps:
       - uses: actions/checkout@v7
 
@@ -67,7 +81,7 @@ jobs:
 
       - uses: ./.github/actions/neon-branch
         with:
-          name: ci/integration-${{ env.NEON_BRANCH_SUFFIX }}
+          name: ci/integration-${{ matrix.shard }}-${{ env.NEON_BRANCH_SUFFIX }}
           parent: ${{ env.NEON_PARENT_BRANCH }}
           project-id: ${{ vars.NEON_PROJECT_ID }}
           api-key: ${{ secrets.NEON_API_KEY }}
@@ -76,8 +90,18 @@ jobs:
         run: pnpm --filter @recipe/api run db:migrate
 
       - name: Run integration tests
-        run: pnpm --filter @recipe/api run test:integration
+        working-directory: apps/api
+        run: |
+          named="update-recipe.spec create-recipe.spec recipe-favorite-delete.spec"
+          args=()
+          if [ -n "$SHARD_FILES" ]; then
+            for file in $SHARD_FILES; do args+=("$file"); done
+          else
+            for file in $named; do args+=(--exclude "**/$file.ts"); done
+          fi
+          pnpm exec vitest run --config vitest.integration.config.ts "${args[@]}"
         env:
+          SHARD_FILES: ${{ matrix.files }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           BETTER_AUTH_URL: http://127.0.0.1:4101
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -88,8 +112,9 @@ jobs:
 
       - name: Delete database branch
         if: always()
-        run: pnpm exec neon --no-analytics branches delete "ci/integration-$NEON_BRANCH_SUFFIX" --project-id "$NEON_PROJECT_ID" || true
+        run: pnpm exec neon --no-analytics branches delete "ci/integration-$SHARD-$NEON_BRANCH_SUFFIX" --project-id "$NEON_PROJECT_ID" || true
         env:
+          SHARD: ${{ matrix.shard }}
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
 
