@@ -39,6 +39,7 @@ function checkout(pin?: string | object): { root: string; nested: string } {
   if (pin !== undefined) writeFileSync(join(root, '.neon'), typeof pin === 'string' ? pin : JSON.stringify(pin));
   return { root, nested };
 }
+const REFUSED = /^Neon target mismatch: .*No database writes allowed\.$/;
 const hostOf = (connection: string) => new URL(connection).hostname;
 const local = (startDir: string, neon: (args: string[]) => Promise<string>) => getDevDatabaseUrl({ env: {}, startDir, neon });
 
@@ -56,6 +57,7 @@ describe('local target selection', () => {
     ['the dev branch by name', { projectId: PROJECT, branch: 'dev' }],
     ['the dev branch by id', { projectId: PROJECT, branch: DEV }],
     ['a project without a branch', { projectId: PROJECT }],
+    ['dev while naming another project', { projectId: 'other-project-00000000', branch: 'dev' }],
   ])('targets dev when .neon pins %s', async (_label, pin) => {
     const { nested } = checkout(pin);
     expect(hostOf(await local(nested, fakeNeon([dev, worktree])))).toBe(`${DEV}.db.example.invalid`);
@@ -94,20 +96,21 @@ describe('local target refusal', () => {
     ['could be read as a CLI flag', { projectId: PROJECT, branch: '--help' }, [dev, worktree]],
   ])('refuses a pin that %s', async (_label, pin, branches) => {
     const { nested } = checkout(pin);
-    await expect(local(nested, refusingNeon(branches))).rejects.toThrow(/^Neon target mismatch: .*No database writes allowed\.$/);
+    await expect(local(nested, refusingNeon(branches))).rejects.toThrow(REFUSED);
   });
 
   it.each([
     ['is not JSON', '{ "projectId": '],
     ['is not an object', '"dev"'],
+    ['is a list', '[]'],
   ])('refuses a .neon file that %s instead of falling back to dev', async (_label, content) => {
     const { nested } = checkout(content);
-    await expect(local(nested, refusingNeon([dev, worktree]))).rejects.toThrow(/^Neon target mismatch: .*No database writes allowed\.$/);
+    await expect(local(nested, refusingNeon([dev, worktree]))).rejects.toThrow(REFUSED);
   });
 
   it('refuses a dev lookup that returns another branch', async () => {
     const { nested } = checkout();
-    await expect(local(nested, refusingNeon([{ ...dev, name: 'production' }]))).rejects.toThrow(/^Neon target mismatch: .*No database writes allowed\.$/);
+    await expect(local(nested, refusingNeon([{ ...dev, name: 'production' }]))).rejects.toThrow(REFUSED);
   });
 });
 

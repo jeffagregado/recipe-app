@@ -13,9 +13,7 @@ on:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  # A newer push replaces an in-flight pull request run. Runs on master queue instead (only the newest waiting run
-  # is kept), because cancelling one could kill migrate-dev while it is migrating the shared dev branch.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -56,13 +54,16 @@ jobs:
   migrate-dev:
     name: Migrate Neon dev
     needs: check
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # Manual runs on master migrate too: one can cancel a push run through the workflow-level group, and would
+    # otherwise leave that push's migrations unapplied until the next merge.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: dev
     # Drizzle reads the last applied migration before it opens its transaction, so two migrators must never overlap.
-    # The workflow-level group already queues master runs; this group keeps that true if that setting ever changes.
-    # Drizzle applies all pending migrations in one transaction, so a run killed by hand or by the timeout rolls back.
+    # This group makes a second migrator wait. It cannot stop the workflow-level group from cancelling this job when
+    # a newer master run starts, and it does not need to: Drizzle applies all pending migrations in one transaction,
+    # so a killed job rolls back to the previous schema and the newer run, which holds the same migrations, applies them.
     concurrency:
       group: migrate-neon-dev
       cancel-in-progress: false

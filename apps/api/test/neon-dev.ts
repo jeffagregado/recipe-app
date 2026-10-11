@@ -62,7 +62,7 @@ function pinnedBranch(startDir: string): string | undefined {
     // A worktree with a damaged pin must not fall back to the shared dev branch.
     throw new Error(`Neon target mismatch: the nearest .neon file cannot be read. ${REFUSED}`, { cause });
   }
-  if (!context || typeof context !== 'object') throw new Error(`Neon target mismatch: the nearest .neon file is not a context object. ${REFUSED}`);
+  if (!context || typeof context !== 'object' || Array.isArray(context)) throw new Error(`Neon target mismatch: the nearest .neon file is not a context object. ${REFUSED}`);
   const pin: unknown = 'branch' in context ? context.branch : 'branchId' in context ? context.branchId : undefined;
   if (pin === undefined || pin === 'dev' || pin === DEV_BRANCH) return undefined;
   // A leading dash would reach the CLI as a flag instead of a branch.
