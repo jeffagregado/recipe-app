@@ -7,7 +7,7 @@ import { CATEGORY_MESSAGES, type SaveCategoriesResult } from '../actions/results
 import { toCategoryFormValues, toSaveCategoriesInput, type CategoryFormValues } from '../lib/category-form'
 
 export type SaveCategoriesAction = (input: ReturnType<typeof toSaveCategoriesInput>) => Promise<SaveCategoriesResult>
-export type CategoryFormAlert = { message: string; reload: boolean }
+type CategoryFormAlert = { message: string; reload: boolean }
 
 type UseCategorySaveOptions = { form: UseFormReturn<CategoryFormValues>; onSave: SaveCategoriesAction }
 
