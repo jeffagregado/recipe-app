@@ -13,7 +13,9 @@ on:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # A newer push replaces an in-flight pull request run. Runs on master queue instead (only the newest waiting run
+  # is kept), because cancelling one could kill migrate-dev while it is migrating the shared dev branch.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 permissions:
   contents: read
@@ -48,6 +50,36 @@ jobs:
         run: |
           pnpm exec turbo run build --filter=@recipe-app/contracts
           pnpm run typecheck:tests
+
+  # Git master corresponds to Neon dev: once a merge passes check, dev gets the migrations it brought. Pull request
+  # branches and worktree branches are children of dev, so they pick the new schema up when they are created.
+  migrate-dev:
+    name: Migrate Neon dev
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: dev
+    # Drizzle reads the last applied migration before it opens its transaction, so two migrators must never overlap.
+    # The workflow-level group already queues master runs; this group keeps that true if that setting ever changes.
+    # Drizzle applies all pending migrations in one transaction, so a run killed by hand or by the timeout rolls back.
+    concurrency:
+      group: migrate-neon-dev
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+
+      - uses: ./.github/actions/neon-connection
+        with:
+          branch: ${{ env.NEON_PARENT_BRANCH }}
+          project-id: ${{ vars.NEON_PROJECT_ID }}
+          api-key: ${{ secrets.NEON_API_KEY }}
+
+      # A no-op when every migration in apps/api/drizzle is already applied.
+      - name: Apply migrations
+        run: pnpm --filter @recipe/api run db:migrate
 
   integration:
     name: API integration tests (${{ matrix.shard }})
