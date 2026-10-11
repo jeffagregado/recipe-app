@@ -97,9 +97,10 @@ jobs:
         # The two named shards hold the slowest suites. "rest" excludes exactly those files, so a new
         # spec file always runs there without editing this list. When moving a file into a named shard,
         # also add it to `named` in the run step below, or it will run twice.
+        # storage.spec is one test that idles for a minute; it rides in "update" to keep it out of "rest".
         include:
           - shard: update
-            files: update-recipe.spec
+            files: update-recipe.spec storage.spec
           - shard: create-delete
             files: create-recipe.spec recipe-favorite-delete.spec
           - shard: rest
@@ -125,7 +126,7 @@ jobs:
       - name: Run integration tests
         working-directory: apps/api
         run: |
-          named="update-recipe.spec create-recipe.spec recipe-favorite-delete.spec"
+          named="update-recipe.spec storage.spec create-recipe.spec recipe-favorite-delete.spec"
           args=()
           if [ -n "$SHARD_FILES" ]; then
             for file in $SHARD_FILES; do args+=("$file"); done
@@ -201,6 +202,17 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           S3_BUCKET: ${{ vars.S3_BUCKET }}
+
+      # The repository is public, and so is this artifact. Only the screenshots are clean: the error-context.md files
+      # beside them hold the page's form values, a typed password included, and can quote a signed photo URL.
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-failure-screenshots
+          path: test-results/**/*.png
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Delete database branch
         if: always()
