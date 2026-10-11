@@ -10,6 +10,13 @@ on:
       e2e_projects:
         description: Playwright projects to run, space separated, or "all" for every project in playwright.config.ts
         default: chromium
+      # TEMPORARY (#17): feed the gate a chosen commit, and optionally a broken token, to prove its decisions.
+      gate_sha:
+        description: TEMPORARY. Commit the gate decides on, in place of the pushed commit
+        default: ""
+      gate_break:
+        description: TEMPORARY. "true" gives the gate an invalid token
+        default: "false"
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -87,7 +94,7 @@ jobs:
   # lookup included, leaves the suite to run. check and migrate-dev do not depend on it.
   gate:
     name: Decide whether the suite runs
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || inputs.gate_sha != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -100,9 +107,9 @@ jobs:
       - name: Look for a run that covers this tree
         id: decide
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ inputs.gate_break == 'true' && 'not-a-token' || github.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ inputs.gate_sha || github.sha }}
         run: |
           set -euo pipefail
           suite=run
@@ -210,51 +217,8 @@ jobs:
           - shard: rest
             files: ""
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: ./.github/actions/setup
-
-      - name: Build contracts
-        run: pnpm exec turbo run build --filter=@recipe-app/contracts
-
-      - uses: ./.github/actions/neon-branch
-        with:
-          name: ci/integration-${{ matrix.shard }}-${{ env.NEON_BRANCH_SUFFIX }}
-          parent: ${{ env.NEON_PARENT_BRANCH }}
-          project-id: ${{ vars.NEON_PROJECT_ID }}
-          api-key: ${{ secrets.NEON_API_KEY }}
-
-      - name: Apply migrations
-        run: pnpm --filter @recipe/api run db:migrate
-
-      - name: Run integration tests
-        working-directory: apps/api
-        run: |
-          named="update-recipe.spec create-recipe.spec recipe-favorite-delete.spec"
-          args=()
-          if [ -n "$SHARD_FILES" ]; then
-            for file in $SHARD_FILES; do args+=("$file"); done
-          else
-            for file in $named; do args+=(--exclude "**/$file.ts"); done
-          fi
-          pnpm exec vitest run --config vitest.integration.config.ts "${args[@]}"
-        env:
-          SHARD_FILES: ${{ matrix.files }}
-          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          BETTER_AUTH_URL: http://127.0.0.1:4101
-          # AWS_ENDPOINT_URL_S3 is this shard's own storage, exported by the Neon branch step; a value here would override it.
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          S3_BUCKET: ${{ vars.S3_BUCKET }}
-
-      - name: Delete database branch
-        if: always()
-        run: pnpm exec neon --no-analytics branches delete "ci/integration-$SHARD-$NEON_BRANCH_SUFFIX" --project-id "$NEON_PROJECT_ID" || true
-        env:
-          SHARD: ${{ matrix.shard }}
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+      # TEMPORARY (#17): the real steps are removed so gate proof runs create no Neon branch.
+      - run: echo "The suite would run here."
 
   e2e:
     name: End-to-end tests
@@ -269,61 +233,5 @@ jobs:
     env:
       E2E_PROJECTS: ${{ inputs.e2e_projects || 'chromium' }}
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: ./.github/actions/setup
-
-      # Before the build: the web app only optimizes recipe photos from RECIPE_STORAGE_HOST, which this step exports
-      # for the run's own storage. The build and the server Playwright starts both read it from the job environment.
-      - uses: ./.github/actions/neon-branch
-        with:
-          name: ci/e2e-${{ env.NEON_BRANCH_SUFFIX }}
-          parent: ${{ env.NEON_PARENT_BRANCH }}
-          project-id: ${{ vars.NEON_PROJECT_ID }}
-          api-key: ${{ secrets.NEON_API_KEY }}
-
-      - name: Build
-        run: pnpm build
-
-      # Chromium is the gate: it passed every spec on the first CI run, while mobile-webkit failed 22, some of them
-      # for reasons in the specs themselves (unsupported mouse.wheel, Chromium-only error text). The other projects
-      # run on demand through "Run workflow" until they are known to pass.
-      - name: Install browsers
-        run: pnpm exec playwright install --with-deps ${{ env.E2E_PROJECTS == 'chromium' && 'chromium' || '' }}
-
-      - name: Apply migrations
-        run: pnpm --filter @recipe/api run db:migrate
-
-      - name: Run Playwright
-        run: |
-          projects=()
-          if [ "$E2E_PROJECTS" != "all" ]; then
-            for project in $E2E_PROJECTS; do projects+=("--project=$project"); done
-          fi
-          pnpm exec playwright test "${projects[@]}"
-        env:
-          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          BETTER_AUTH_URL: http://127.0.0.1:4101
-          # AWS_ENDPOINT_URL_S3 is this run's own storage, exported by the Neon branch step; a value here would override it.
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          S3_BUCKET: ${{ vars.S3_BUCKET }}
-
-      # The repository is public, and so is this artifact. Only the screenshots are clean: the error-context.md files
-      # beside them hold the page's form values, a typed password included, and can quote a signed photo URL.
-      - name: Upload failure screenshots
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: e2e-failure-screenshots
-          path: test-results/**/*.png
-          retention-days: 7
-          if-no-files-found: ignore
-
-      - name: Delete database branch
-        if: always()
-        run: pnpm exec neon --no-analytics branches delete "ci/e2e-$NEON_BRANCH_SUFFIX" --project-id "$NEON_PROJECT_ID" || true
-        env:
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+      # TEMPORARY (#17): the real steps are removed so gate proof runs create no Neon branch.
+      - run: echo "The suite would run here."
