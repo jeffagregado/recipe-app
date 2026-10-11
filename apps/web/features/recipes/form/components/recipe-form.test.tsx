@@ -247,6 +247,8 @@ it('asks a new key once the user edits after an unknown outcome', async () => {
 	await user.click(save())
 	await findFormAlert()
 	await user.type(screen.getByLabelText('Title'), ' v2')
+	// The alert appears before the pending transition ends, and Save ignores clicks until then; typing is not a wait for that.
+	await waitFor(() => expect(save()).toBeEnabled())
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
 	expect(onSave.mock.calls[1][0].get('idempotencyKey')).not.toBe(onSave.mock.calls[0][0].get('idempotencyKey'))

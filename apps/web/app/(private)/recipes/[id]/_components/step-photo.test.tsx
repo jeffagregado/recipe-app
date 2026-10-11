@@ -57,12 +57,14 @@ it('opens from the keyboard and keeps Tab focus inside the dialog', async () => 
 	screen.getByRole('button', { name: 'Open step 1 photo' }).focus()
 	await user.keyboard('{Enter}')
 	const dialog = await screen.findByRole('dialog', { name: 'Step 1 photo' })
-	await user.tab()
-	await user.tab()
-	await user.tab()
-	// Base UI traps Tab with focus guards around the popup; focus never reaches the page behind it.
-	const active = document.activeElement as HTMLElement
-	expect(dialog.contains(active) || active.hasAttribute('data-base-ui-focus-guard')).toBe(true)
+	// Base UI moves focus on the next animation frame: into the dialog when it opens, and back from the guard a Tab lands on.
+	// A Tab pressed before that frame starts from the guard, and user-event then moves on to the document body and the page behind.
+	const focusInsideDialog = () => waitFor(() => expect(dialog).toContainElement(document.activeElement as HTMLElement))
+	await focusInsideDialog()
+	for (let press = 0; press < 3; press++) {
+		await user.tab()
+		await focusInsideDialog()
+	}
 	expect(screen.getByRole('button', { name: 'Open step 1 photo', hidden: true })).not.toHaveFocus()
 })
 

@@ -9,7 +9,8 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['{app,components,features,lib}/**/*.{test,spec}.{ts,tsx}'],
     setupFiles: ['./test/setup.ts'],
-    // Form tests type through a large form; beside lint, typecheck and build on a shared runner they outlast the 5 s default.
+    // Form tests type about 50 characters through a large form. One of them takes 0.5 s on an idle machine and 3 to 4 s in CI
+    // beside lint, typecheck and build, where it once outlasted the 5 s default.
     testTimeout: 20_000,
     coverage: {
       provider: 'v8',
