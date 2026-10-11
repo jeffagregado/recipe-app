@@ -31,8 +31,9 @@ runs:
         PARENT_BRANCH: ${{ inputs.parent }}
       run: |
         set -euo pipefail
-        # A run that is cancelled before its delete step still disappears within a day.
-        expires_at=$(date -u -d '+1 day' +%Y-%m-%dT%H:%M:%SZ)
+        # A run that is cancelled before its delete step still disappears within 3 hours. The longest job limit is
+        # 45 minutes, so a running job never loses its branch.
+        expires_at=$(date -u -d '+3 hours' +%Y-%m-%dT%H:%M:%SZ)
         pnpm exec neon --no-analytics branches create --project-id "$NEON_PROJECT_ID" --name "$BRANCH_NAME" \
           --parent "$PARENT_BRANCH" --expires-at "$expires_at" --no-secrets > /dev/null
 
