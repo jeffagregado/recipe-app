@@ -8,7 +8,7 @@ export default defineConfig({
   testMatch: '**/*.spec.ts',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
-  // One worker per core of the CI runner. Trialled in #18: five consecutive green runs, Playwright 5.3 to 6.0 minutes
+  // One worker per core of the CI runner. Trialled in #18 over consecutive green runs: Playwright 5.3 to 6.0 minutes
   // against 9 to 12 on 2 workers. Each worker signs up its own owner from its own address.
   workers: process.env.CI ? 4 : undefined,
   // Browser action steps can contain form values; keep only the value-free list output. The html reporter writes
