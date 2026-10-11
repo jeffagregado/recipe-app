@@ -10,6 +10,15 @@
         "!.next/dev/**"
       ]
     },
+    "@recipe/web#build": {
+      "dependsOn": ["^build"],
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "!.next/dev/**"
+      ],
+      "env": ["RECIPE_STORAGE_HOST"]
+    },
     "dev": {
       "dependsOn": ["^build"],
       "cache": false,
@@ -25,7 +34,7 @@
       "dependsOn": ["^build"],
       "cache": false,
       "persistent": true,
-      "passThroughEnv": ["RECIPE_API_URL"]
+      "passThroughEnv": ["RECIPE_API_URL", "RECIPE_STORAGE_HOST"]
     },
     "lint": {
       "dependsOn": ["^lint"]
