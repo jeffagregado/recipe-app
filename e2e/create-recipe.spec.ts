@@ -6,7 +6,7 @@ import { seedRecipes } from '../apps/api/src/recipes/seed-recipes.js';
 import { creatorTest as test, expect, WEB_URL } from './fixtures.js';
 import {
   COVER, PLAIN_LINK, RICH, RICH_FILES, WIDTHS,
-  chooseUnit, createRecipeViaApi, field, fillIngredient, fillMinimal, fillRich, ingredientRows, noOverflow, openCreate, photo, richMetadata, stepTexts, stubVideoHosts, toast, watchConsole,
+  chooseUnit, categoryIdsFor, createRecipeViaApi, field, fillIngredient, fillMinimal, fillRich, ingredientRows, noOverflow, openCreate, photo, richMetadata, stepTexts, stubVideoHosts, toast, watchConsole,
 } from './create-recipe-helpers.js';
 
 // The one-time notice is removed from the URL once the toast shows, so the saved page is just /recipes/<id>.
@@ -261,7 +261,7 @@ test.describe('saving', () => {
   });
 
   test('a video host that cannot be embedded becomes a link that opens in a new tab', async ({ page, creator, workerData }) => {
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Plain video link', PLAIN_LINK), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Plain video link', await categoryIdsFor(creator, RICH.categories), PLAIN_LINK), RICH_FILES);
     await page.goto(`/recipes/${id}`);
     const link = page.getByRole('link', { name: 'Watch video (opens in a new tab)' });
     await expect(link).toHaveAttribute('href', PLAIN_LINK);
@@ -272,7 +272,7 @@ test.describe('saving', () => {
   });
 
   test('photo URLs are signed afresh on every load and no page response is cacheable', async ({ page, creator, workerData }) => {
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Fresh signatures'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Fresh signatures', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     const pageCache: string[] = [];
     page.on('response', (response) => { if (new URL(response.url()).pathname === `/recipes/${id}`) pageCache.push(response.headers()['cache-control'] ?? ''); });
     const signature = async () => {
@@ -480,7 +480,7 @@ test.describe('layout', () => {
   });
 
   test('the detail page never overflows at any width', async ({ page, creator, workerData }) => {
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Detail layout check with a deliberately long recipe title that must wrap properly'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Detail layout check with a deliberately long recipe title that must wrap properly', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     await page.goto(`/recipes/${id}`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     // Cover, video poster and the two step photos.

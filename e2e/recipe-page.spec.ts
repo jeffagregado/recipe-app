@@ -4,7 +4,7 @@ import { eq } from '../apps/api/node_modules/drizzle-orm/index.js';
 import { authRateLimits, recipes } from '../apps/api/src/database/schema.js';
 import { creatorTest as test, expect } from './fixtures.js';
 import {
-  PLAIN_LINK, RICH, RICH_FILES, WIDTHS, createRecipeViaApi, imagesLoaded, ingredientRows, metadataWith, minimalMetadata, noOverflow, openRecipe, photoButtons,
+  PLAIN_LINK, RICH, RICH_FILES, WIDTHS, categoryIdsFor, createRecipeViaApi, imagesLoaded, ingredientRows, metadataWith, minimalMetadata, noOverflow, openRecipe, photoButtons,
   recordRequests, richMetadata, stepTexts, stubVideoHosts, toast, watchConsole,
   type CreateMetadata,
 } from './create-recipe-helpers.js';
@@ -19,8 +19,8 @@ const detailsText = (page: Page) => page.getByRole('list', { name: 'Recipe detai
   .evaluateAll((items) => items.map((item) => (item.textContent ?? '').replace(/·/g, ' ').replace(/\s+/g, ' ').trim()));
 
 /** Six long steps, photos on steps 1 and 3, so the page scrolls and the right column outgrows the left one. */
-const longRich = (title: string, videoUrl?: string | null): CreateMetadata => {
-  const base = richMetadata(title, videoUrl);
+const longRich = (title: string, categoryIds: string[], videoUrl?: string | null): CreateMetadata => {
+  const base = richMetadata(title, categoryIds, videoUrl);
   const filler = 'Stir gently and keep the heat low so nothing catches on the bottom of the pan while the flavours come together. ';
   return {
     ...base,
@@ -39,7 +39,7 @@ const scalable = (title: string, servings: number | null = 4): CreateMetadata =>
 
 test.describe('content', () => {
   test('a rich recipe shows banner, title row, chips, meta, description and the four cards in order', async ({ page, creator, workerData }) => {
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Rich page'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Rich page', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     await openRecipe(page, id, 'Rich page');
     await expect(page.getByRole('img', { name: 'Rich page' })).toBeVisible();
     await expect(page.getByRole('list', { name: 'Categories' }).getByRole('listitem')).toHaveText(RICH.categories);
@@ -77,7 +77,7 @@ test.describe('content', () => {
   });
 
   test('the meta row keeps "min" on the last time only on mobile and on every time from the sm breakpoint', async ({ page, creator, workerData }) => {
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Meta widths'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Meta widths', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     await openRecipe(page, id, 'Meta widths');
     const minWidths = () => page.locator('ul[aria-label="Recipe details"] span.inline-flex > span:last-child > span').evaluateAll((spans) => spans.map((span) => Math.round(span.getBoundingClientRect().width)));
     await page.setViewportSize({ width: 390, height: 900 });
@@ -91,7 +91,7 @@ test.describe('content', () => {
 
 test.describe('columns', () => {
   test('single column below 1280px, two columns with a sticky left column from 1280px', async ({ page, creator, workerData }) => {
-    const id = await createRecipeViaApi(creator, workerData.address, longRich('Columns'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, longRich('Columns', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     await openRecipe(page, id, 'Columns');
     const boxes = async () => ({
       ingredients: await box(section(page, 'Ingredients')), video: await box(section(page, 'Video')),
@@ -234,7 +234,7 @@ test.describe('ingredient check-off', () => {
 test.describe('video', () => {
   test('nothing is requested from the video host before Play, and Play loads one embed that starts from that click', async ({ page, creator, workerData }) => {
     const requests = recordRequests(page);
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Video gate'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Video gate', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     await openRecipe(page, id, 'Video gate');
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('Plays from YouTube')).toBeVisible();
@@ -265,7 +265,7 @@ test.describe('video', () => {
     await expect(page.getByRole('button', { name: 'Play video' })).toBeVisible();
     await expect(page.locator('iframe')).toHaveCount(0);
 
-    const linked = await createRecipeViaApi(creator, workerData.address, richMetadata('Plain video link', PLAIN_LINK), RICH_FILES);
+    const linked = await createRecipeViaApi(creator, workerData.address, richMetadata('Plain video link', await categoryIdsFor(creator, RICH.categories), PLAIN_LINK), RICH_FILES);
     await openRecipe(page, linked, 'Plain video link');
     const link = page.getByRole('link', { name: 'Watch video (opens in a new tab)' });
     await expect(link).toHaveAttribute('href', PLAIN_LINK);
@@ -279,7 +279,7 @@ test.describe('video', () => {
 
 test.describe('step photo dialog', () => {
   test('opens by click, Enter and Space; traps focus; closes by button, Escape and backdrop; focus returns each time', async ({ page, creator, workerData }) => {
-    const id = await createRecipeViaApi(creator, workerData.address, longRich('Photo dialog'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, longRich('Photo dialog', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     await openRecipe(page, id, 'Photo dialog');
     await expect(photoButtons(page)).toHaveCount(2);
     const trigger = page.getByRole('button', { name: 'Open step 1 photo' });
@@ -338,7 +338,7 @@ test.describe('layout', () => {
   }
 
   test('the title row keeps the heart and ⋮ beside the title with 44px targets on mobile', async ({ page, creator, workerData }) => {
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Title row with a deliberately long name that wraps onto several lines on small screens'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Title row with a deliberately long name that wraps onto several lines on small screens', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     await openRecipe(page, id);
     for (const width of [320, 390, 768, 1280]) {
       await page.setViewportSize({ width, height: 900 });
@@ -361,7 +361,7 @@ test.describe('layout', () => {
   test('minimal and rich recipe pages never overflow at any width, also with the menu, delete dialog and photo dialog open', async ({ page, creator, workerData }) => {
     test.setTimeout(240_000);
     const minimal = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Layout minimal with a very long title that has to wrap properly instead of pushing the page wider'));
-    const rich = await createRecipeViaApi(creator, workerData.address, longRich('Layout rich with a very long title that has to wrap properly instead of pushing the page wider'), RICH_FILES);
+    const rich = await createRecipeViaApi(creator, workerData.address, longRich('Layout rich with a very long title that has to wrap properly instead of pushing the page wider', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
 
     await openRecipe(page, minimal);
     for (const width of WIDTHS) { await page.setViewportSize({ width, height: 900 }); await expectNoOverflow(page, `minimal ${width}`); }
@@ -406,7 +406,7 @@ test.describe('layout', () => {
   test('an open toast never causes overflow at any width', async ({ page, creator, workerData }) => {
     test.setTimeout(120_000);
     await workerData.db.insert(authRateLimits).values({ id: randomUUID(), key: `wrapper:recipe-favorite:user:${creator.user.id}`, count: 120, lastRequest: Date.now() });
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Toast layout'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Toast layout', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     await openRecipe(page, id, 'Toast layout');
     await page.getByRole('button', { name: 'Add Toast layout to favorites' }).click();
     await expect(toast.error(page, 'Couldn’t save favorite. Try again.')).toBeVisible();

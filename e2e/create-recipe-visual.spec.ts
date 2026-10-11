@@ -5,7 +5,7 @@ import { eq } from '../apps/api/node_modules/drizzle-orm/index.js';
 import type { DrizzleDb } from '../apps/api/src/database/database.service.js';
 import { authRateLimits } from '../apps/api/src/database/schema.js';
 import { creatorTest as test, expect } from './fixtures.js';
-import { RICH_FILES, WIDTHS, createRecipeViaApi, field, fillRich, imagesLoaded, minimalMetadata, openCreate, openRecipe, photo, richMetadata, stubVideoHosts } from './create-recipe-helpers.js';
+import { RICH, RICH_FILES, WIDTHS, categoryIdsFor, createRecipeViaApi, field, fillRich, imagesLoaded, minimalMetadata, openCreate, openRecipe, photo, richMetadata, stubVideoHosts } from './create-recipe-helpers.js';
 
 // Screenshot capture for visual review; not part of the default run. Use:
 //   CREATE_RECIPE_VISUAL=1 pnpm exec playwright test e2e/create-recipe-visual.spec.ts --project=chromium
@@ -45,7 +45,7 @@ test('captures the Create page and the detail page at every width', async ({ pag
   await page.screenshot({ path: `${OUTPUT}/create-scrolled-390.png` });
 
   const minimal = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Boiled Water'));
-  const rich = await createRecipeViaApi(creator, workerData.address, richMetadata('Creamy Garlic Pasta'), RICH_FILES);
+  const rich = await createRecipeViaApi(creator, workerData.address, richMetadata('Creamy Garlic Pasta', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
   for (const [name, id] of [['detail-minimal', minimal], ['detail-rich', rich]] as const) {
     await page.goto(`/recipes/${id}`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
@@ -77,8 +77,8 @@ const DISH = {
   four: photo('plated.png', [90, 140, 90], 800, 600),
 };
 
-const visualMetadata = (title: string) => ({
-  ...richMetadata(title),
+const visualMetadata = (title: string, categoryIds: string[]) => ({
+  ...richMetadata(title, categoryIds),
   description: 'A simple and creamy pasta that’s quick to make. Perfect for a weeknight dinner.',
   servings: 2,
   ingredients: [
@@ -155,7 +155,7 @@ test('captures the recipe page, its overlays, the edit page and not-found at eve
   await mkdir(RECIPE_OUTPUT, { recursive: true });
   await stubVideoHosts(page);
 
-  const rich = await createRecipeViaApi(creator, workerData.address, visualMetadata('Creamy Garlic Pasta'), VISUAL_FILES);
+  const rich = await createRecipeViaApi(creator, workerData.address, visualMetadata('Creamy Garlic Pasta', await categoryIdsFor(creator, RICH.categories)), VISUAL_FILES);
   const minimal = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Boiled Water'));
   const waitForImages = async () => { await expect.poll(() => imagesLoaded(page)).toBe(true); };
 

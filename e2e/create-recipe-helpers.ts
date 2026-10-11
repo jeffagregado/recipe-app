@@ -82,10 +82,10 @@ export function recordRequests(page: Page) {
   };
 }
 
-/** Console errors/warnings and page errors; the desktop sidebar's two unbuilt routes answer 404 by design. */
+/** Console errors/warnings and page errors; the desktop sidebar's Settings route answers 404 by design. */
 export function watchConsole(page: Page): string[] {
   const issues: string[] = [];
-  const unbuilt = /\/(categories|settings)(\?|$)/;
+  const unbuilt = /\/settings(\?|$)/;
   page.on('pageerror', (error) => issues.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
     if (message.type() !== 'error' && message.type() !== 'warning') return;
@@ -184,20 +184,39 @@ export async function fillRich(page: Page, title: string, video = YOUTUBE_LINK) 
 }
 
 type Creator = { cookie: string };
+
+export type UserCategory = { id: string; name: string; recipeCount: number };
+
+/** Category ids belong to this account, including its defaults. Never reuse another account's ids. */
+export async function userCategories(creator: Creator): Promise<UserCategory[]> {
+  const response = await fetch(`${API_URL}/categories`, { headers: { Cookie: creator.cookie } });
+  expect(response.status).toBe(200);
+  return response.json() as Promise<UserCategory[]>;
+}
+
+export async function categoryIdsFor(creator: Creator, names: readonly string[]): Promise<string[]> {
+  const categories = await userCategories(creator);
+  return names.map((name) => {
+    const category = categories.find((category) => category.name === name);
+    if (!category) throw new Error(`Temporary account has no category named ${name}.`);
+    return category.id;
+  });
+}
+
 export type CreateMetadata = {
-  title: string; description: string | null; categories: string[]; servings: number | null; prepTimeMinutes: number | null; cookTimeMinutes: number | null;
+  title: string; description: string | null; categoryIds: string[]; servings: number | null; prepTimeMinutes: number | null; cookTimeMinutes: number | null;
   videoUrl: string | null; notes: string | null;
   ingredients: { name: string; quantity: number | null; unit: string | null }[];
   instructions: { description: string; hasImage: boolean }[];
 };
 
 export const minimalMetadata = (title: string): CreateMetadata => ({
-  title, description: null, categories: [], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
+  title, description: null, categoryIds: [], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
   ingredients: [{ name: 'Water', quantity: 2, unit: 'cup' }], instructions: [{ description: 'Boil the water.', hasImage: false }],
 });
 
-export const richMetadata = (title: string, videoUrl: string | null = YOUTUBE_LINK): CreateMetadata => ({
-  title, description: RICH.description, categories: RICH.categories, servings: 4, prepTimeMinutes: 10, cookTimeMinutes: 20, videoUrl, notes: RICH.notes,
+export const richMetadata = (title: string, categoryIds: string[], videoUrl: string | null = YOUTUBE_LINK): CreateMetadata => ({
+  title, description: RICH.description, categoryIds, servings: 4, prepTimeMinutes: 10, cookTimeMinutes: 20, videoUrl, notes: RICH.notes,
   ingredients: [{ name: 'Spaghetti', quantity: 200, unit: 'g' }, { name: 'Olive oil', quantity: 1.5, unit: 'tbsp' }, { name: 'Salt', quantity: null, unit: null }],
   instructions: [
     { description: RICH.steps[0], hasImage: true }, { description: RICH.steps[1], hasImage: false }, { description: RICH.steps[2], hasImage: true },
