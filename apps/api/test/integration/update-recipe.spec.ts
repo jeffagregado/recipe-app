@@ -342,7 +342,9 @@ describe('Update recipe HTTP', () => {
     expect(await s.savedId(await patch(id, metadata, photos, { key }), 200)).toBe(id);
   }, 90_000);
 
-  it('serializes two concurrent updates of one recipe so that one of them wins entirely', async () => {
+  // [DIAG-10] temporary: repeats the test and prints a timeline of every run.
+  const diagRepeats = Number(process.env.DIAG_10_REPEATS ?? 1);
+  it.each(Array.from({ length: diagRepeats }, (_, index) => index + 1))('serializes two concurrent updates of one recipe so that one of them wins entirely (%i)', async (diagRun) => {
     const { id, value, rows } = await seed(); const uploaded = s.uploadedKeys();
     const [a, b, ...rest] = unchanged(value).instructions;
     const first: UpdateRecipeMetadata = { ...unchanged(value), title: 'First writer', cover: 'replace', categoryIds: s.categoryIds(['Breakfast']),
@@ -352,8 +354,19 @@ describe('Update recipe HTTP', () => {
     const service = s.app.get(RecipeUpdateService);
     const requests = [serviceRequest(first, [{ field: 'cover', bytes: jpeg(91) }, { field: 'step-0', bytes: jpeg(93) }]),
       serviceRequest(second, [{ field: 'cover', bytes: jpeg(92) }, { field: 'step-1', bytes: jpeg(94) }])];
-    const results = await Promise.all(requests.map((request) => service.update(id, request)));
-    await Promise.all(requests.map((request) => request.writeSettled));
+    const cleanup = s.recordCleanup();
+    // [DIAG-10] temporary: every transaction and each writer's answer, in milliseconds since the writes began.
+    const diagStart = Date.now(); const diag: string[] = []; let diagTx = 0;
+    const diagReason = (start: unknown) => { const parts: string[] = []; for (let error = start, depth = 0; error instanceof Error && depth < 6; error = error.cause, depth++) parts.push(`${error.name}${'code' in error && typeof error.code === 'string' ? ` ${error.code}` : ''}`); return parts.join(' <- '); };
+    const diagTransaction = s.db.transaction.bind(s.db);
+    const diagSeam = vi.spyOn(s.db, 'transaction').mockImplementation(async (...args) => {
+      const n = ++diagTx; const at = Date.now() - diagStart;
+      try { const result = await diagTransaction(...args); diag.push(`tx${n} +${at}..+${Date.now() - diagStart} ok`); return result; }
+      catch (cause) { diag.push(`tx${n} +${at}..+${Date.now() - diagStart} failed ${diagReason(cause)}`); throw cause; }
+    });
+    const results = await Promise.all(requests.map((request, writer) => service.update(id, request).finally(() => diag.push(`writer${writer} answered +${Date.now() - diagStart}`))));
+    await Promise.all(requests.map((request, writer) => request.writeSettled!.finally(() => diag.push(`writer${writer} settled +${Date.now() - diagStart}`))));
+    diagSeam.mockRestore();
     expect(results).toEqual([{ id, replay: false }, { id, replay: false }]);
     const final = await s.detail(id);
     const images = await Promise.all([final.imageUrl, final.instructions[0].imageUrl, final.instructions[1].imageUrl].map((url) => s.bytesAt(url)));
@@ -372,13 +385,21 @@ describe('Update recipe HTTP', () => {
       stale: recipeWriteAttempts.staleObjectKeys, leased: sql<boolean>`${recipeWriteAttempts.updatedAt} > clock_timestamp()` })
       .from(recipeWriteAttempts).where(eq(recipeWriteAttempts.recipeId, id));
     const states = `attempts when the writes settled: ${settled.map(({ operation, state, stale, leased }) => `${operation} ${state}, ${stale.length} stale${leased ? ', leased' : ''}`).join('; ')}`;
-    // CI has shown a writer leaving cleanup behind without the reason being known. This line and the messages below record it.
-    if (settled.some(({ state }) => state !== 'completed')) console.log(`Concurrent updates left cleanup to reconciliation; ${states}.`);
+    // CI has shown a writer leaving cleanup behind. This line records what its cleanup did, and the messages below carry the states.
+    const left = settled.some(({ state }) => state !== 'completed'); const during = cleanup.events.length;
+    if (left) console.log(`Concurrent updates left cleanup to reconciliation; ${states}.\nCleanup until then: ${cleanup.events.join('; ') || 'nothing recorded'}.`);
+    // [DIAG-10] temporary: one line per run, clean or not.
+    console.log(`[DIAG-10] run ${diagRun} ${left ? 'LEFT' : 'clean'} began ${new Date(diagStart).toISOString()} read at +${Date.now() - diagStart}:${diag.join('; ')} | ${cleanup.events.join('; ')} | stale: ${settled.flatMap(({ stale }) => stale).join(', ') || 'none'}`);
     // 20 s: a deletion in flight ends at the storage client's 10 s abort; one reconciliation round took 5.4 s at 415 ms a statement.
-    await vi.waitFor(async () => {
-      await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds: settled.map((attempt) => attempt.id) });
-      expect(await s.db.$count(recipeWriteAttempts, and(eq(recipeWriteAttempts.recipeId, id), ne(recipeWriteAttempts.state, 'completed')))).toBe(0);
-    }, { timeout: 20_000, interval: 500 });
+    try {
+      await vi.waitFor(async () => {
+        await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds: settled.map((attempt) => attempt.id) });
+        expect(await s.db.$count(recipeWriteAttempts, and(eq(recipeWriteAttempts.recipeId, id), ne(recipeWriteAttempts.state, 'completed')))).toBe(0);
+      }, { timeout: 20_000, interval: 500 });
+    } finally {
+      cleanup.stop();
+      if (left) console.log(`Cleanup during reconciliation: ${cleanup.events.slice(during).join('; ') || 'nothing recorded'}.`);
+    }
     expect(await s.orphans(uploaded), states).toBe(0);
     const kept = new Set(remaining.map(({ objectKey }) => objectKey));
     for (const row of rows.filter(({ objectKey }) => !kept.has(objectKey))) expect(await s.stored(row.objectKey), states).toBe(false);
