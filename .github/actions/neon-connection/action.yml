@@ -1,0 +1,33 @@
+name: Export Neon connection
+description: >
+  Resolve the direct connection string of a Neon branch with the repository's Neon CLI and export it, masked, as
+  DATABASE_URL for later steps. The value never passes through a step output and is never printed.
+
+inputs:
+  branch:
+    description: Branch name or id
+    required: true
+  project-id:
+    description: Neon project id
+    required: true
+  api-key:
+    description: Neon API key
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Export masked DATABASE_URL
+      shell: bash
+      env:
+        NEON_API_KEY: ${{ inputs.api-key }}
+        NEON_PROJECT_ID: ${{ inputs.project-id }}
+        BRANCH: ${{ inputs.branch }}
+      run: |
+        set -euo pipefail
+        url=$(pnpm exec neon --no-analytics connection-string "$BRANCH" --project-id "$NEON_PROJECT_ID" \
+          --database-name neondb --role-name neondb_owner --ssl verify-full)
+        # Mask before the value reaches the environment file; nothing above prints it.
+        echo "::add-mask::$url"
+        node -e 'const { password } = new URL(process.argv[1]); for (const value of new Set([password, decodeURIComponent(password)])) console.log(`::add-mask::${value}`);' "$url"
+        echo "DATABASE_URL=$url" >> "$GITHUB_ENV"

@@ -21,7 +21,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Create branch and export masked DATABASE_URL
+    - name: Create branch
       shell: bash
       env:
         NEON_API_KEY: ${{ inputs.api-key }}
@@ -34,9 +34,9 @@ runs:
         expires_at=$(date -u -d '+1 day' +%Y-%m-%dT%H:%M:%SZ)
         pnpm exec neon --no-analytics branches create --project-id "$NEON_PROJECT_ID" --name "$BRANCH_NAME" \
           --parent "$PARENT_BRANCH" --expires-at "$expires_at" --no-secrets > /dev/null
-        url=$(pnpm exec neon --no-analytics connection-string "$BRANCH_NAME" --project-id "$NEON_PROJECT_ID" \
-          --database-name neondb --role-name neondb_owner --ssl verify-full)
-        # Mask before the value reaches the environment file; nothing above prints it.
-        echo "::add-mask::$url"
-        node -e 'const { password } = new URL(process.argv[1]); for (const value of new Set([password, decodeURIComponent(password)])) console.log(`::add-mask::${value}`);' "$url"
-        echo "DATABASE_URL=$url" >> "$GITHUB_ENV"
+
+    - uses: ./.github/actions/neon-connection
+      with:
+        branch: ${{ inputs.name }}
+        project-id: ${{ inputs.project-id }}
+        api-key: ${{ inputs.api-key }}

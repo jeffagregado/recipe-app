@@ -49,6 +49,39 @@ jobs:
           pnpm exec turbo run build --filter=@recipe-app/contracts
           pnpm run typecheck:tests
 
+  # Git master corresponds to Neon dev: once a merge passes check, dev gets the migrations it brought. Pull request
+  # branches and worktree branches are children of dev, so they pick the new schema up when they are created.
+  migrate-dev:
+    name: Migrate Neon dev
+    needs: check
+    # Manual runs on master migrate too: one can cancel a push run through the workflow-level group, and would
+    # otherwise leave that push's migrations unapplied until the next merge.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: dev
+    # Drizzle reads the last applied migration before it opens its transaction, so two migrators must never overlap.
+    # This group makes a second migrator wait. It cannot stop the workflow-level group from cancelling this job when
+    # a newer master run starts, and it does not need to: Drizzle applies all pending migrations in one transaction,
+    # so a killed job rolls back to the previous schema and the newer run, which holds the same migrations, applies them.
+    concurrency:
+      group: migrate-neon-dev
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+
+      - uses: ./.github/actions/neon-connection
+        with:
+          branch: ${{ env.NEON_PARENT_BRANCH }}
+          project-id: ${{ vars.NEON_PROJECT_ID }}
+          api-key: ${{ secrets.NEON_API_KEY }}
+
+      # A no-op when every migration in apps/api/drizzle is already applied.
+      - name: Apply migrations
+        run: pnpm --filter @recipe/api run db:migrate
+
   integration:
     name: API integration tests (${{ matrix.shard }})
     needs: check
