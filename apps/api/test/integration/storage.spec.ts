@@ -11,7 +11,7 @@ describe('Storage connections', () => {
 
   // The storage server closes a connection 60 s after its last request (measured: 59,995 ms). A request written to a pooled
   // connection during the last round trip before that is reset, and the storage client makes one attempt per call.
-  it('deletes over a connection that has been idle for as long as the storage server keeps one', async () => {
+  it('still deletes after being idle for as long as the storage server keeps a connection open', async () => {
     const config = app.get(ConfigService);
     // One client per idle time, so each owns one connection; 10 ms steps land inside a window one round trip wide.
     const idleTimes = Array.from({ length: 56 }, (_, index) => 59_500 + index * 10);

@@ -352,9 +352,9 @@ describe('Update recipe HTTP', () => {
     const service = s.app.get(RecipeUpdateService);
     const requests = [serviceRequest(first, [{ field: 'cover', bytes: jpeg(91) }, { field: 'step-0', bytes: jpeg(93) }]),
       serviceRequest(second, [{ field: 'cover', bytes: jpeg(92) }, { field: 'step-1', bytes: jpeg(94) }])];
-    const cleanup = s.recordCleanup(); const began = Date.now();
-    const results = await Promise.all(requests.map((request) => service.update(id, request)))
-      .then(async (answers) => { await Promise.all(requests.map((request) => request.writeSettled)); return answers; }).finally(cleanup.stop);
+    const record = s.recordCleanup(); const began = Date.now(); let results: unknown;
+    try { results = await Promise.all(requests.map((request) => service.update(id, request))); await Promise.all(requests.map((request) => request.writeSettled)); }
+    finally { record.stop(); }
     const took = Date.now() - began;
     expect(results).toEqual([{ id, replay: false }, { id, replay: false }]);
     const final = await s.detail(id);
@@ -368,14 +368,15 @@ describe('Update recipe HTTP', () => {
     expect((await s.bytesAt(final.instructions[2].imageUrl))?.equals(jpeg(13))).toBe(true);
     const remaining = await s.imageRows(id);
     expect(remaining).toHaveLength(3);
-    // Each writer deletes what it replaced after its commit and inside RECIPE_CLEANUP_BUDGET_MS, so storage is clean once both
-    // writes settle. A writer that leaves cleanup to reconciliation fails the checks below; this line says what its cleanup did,
-    // and a cleanup that used up its budget shows in how long the writes took.
+    // Each writer deletes what it replaced after its commit and inside RECIPE_CLEANUP_BUDGET_MS, so both attempts are completed
+    // and storage is clean once the writes settle. When a writer leaves cleanup to reconciliation, this line says what its
+    // cleanup did, and a cleanup that used up its budget shows in how long the writes took.
     const settled = await s.db.select({ operation: recipeWriteAttempts.operation, state: recipeWriteAttempts.state,
       stale: recipeWriteAttempts.staleObjectKeys, leased: sql<boolean>`${recipeWriteAttempts.updatedAt} > clock_timestamp()` })
       .from(recipeWriteAttempts).where(eq(recipeWriteAttempts.recipeId, id));
     const states = `attempts when the writes settled: ${settled.map(({ operation, state, stale, leased }) => `${operation} ${state}, ${stale.length} stale${leased ? ', leased' : ''}`).join('; ')}`;
-    if (settled.some(({ state }) => state !== 'completed')) console.log(`Concurrent updates left cleanup to reconciliation; ${states}.\nThe writes took ${took} ms. Cleanup until then: ${cleanup.events.join('; ') || 'nothing recorded'}.`);
+    if (settled.some(({ state }) => state !== 'completed')) console.log(`Concurrent updates left cleanup to reconciliation; ${states}.\nThe writes took ${took} ms. Cleanup until then: ${record.events.join('; ') || 'nothing recorded'}.`);
+    expect(settled.map(({ state }) => state), states).toEqual(['completed', 'completed', 'completed']);
     expect(await s.orphans(uploaded), states).toBe(0);
     const kept = new Set(remaining.map(({ objectKey }) => objectKey));
     for (const row of rows.filter(({ objectKey }) => !kept.has(objectKey))) expect(await s.stored(row.objectKey), states).toBe(false);

@@ -27,7 +27,7 @@ export const minimalRecipe = (name: string): CreateRecipeMetadata => ({
   ingredients: [{ name, quantity: null, unit: null }], instructions: [{ description: 'Mix.', hasImage: false }],
 });
 
-/** Two temporary users on the dev API plus helpers that never surface cookies, object keys or signed URLs. */
+/** Two temporary users on the dev API plus helpers that never surface cookies or signed URLs, and object keys only in `recordCleanup`. */
 export async function openRecipeSuite() {
   const { app, db, baseUrl } = await startApi();
   const storage = app.get(StorageService);
@@ -126,12 +126,13 @@ export async function openRecipeSuite() {
     return count;
   }
 
-  /** Until `stop`, records each object deletion and each failure the API logs, as milliseconds since the call. The test API runs
-   * with logging off, so nothing else keeps them. Names, codes, statuses and object keys only; never an error message.
+  /** Until `stop`, records each object deletion and each line `logRecipeFailure` writes, as milliseconds since the call. The test
+   * API runs with logging off, so nothing else keeps them. Object keys, and for an error its names, codes and HTTP status; never
+   * its message.
    */
   function recordCleanup() {
-    const started = Date.now(); const events: string[] = [];
-    const reason = (start: unknown) => {
+    const started = Date.now(); const events: string[] = []; const running = new Set<string>();
+    const errorChain = (start: unknown) => {
       const parts: string[] = []; const seen = new Set<Error>();
       for (let error = start; error instanceof Error && !seen.has(error); error = error.cause) {
         seen.add(error);
@@ -142,13 +143,20 @@ export async function openRecipeSuite() {
       return parts.join(' <- ') || 'unknown';
     };
     const deletion = vi.spyOn(storage, 'deleteObject').mockImplementation(async (key) => {
-      const at = Date.now();
+      const at = Date.now(); running.add(key);
       try { await actualDelete(key); events.push(`+${at - started} ms delete ${key}: done in ${Date.now() - at} ms`); }
-      catch (cause) { events.push(`+${at - started} ms delete ${key}: failed in ${Date.now() - at} ms, ${reason(cause)}`); throw cause; }
+      catch (cause) { events.push(`+${at - started} ms delete ${key}: failed in ${Date.now() - at} ms, ${errorChain(cause)}`); throw cause; }
+      finally { running.delete(key); }
     });
-    // logRecipeFailure writes static labels, a local correlation id, class names and SQLSTATEs.
-    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation((message: unknown) => { events.push(`+${Date.now() - started} ms logged: ${String(message)}`); });
-    return { events, stop: () => { deletion.mockRestore(); logged.mockRestore(); } };
+    // Only logRecipeFailure's lines are kept: static labels, a local correlation id, class names and SQLSTATEs.
+    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation((message: unknown) => {
+      if (typeof message === 'string' && /^Recipe \w+ failed \(/.test(message)) events.push(`+${Date.now() - started} ms logged: ${message}`);
+    });
+    const stop = () => {
+      for (const key of running) events.push(`+${Date.now() - started} ms delete ${key}: still running`);
+      deletion.mockRestore(); logged.mockRestore();
+    };
+    return { events, stop };
   }
 
   /** Every stage runs even when an earlier one threw, so one failure cannot strand the rest; the first failure is rethrown at the end. */
