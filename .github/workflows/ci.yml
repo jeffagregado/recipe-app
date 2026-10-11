@@ -97,7 +97,7 @@ jobs:
         # The two named shards hold the slowest suites. "rest" excludes exactly those files, so a new
         # spec file always runs there without editing this list. When moving a file into a named shard,
         # also add it to `named` in the run step below, or it will run twice.
-        # storage.spec is one test that idles for a minute; it rides in "update", the shortest shard.
+        # storage.spec is one test that idles for a minute; it rides in "update" to keep it out of "rest".
         include:
           - shard: update
             files: update-recipe.spec storage.spec
