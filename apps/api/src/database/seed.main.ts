@@ -12,7 +12,7 @@ async function seed(): Promise<void> {
   const database = new DatabaseService(new ConfigService({ DATABASE_URL: validateDatabaseUrl(process.env.DATABASE_URL) }));
   try {
     await seedDatabase(database.db);
-    console.log(`Recipe seed complete: ${seedRecipes.length} samples, five categories, fictional author without login credentials.`);
+    console.log(`Recipe seed complete: ${seedRecipes.length} samples, five default categories, fictional author without login credentials.`);
   } finally {
     await database.onApplicationShutdown();
   }

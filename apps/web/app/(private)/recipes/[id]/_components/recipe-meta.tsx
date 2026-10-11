@@ -1,11 +1,10 @@
-import type { RecipeCategory } from '@recipe-app/contracts/types'
+import type { Category } from '@recipe-app/contracts/types'
 import { Clock, User } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { categoryVariants } from '@/features/recipes/lib/category-variants'
 import { recipeTimes, servingsLabel } from '../_lib/recipe-detail-format'
 
 type RecipeMetaProps = {
-	categories: RecipeCategory[]
+	categories: Category[]
 	prepTimeMinutes: number | null
 	cookTimeMinutes: number | null
 	servings: number | null
@@ -22,7 +21,7 @@ export function RecipeMeta({ categories, prepTimeMinutes, cookTimeMinutes, servi
 			{categories.length > 0 && (
 				<ul aria-label="Categories" className="flex flex-wrap gap-1.5">
 					{categories.map((category) => (
-						<li key={category}><Badge variant={categoryVariants[category]}>{category}</Badge></li>
+						<li key={category.id}><Badge variant="category">{category.name}</Badge></li>
 					))}
 				</ul>
 			)}

@@ -4,6 +4,7 @@ import pg from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { asc, eq } from 'drizzle-orm';
 import { recipeSchema } from '@recipe-app/contracts/schemas';
+import { DEFAULT_CATEGORY_NAMES } from '../../src/categories/default-categories.js';
 import * as schema from '../../src/database/schema.js';
 import { DEMO_AUTHOR_ID, seedDatabase } from '../../src/database/seed.js';
 import { sampleRecipes } from '../../src/recipes/sample-recipes.js';
@@ -32,12 +33,12 @@ describe('Neon relational persistence', () => {
     expect(seedRecipes.slice(0, 20)).toEqual(sampleRecipes);
     for (const [index, row] of rows.entries()) {
       const recipe = recipeSchema.parse({ ...row,
-        categories: row.categories.map(({ category }) => category.name), imageUrl: null,
+        categories: row.categories.map(({ category }) => ({ id: category.id, name: category.name })), imageUrl: null,
         ingredients: row.ingredients.map((ingredient) => ({ ...ingredient, quantity: ingredient.quantity === null ? null : Number(ingredient.quantity) })),
         createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
       });
       const expected = seedRecipes[index];
-      expect({ id: recipe.id, title: recipe.title, categories: recipe.categories, description: recipe.description, imageUrl: recipe.imageUrl, servings: recipe.servings, prepTimeMinutes: recipe.prepTimeMinutes, cookTimeMinutes: recipe.cookTimeMinutes,
+      expect({ id: recipe.id, title: recipe.title, categories: recipe.categories.map(({ name }) => name), description: recipe.description, imageUrl: recipe.imageUrl, servings: recipe.servings, prepTimeMinutes: recipe.prepTimeMinutes, cookTimeMinutes: recipe.cookTimeMinutes,
         createdAt: new Date(recipe.createdAt).getTime(), updatedAt: new Date(recipe.updatedAt).getTime(),
       }).toEqual({ ...expected, createdAt: new Date(expected.createdAt).getTime(), updatedAt: new Date(expected.updatedAt).getTime() });
       expect(recipe.ingredients.length).toBeGreaterThan(0);
@@ -49,7 +50,9 @@ describe('Neon relational persistence', () => {
     }
     const author = await db.query.users.findFirst({ where: eq(schema.users.id, DEMO_AUTHOR_ID), with: { accounts: true } });
     expect(author?.accounts.length).toBe(0);
-    expect((await db.select().from(schema.categories)).length).toBe(5);
+    const categories = await db.select().from(schema.categories).where(eq(schema.categories.userId, DEMO_AUTHOR_ID)).orderBy(asc(schema.categories.sortOrder));
+    expect(categories.map(({ name }) => name)).toEqual(DEFAULT_CATEGORY_NAMES);
+    expect(categories.map(({ sortOrder }) => sortOrder)).toEqual([0, 1, 2, 3, 4]);
   }, 60_000);
 
   it('enforces relationships, ordering, bounds, uniqueness, three categories and deletion rules', async () => {
@@ -74,7 +77,11 @@ describe('Neon relational persistence', () => {
       await query('INSERT INTO recipe_instructions(recipe_id,step_number,description) VALUES($1,1,$2)', [recipe, 'Cook it']);
       await query('INSERT INTO favorites(user_id,recipe_id) VALUES($1,$2)', [user, recipe]);
       await query('INSERT INTO recipe_images(recipe_id,object_key,sort_order) VALUES($1,$2,0)', [recipe, tag]);
-      const { rows: categories } = await query('SELECT id FROM categories ORDER BY name');
+      for (const [sortOrder, name] of DEFAULT_CATEGORY_NAMES.entries()) {
+        await query('INSERT INTO categories(user_id,name,sort_order) VALUES($1,$2,$3)', [user, name, sortOrder]);
+      }
+      const { rows: categories } = await query('SELECT id FROM categories WHERE user_id=$1 ORDER BY sort_order', [user]);
+      expect(categories).toHaveLength(DEFAULT_CATEGORY_NAMES.length);
       for (let index = 0; index < 3; index++) {
         await query('INSERT INTO recipe_categories(recipe_id,category_id,sort_order) VALUES($1,$2,$3)', [recipe, categories[index].id, index]);
       }
@@ -98,12 +105,31 @@ describe('Neon relational persistence', () => {
       await rejects('INSERT INTO ingredients(name) VALUES($1)', [`${tag.toUpperCase()} INGREDIENT`], '23505');
       await rejects('INSERT INTO auth_accounts(user_id,account_id,provider_id) VALUES($1,$1,\'credential\')', [user], '23505');
       await rejects('DELETE FROM ingredients WHERE id=$1', [ingredient], '23001');
-      await rejects('DELETE FROM categories WHERE id=$1', [categories[0].id], '23001');
+      await rejects('INSERT INTO categories(user_id,name,sort_order) VALUES($1,$2,5)', [user, 'BREAKFAST'], '23505');
+      await rejects('INSERT INTO categories(user_id,name,sort_order) VALUES($1,$2,0)', [user, 'New'], '23505');
+      for (const sortOrder of [-1, 10]) {
+        await rejects('INSERT INTO categories(user_id,name,sort_order) VALUES($1,$2,$3)', [user, 'New', sortOrder], '23514');
+      }
+      for (const name of [' ', ' 12345678901 ']) {
+        await rejects('INSERT INTO categories(user_id,name,sort_order) VALUES($1,$2,5)', [user, name], '23514');
+      }
+      await rejects('INSERT INTO categories(user_id,name,sort_order) VALUES($1,$2,5)', [`${tag}-missing`, 'New'], '23503');
+      // Names and positions are shared safely across owners; trimmed lengths include both valid endpoints.
+      const otherUser = `${tag}-other-user`;
+      await query('INSERT INTO users(id,name,email) VALUES($1,$2,$3)', [otherUser, 'Other verification', `${tag}-other@example.invalid`]);
+      await query('INSERT INTO categories(user_id,name,sort_order) VALUES($1,$2,0)', [otherUser, 'Breakfast']);
+      for (const [name, sortOrder] of [[' X ', 8], [' 1234567890 ', 9]]) {
+        await query('INSERT INTO categories(user_id,name,sort_order) VALUES($1,$2,$3)', [otherUser, name, sortOrder]);
+      }
+      expect((await query('DELETE FROM categories WHERE id=$1', [categories[0].id])).rowCount).toBe(1);
+      expect((await query('SELECT count(*)::int AS count FROM recipe_categories WHERE category_id=$1', [categories[0].id])).rows[0].count).toBe(0);
+      expect((await query('SELECT count(*)::int AS count FROM recipe_categories WHERE recipe_id=$1', [recipe])).rows[0].count).toBe(2);
+      expect((await query('SELECT count(*)::int AS count FROM recipes WHERE id=$1', [recipe])).rows[0].count).toBe(1);
       await rejects('UPDATE recipe_ingredients SET quantity = \'NaN\' WHERE recipe_id=$1', [recipe], '23514');
       const joined = await query('SELECT i.id FROM recipe_ingredients ri JOIN ingredients i ON i.id=ri.ingredient_id JOIN recipes r ON r.id=ri.recipe_id JOIN users u ON u.id=r.user_id WHERE r.id=$1', [recipe]);
       expect(joined.rowCount).toBe(1);
       await query('DELETE FROM users WHERE id=$1', [user]);
-      for (const table of ['recipes', 'auth_accounts', 'auth_sessions', 'favorites']) {
+      for (const table of ['recipes', 'auth_accounts', 'auth_sessions', 'favorites', 'categories']) {
         expect((await query(`SELECT count(*)::int AS count FROM ${table} WHERE user_id=$1`, [user])).rows[0].count).toBe(0);
       }
       for (const table of ['recipe_ingredients', 'recipe_instructions', 'recipe_categories', 'recipe_images']) {

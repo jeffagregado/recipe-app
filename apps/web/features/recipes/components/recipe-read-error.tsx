@@ -9,13 +9,15 @@ import { Button } from '@/components/ui/button'
 type RecipeReadErrorProps = {
 	/** Set where the page has no container of its own (the edit form is full width), so the message gets the page padding. */
 	contained?: boolean
+	/** What failed to load, completing "Could not load …". */
+	subject?: string
 }
 
-function RecipeReadError({ contained = false }: RecipeReadErrorProps, { retry }: ErrorInfo) {
+function RecipeReadError({ contained = false, subject = 'this recipe' }: RecipeReadErrorProps, { retry }: ErrorInfo) {
 	const [isPending, startTransition] = useTransition()
 	const alert = (
 		<div role="alert" className="space-y-3">
-			<p className="font-semibold">Could not load this recipe.</p>
+			<p className="font-semibold">Could not load {subject}.</p>
 			<p className="text-sm text-muted-foreground">Please try again in a moment.</p>
 			<Button className="min-h-11" onClick={() => startTransition(() => retry())} disabled={isPending}>
 				{isPending ? 'Retrying...' : 'Retry'}

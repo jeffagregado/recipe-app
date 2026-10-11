@@ -19,7 +19,15 @@ export async function readWriteContext(): Promise<{ context: WriteContext } | { 
 	return { context: { origin, cookie, address: incoming.get('x-forwarded-for') } }
 }
 
-type WriteRequest = { method: 'PUT' | 'DELETE' | 'POST' | 'PATCH'; path: string; body?: FormData; idempotencyKey?: string; timeoutMs: number }
+type WriteRequest = {
+	method: 'PUT' | 'DELETE' | 'POST' | 'PATCH'
+	path: string
+	/** Multipart sets its own content type; a JSON string names it in `contentType`. */
+	body?: FormData | string
+	contentType?: 'application/json'
+	idempotencyKey?: string
+	timeoutMs: number
+}
 
 /**
  * `not-sent`: the API origin is not configured, so nothing left the server.
@@ -33,6 +41,7 @@ export async function sendWrite({ context, request }: { context: WriteContext; r
 	try { apiOrigin = getApiOrigin() } catch { return { problem: 'not-sent' } }
 	const outgoing = new Headers({ Cookie: context.cookie, Origin: context.origin })
 	if (request.idempotencyKey) outgoing.set('Idempotency-Key', request.idempotencyKey)
+	if (request.contentType) outgoing.set('Content-Type', request.contentType)
 	if (context.address) outgoing.set('X-Forwarded-For', context.address)
 	try {
 		const response = await fetch(`${apiOrigin}${request.path}`, {

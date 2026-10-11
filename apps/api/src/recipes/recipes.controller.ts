@@ -20,7 +20,7 @@ export class RecipesController {
     const result = recipeListQuerySchema.safeParse(query);
     if (!result.success) {
       throw new BadRequestException({
-        message: 'Invalid recipe query. Use search up to 200 characters, page >= 1, limit 1-20, a supported category/sortBy, favorites=true, and order asc or desc.',
+        message: 'Invalid recipe query. Use search up to 200 characters, page >= 1, limit 1-20, one of your category ids, a supported sortBy, favorites=true, and order asc or desc.',
         errors: result.error.issues.map(({ path, message }) => ({ parameter: path.join('.'), message })),
       });
     }

@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { apiErrorEnvelopeSchema, createRecipeResultSchema, recipeDetailSchema } from '@recipe-app/contracts/schemas';
+import { apiErrorEnvelopeSchema, categoryListSchema, createRecipeResultSchema, recipeDetailSchema } from '@recipe-app/contracts/schemas';
 import type { ApiErrorEnvelope, CreateRecipeMetadata } from '@recipe-app/contracts/types';
+import type { DefaultCategoryName } from '../../src/categories/default-categories.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authRateLimits, ingredients, recipeImages, recipeIngredients, recipes, recipeWriteAttempts, users } from '../../src/database/schema.js';
 import { StorageService } from '../../src/storage/storage.service.js';
@@ -20,7 +21,7 @@ import { RecipeCreateService } from '../../src/recipes/recipe-create.service.js'
 const jpeg = Buffer.from([255, 216, 255, 224, 0, 2, 255, 217]);
 type Photo = { field: string; bytes: Buffer; mime?: string };
 const minimal = (name: string): CreateRecipeMetadata => ({
-  title: 'Temporary recipe', description: null, categories: [], servings: null, prepTimeMinutes: null,
+  title: 'Temporary recipe', description: null, categoryIds: [], servings: null, prepTimeMinutes: null,
   cookTimeMinutes: null, videoUrl: null, notes: null,
   ingredients: [{ name, quantity: null, unit: null }], instructions: [{ description: 'Mix.', hasImage: false }],
 });
@@ -32,6 +33,12 @@ describe('Create recipe and private detail HTTP', () => {
   let storage: StorageService;
   let owner: Awaited<ReturnType<typeof signupUser>>;
   let other: Awaited<ReturnType<typeof signupUser>>;
+  const categories: Record<'owner' | 'other', ReturnType<typeof categoryListSchema.parse>> = { owner: [], other: [] };
+  const categoryIds = (names: DefaultCategoryName[], who: 'owner' | 'other' = 'owner'): string[] => names.map((name) => {
+    const category = categories[who].find((category) => category.name === name);
+    if (!category) throw new Error(`Missing default category: ${name}`);
+    return category.id;
+  });
   const addresses = [testAddress()];
   const usernames = [testUsername(), testUsername()];
   const objectKeys = new Set<string>();
@@ -83,6 +90,11 @@ describe('Create recipe and private detail HTTP', () => {
     });
     const client = apiClient(baseUrl, addresses[0]);
     owner = await signupUser(client, usernames[0]); other = await signupUser(client, usernames[1]);
+    for (const [who, user] of [['owner', owner], ['other', other]] as const) {
+      const response = await fetch(`${baseUrl}/categories`, { headers: { Cookie: user.cookie } });
+      expect(response.status).toBe(200);
+      categories[who] = categoryListSchema.parse(await response.json());
+    }
     canonicalNames.add(name.toLowerCase());
   }, 60_000);
   beforeEach(async () => {
@@ -124,13 +136,13 @@ describe('Create recipe and private detail HTTP', () => {
   }, 30_000);
 
   it('round-trips rich metadata, category/snapshot/step order, and real stored images', async () => {
-    const metadata: CreateRecipeMetadata = { ...minimal(name), title: 'Rich recipe', categories: ['Dinner', 'Breakfast', 'Lunch'],
+    const metadata: CreateRecipeMetadata = { ...minimal(name), title: 'Rich recipe', categoryIds: categoryIds(['Dinner', 'Breakfast', 'Lunch']),
       description: 'Description', servings: 4, prepTimeMinutes: 0, cookTimeMinutes: 25, notes: 'Notes', videoUrl: 'https://www.youtube.com/watch?v=example',
       ingredients: [{ name: name.toUpperCase(), quantity: 1.125, unit: 'cup' }, { name, quantity: null, unit: null }],
       instructions: [{ description: 'First', hasImage: true }, { description: 'Second', hasImage: false }, { description: 'Third', hasImage: true }] };
     const id = await idOf(await send(metadata, [{ field: 'cover', bytes: jpeg }, { field: 'step-0', bytes: jpeg }, { field: 'step-2', bytes: jpeg }]));
     const value = await detail(id);
-    expect(value.categories).toEqual(metadata.categories); expect(value.notes).toBe('Notes'); expect(value.videoUrl).toBe(metadata.videoUrl);
+    expect(value.categories.map(({ id }) => id)).toEqual(metadata.categoryIds); expect(value.categories.map(({ name }) => name)).toEqual(['Dinner', 'Breakfast', 'Lunch']); expect(value.notes).toBe('Notes'); expect(value.videoUrl).toBe(metadata.videoUrl);
     expect(value.ingredients.map(({ name, quantity, sortOrder }) => ({ name, quantity, sortOrder }))).toEqual([
       { name: name.toUpperCase(), quantity: 1.125, sortOrder: 0 }, { name, quantity: null, sortOrder: 1 }]);
     expect(value.instructions.map(({ description, stepNumber }) => ({ description, stepNumber }))).toEqual([
@@ -140,7 +152,7 @@ describe('Create recipe and private detail HTTP', () => {
       categories: { orderBy: (row, { asc }) => asc(row.sortOrder), with: { category: true } },
       images: { orderBy: (row, { asc }) => asc(row.sortOrder) }, instructions: { orderBy: (row, { asc }) => asc(row.stepNumber) },
     } });
-    expect(stored?.userId).toBe(owner.user.id); expect(stored?.categories.map(({ category }) => category.name)).toEqual(metadata.categories);
+    expect(stored?.userId).toBe(owner.user.id); expect(stored?.categories.map(({ category }) => ({ id: category.id, name: category.name }))).toEqual(value.categories);
     expect(stored?.images.map(({ sortOrder }) => sortOrder)).toEqual([0, 1, 2]);
     expect(stored?.instructions.map(({ imageId }) => Boolean(imageId))).toEqual([true, false, true]);
     await readable(value.imageUrl, jpeg); await readable(value.instructions[0].imageUrl, jpeg); await readable(value.instructions[2].imageUrl, jpeg);
@@ -159,7 +171,7 @@ describe('Create recipe and private detail HTTP', () => {
       [{ ...minimal(name), ingredients: [{ name, quantity: '1/2', unit: 'g' }] }, 'ingredients.0.quantity'],
       [{ ...minimal(name), ingredients: [{ name, quantity: 1, unit: null }] }, 'ingredients.0.quantity'],
       [{ ...minimal(name), servings: 0 }, 'servings'], [{ ...minimal(name), prepTimeMinutes: 1.5 }, 'prepTimeMinutes'],
-      [{ ...minimal(name), categories: ['Dinner', 'Lunch', 'Breakfast', 'Snacks'] }, 'categories'],
+      [{ ...minimal(name), categoryIds: categoryIds(['Dinner', 'Lunch', 'Breakfast', 'Snacks']) }, 'categoryIds'],
       [{ ...minimal(name), videoUrl: 'http://example.invalid' }, 'videoUrl'], [{ ...minimal(name), instructions: [{ description: '', hasImage: false }] }, 'instructions.0.description'],
       ['not JSON', 'recipe'], ['x'.repeat(1024 * 1024 + 1), 'recipe'],
       ...['userId', 'id', 'imageUrl', 'objectKey', '__proto__'].map((key): [unknown, string] => [JSON.parse(JSON.stringify(minimal(name)).slice(0, -1) + `,"${key}":"injected"}`), key]),

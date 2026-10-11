@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures.js';
+import { categoryIdsFor } from './create-recipe-helpers.js';
 
 const api = 'http://127.0.0.1:4100/backend';
 const cards = (page: Page) => page.getByRole('list', { name: 'Recipes' }).locator(':scope > li');
@@ -45,20 +47,21 @@ test('server-renders 20, appends five disjoint pages and stops at 100', async ({
   await expect(page.getByText('Showing 100 of 100 recipes', { exact: true })).toBeVisible();
   expect(requests).toEqual([2, 3, 4, 5]);
   expect(new URL(page.url()).search).toBe('');
-  // Desktop sidebar prefetches two existing routes outside this feature's scope.
-  for (const path of missingRoutes) expect(['/categories', '/settings']).toContain(path);
+  // Desktop sidebar prefetches Settings, which is still unbuilt.
+  for (const path of missingRoutes) expect(['/settings']).toContain(path);
   expect(consoleErrors).toHaveLength(missingRoutes.length);
   expect(consoleErrors.every((message) => message.includes('404 (Not Found)'))).toBe(true);
 });
 
-test('shows category/count and card skeletons while real filter and next-page requests wait', async ({ page }, info) => {
+test('shows category/count and card skeletons while real filter and next-page requests wait', async ({ page, workerData }, info) => {
+  const [breakfastId] = await categoryIdsFor(workerData.owner, ['Breakfast']);
   let releaseFilter!: () => void;
   let releasePage!: () => void;
   const filterGate = new Promise<void>((resolve) => { releaseFilter = resolve; });
   const pageGate = new Promise<void>((resolve) => { releasePage = resolve; });
   await page.route(`${api}/recipes?*`, async (route) => {
     const params = new URL(route.request().url()).searchParams;
-    if (params.get('category') === 'Breakfast') await (params.get('page') === '1' ? filterGate : pageGate);
+    if (params.get('category') === breakfastId) await (params.get('page') === '1' ? filterGate : pageGate);
     await route.continue();
   });
   try {
@@ -88,8 +91,9 @@ test('shows category/count and card skeletons while real filter and next-page re
   } finally { releaseFilter(); releasePage(); }
 });
 
-test('toggles Asc/Desc beside sort while preserving category, field and URL history', async ({ page }) => {
-  await page.goto('/recipes?category=Breakfast&sortBy=title&order=asc');
+test('toggles Asc/Desc beside sort while preserving category, field and URL history', async ({ page, workerData }) => {
+  const [breakfastId] = await categoryIdsFor(workerData.owner, ['Breakfast']);
+  await page.goto(`/recipes?category=${breakfastId}&sortBy=title&order=asc`);
   await expect(cards(page)).toHaveCount(20);
   await expect(firstTitle(page)).toHaveText('Apple Cinnamon Porridge');
   const direction = page.getByRole('group', { name: 'Recipe sorting' });
@@ -98,7 +102,7 @@ test('toggles Asc/Desc beside sort while preserving category, field and URL hist
   await expect(firstTitle(page)).toHaveText('Tomato Scrambled Eggs');
   await expect(cards(page)).toHaveCount(20);
   const descending = new URL(page.url());
-  expect(descending.searchParams.get('category')).toBe('Breakfast');
+  expect(descending.searchParams.get('category')).toBe(breakfastId);
   expect(descending.searchParams.get('sortBy')).toBe('title');
   expect(descending.searchParams.has('order')).toBe(false);
   await expect(direction.getByRole('button', { name: 'Switch to ascending order' })).toHaveText('Desc');
@@ -114,7 +118,8 @@ test('toggles Asc/Desc beside sort while preserving category, field and URL hist
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test('resets filters, batches sorting, restores URL on reload/back/forward and revisits page one', async ({ page }) => {
+test('resets filters, batches sorting, restores URL on reload/back/forward and revisits page one', async ({ page, workerData }) => {
+  const [breakfastId] = await categoryIdsFor(workerData.owner, ['Breakfast']);
   await page.goto('/recipes');
   await expect(cards(page)).toHaveCount(20);
   await page.getByText('Showing 20 of 100 recipes', { exact: true }).scrollIntoViewIfNeeded();
@@ -122,7 +127,7 @@ test('resets filters, batches sorting, restores URL on reload/back/forward and r
   await category(page, 'Breakfast').click();
   await expect(cards(page)).toHaveCount(20);
   await expect(firstTitle(page)).toHaveText('Banana Oat Pancakes');
-  await expect(page).toHaveURL(/category=Breakfast/);
+  await expect.poll(() => new URL(page.url()).searchParams.get('category')).toBe(breakfastId);
   await expect(category(page, 'Breakfast')).toContainText('23');
   await page.getByRole('button', { name: 'Sort recipes' }).click();
   await page.getByRole('menuitemradio', { name: 'Title A-Z', exact: true }).click();
@@ -145,16 +150,47 @@ test('resets filters, batches sorting, restores URL on reload/back/forward and r
   await expect(cards(page)).toHaveCount(20);
 });
 
-test('rejects malformed URL filters and resets explicitly', async ({ page }) => {
-  for (const query of ['category=Unknown', 'category=', 'category=Dinner&category=Lunch', 'sortBy=invalid', 'order=invalid']) {
+test('rejects invalid sortBy/order and resets explicitly', async ({ page }) => {
+  for (const query of ['sortBy=invalid', 'order=invalid']) {
     await page.goto(`/recipes?${query}`);
     await expect(filterAlert(page)).toContainText('Invalid recipe filters.');
     await expect(page.getByRole('list', { name: 'Recipes' })).toHaveCount(0);
+    await page.getByRole('link', { name: 'Reset filters' }).click();
+    await expect(cards(page)).toHaveCount(20);
+    expect(new URL(page.url()).search).toBe('');
   }
-  await page.getByRole('link', { name: 'Reset filters' }).click();
-  await expect(cards(page)).toHaveCount(20);
-  expect(new URL(page.url()).search).toBe('');
 });
+
+for (const kind of ['malformed', 'blank', 'repeated', 'unknown', 'foreign'] as const) {
+  test(`replaces ${kind} category with All, preserving valid filters and history`, async ({ page, workerData }) => {
+    const [ownId] = await categoryIdsFor(workerData.owner, ['Breakfast']);
+    const [foreignId] = await categoryIdsFor(workerData.other, ['Breakfast']);
+    const queries = {
+      malformed: 'category=Breakfast', blank: 'category=', repeated: `category=${ownId}&category=${ownId}`,
+      unknown: `category=${randomUUID()}`, foreign: `category=${foreignId}`,
+    };
+    await page.goto('/recipes?sortBy=updatedAt&order=asc');
+    await expect(cards(page)).toHaveCount(20);
+    const previous = page.url();
+    await page.goto(`/recipes?${queries[kind]}&sortBy=title&order=asc&search=&keep=1`);
+    await expect(cards(page)).toHaveCount(20);
+    await expect(category(page, 'All')).toHaveAttribute('aria-pressed', 'true');
+    await expect(filterAlert(page)).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.has('category')).toBe(false);
+    const cleaned = new URL(page.url());
+    expect(cleaned.searchParams.get('sortBy')).toBe('title');
+    expect(cleaned.searchParams.get('order')).toBe('asc');
+    expect(cleaned.searchParams.get('search')).toBe('');
+    expect(cleaned.searchParams.get('keep')).toBe('1');
+    await page.getByRole('button', { name: 'Switch to descending order' }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.has('order')).toBe(false);
+    await page.goBack();
+    await expect(page).toHaveURL(cleaned.href);
+    expect(new URL(page.url()).searchParams.has('category')).toBe(false);
+    await page.goBack();
+    await expect(page).toHaveURL(previous);
+  });
+}
 
 test('keeps loaded cards on later-page failure and retries only on request', async ({ page }) => {
   let failing = true;
@@ -201,9 +237,10 @@ test('validates later responses and exposes timeout errors with Retry', async ({
   await expect(cards(page)).toHaveCount(40);
 });
 
-test('accepts healthy filter responses beyond the former five-second client limit', async ({ page }) => {
+test('accepts healthy filter responses beyond the former five-second client limit', async ({ page, workerData }) => {
+  const [breakfastId] = await categoryIdsFor(workerData.owner, ['Breakfast']);
   await page.route(`${api}/recipes?*`, async (route) => {
-    if (new URL(route.request().url()).searchParams.get('category') === 'Breakfast') {
+    if (new URL(route.request().url()).searchParams.get('category') === breakfastId) {
       await new Promise((resolve) => setTimeout(resolve, 6_000));
     }
     await route.continue();
@@ -211,7 +248,7 @@ test('accepts healthy filter responses beyond the former five-second client limi
   await page.goto('/recipes');
   await expect(cards(page)).toHaveCount(20);
   // The owner's unfiltered first card can match the filtered one, so wait for the slow response itself.
-  const filtered = page.waitForResponse((response) => new URL(response.url()).searchParams.get('category') === 'Breakfast', { timeout: 15_000 });
+  const filtered = page.waitForResponse((response) => new URL(response.url()).searchParams.get('category') === breakfastId, { timeout: 15_000 });
   await category(page, 'Breakfast').click();
   expect((await filtered).status()).toBe(200);
   await expect(firstTitle(page)).toHaveText('Banana Oat Pancakes');
@@ -219,16 +256,17 @@ test('accepts healthy filter responses beyond the former five-second client limi
   await expect(requestAlert(page)).toHaveCount(0);
 });
 
-test('cancels obsolete category requests without mixing results', async ({ page }) => {
+test('cancels obsolete category requests without mixing results', async ({ page, workerData }) => {
+  const [dinnerId] = await categoryIdsFor(workerData.owner, ['Dinner']);
   const cancelled: string[] = [];
-  page.on('requestfailed', (request) => { if (request.url().includes('category=Dinner')) cancelled.push(request.failure()?.errorText ?? 'unknown'); });
+  page.on('requestfailed', (request) => { if (new URL(request.url()).searchParams.get('category') === dinnerId) cancelled.push(request.failure()?.errorText ?? 'unknown'); });
   await page.route(`${api}/recipes?*`, async (route) => {
-    if (new URL(route.request().url()).searchParams.get('category') === 'Dinner') await new Promise((resolve) => setTimeout(resolve, 750));
+    if (new URL(route.request().url()).searchParams.get('category') === dinnerId) await new Promise((resolve) => setTimeout(resolve, 750));
     await route.continue();
   });
   await page.goto('/recipes');
   await expect(cards(page)).toHaveCount(20);
-  const dinner = page.waitForRequest((request) => request.url().startsWith(`${api}/recipes?`) && new URL(request.url()).searchParams.get('category') === 'Dinner');
+  const dinner = page.waitForRequest((request) => request.url().startsWith(`${api}/recipes?`) && new URL(request.url()).searchParams.get('category') === dinnerId);
   await category(page, 'Dinner').click();
   await dinner;
   await category(page, 'Breakfast').click();

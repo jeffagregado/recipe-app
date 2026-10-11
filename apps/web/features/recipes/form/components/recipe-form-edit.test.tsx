@@ -18,6 +18,14 @@ vi.mock('next/image', () => ({
 	),
 }))
 
+const categories = [
+	{ id: 'category-breakfast', name: 'Breakfast' },
+	{ id: 'category-lunch', name: 'Lunch' },
+	{ id: 'category-dinner', name: 'Dinner' },
+	{ id: 'category-snacks', name: 'Snacks' },
+	{ id: 'category-desserts', name: 'Desserts' },
+]
+
 const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
 
 beforeEach(() => {
@@ -32,7 +40,7 @@ const recipe = recipeDetailFixture({
 	id: 'recipe-1',
 	title: 'Layered Cake',
 	description: 'Sweet and soft.',
-	categories: ['Desserts', 'Breakfast'],
+	categories: [{ id: 'category-desserts', name: 'Desserts' }, { id: 'category-breakfast', name: 'Breakfast' }],
 	imageUrl: 'https://storage.example/cover.jpg',
 	servings: 8,
 	prepTimeMinutes: 20,
@@ -50,7 +58,7 @@ const recipe = recipeDetailFixture({
 	],
 })
 
-const editForm = () => <RecipeForm mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={onSave} initialValues={toRecipeFormValues(recipe)} />
+const editForm = () => <RecipeForm categories={categories} mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={onSave} initialValues={toRecipeFormValues(recipe)} />
 const renderEdit = () => render(<AppToaster>{editForm()}</AppToaster>)
 const formElement = () => screen.getByRole('form', { name: 'Edit Recipe' })
 const save = () => screen.getByRole('button', { name: /^Save Changes$|^Saving/ })
@@ -109,7 +117,7 @@ it('saves an untouched recipe as "keep" for every stored photo and uploads nothi
 
 	const data = onSave.mock.calls[0][0]
 	expect(metadataOf(data)).toMatchObject({
-		title: 'Layered Cake', categories: ['Desserts', 'Breakfast'], cover: 'keep',
+		title: 'Layered Cake', categoryIds: ['category-desserts', 'category-breakfast'], cover: 'keep',
 		ingredients: [{ name: 'Flour', quantity: 200, unit: 'g' }, { name: 'Salt', quantity: null, unit: null }],
 		instructions: [{ id: 's1', description: 'Mix.', image: 'keep' }, { id: 's2', description: 'Bake.', image: 'remove' }, { id: 's3', description: 'Cool.', image: 'keep' }],
 	})
@@ -324,7 +332,7 @@ it('maps update field errors for steps and photos onto their rows', async () => 
 function hiddenAndBack(mode: 'create' | 'edit') {
 	const form = mode === 'edit'
 		? editForm()
-		: <RecipeForm mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} />
+		: <RecipeForm categories={categories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} />
 	const view = render(<AppToaster><Activity mode="visible">{form}</Activity></AppToaster>)
 	const toggle = (visible: boolean) => view.rerender(<AppToaster><Activity mode={visible ? 'visible' : 'hidden'}>{form}</Activity></AppToaster>)
 	return { leave: () => toggle(false), returnTo: () => toggle(true) }

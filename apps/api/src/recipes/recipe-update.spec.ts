@@ -8,7 +8,7 @@ const state = {
     { id: 'photo-b', objectKey: 'k-b', sortOrder: 4 }, { id: 'unowned', objectKey: 'k-unowned', sortOrder: 2 }],
 };
 const metadata = (cover: UpdateRecipeMetadata['cover'], instructions: UpdateRecipeMetadata['instructions']): UpdateRecipeMetadata => ({
-  title: 'Soup', description: null, categories: [], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
+  title: 'Soup', description: null, categoryIds: [], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
   ingredients: [{ name: 'Salt', quantity: null, unit: null }], cover, instructions,
 });
 const upload = (fieldname: string) => ({ id: `new-${fieldname}`, key: `k-new-${fieldname}`, file: { fieldname, mimetype: 'image/jpeg', buffer: Buffer.alloc(1) } });

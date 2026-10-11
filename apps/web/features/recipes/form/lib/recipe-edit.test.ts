@@ -8,7 +8,7 @@ import { existingPhoto, newPhoto, noPhoto } from './recipe-photo'
 const file = (name: string) => new File(['x'], name, { type: 'image/png' })
 
 const base = (overrides: Partial<RecipeFormValues> = {}): RecipeFormValues => ({
-	title: ' Pasta ', description: '', categories: ['Dinner'], prepTime: '', cookTime: '', servings: '', videoUrl: '', notes: '',
+	title: ' Pasta ', description: '', categories: ['category-dinner'], prepTime: '', cookTime: '', servings: '', videoUrl: '', notes: '',
 	cover: noPhoto(),
 	ingredients: [{ name: 'Pasta', amount: '200', unit: 'g' }],
 	instructions: [{ id: 's1', description: 'Boil', photo: noPhoto() }],
@@ -19,7 +19,7 @@ describe('toRecipeFormValues', () => {
 	const detail = recipeDetailFixture({
 		title: 'Layered Cake',
 		description: 'Sweet and soft.',
-		categories: ['Desserts', 'Breakfast', 'Snacks'],
+		categories: [{ id: 'category-desserts', name: 'Desserts' }, { id: 'category-breakfast', name: 'Breakfast' }, { id: 'category-snacks', name: 'Snacks' }],
 		imageUrl: 'https://storage.example/cover.jpg',
 		servings: 8,
 		prepTimeMinutes: 0,
@@ -40,7 +40,7 @@ describe('toRecipeFormValues', () => {
 	it('turns numbers into the strings the form edits and keeps the stored category order', () => {
 		const values = toRecipeFormValues(detail)
 		expect(values).toMatchObject({
-			title: 'Layered Cake', description: 'Sweet and soft.', categories: ['Desserts', 'Breakfast', 'Snacks'],
+			title: 'Layered Cake', description: 'Sweet and soft.', categories: ['category-desserts', 'category-breakfast', 'category-snacks'],
 			prepTime: '0', cookTime: '40', servings: '8', videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', notes: 'Line one\nLine two',
 		})
 	})
@@ -86,7 +86,7 @@ describe('toUpdateRecipeMetadata', () => {
 	it('shares the create field rules: trimming, nulls, numbers and "to taste"', () => {
 		const metadata = toUpdateRecipeMetadata(base({ prepTime: '10', ingredients: [{ name: ' Flour ', amount: '0.5', unit: 'cup' }, { name: 'Salt', amount: '', unit: TO_TASTE }] }))
 		expect(metadata).toMatchObject({
-			title: 'Pasta', description: null, prepTimeMinutes: 10, cookTimeMinutes: null, servings: null, videoUrl: null, notes: null, categories: ['Dinner'],
+			title: 'Pasta', description: null, prepTimeMinutes: 10, cookTimeMinutes: null, servings: null, videoUrl: null, notes: null, categoryIds: ['category-dinner'],
 			ingredients: [{ name: 'Flour', quantity: 0.5, unit: 'cup' }, { name: 'Salt', quantity: null, unit: null }],
 		})
 		expect(updateRecipeMetadataSchema.safeParse(metadata).success).toBe(true)

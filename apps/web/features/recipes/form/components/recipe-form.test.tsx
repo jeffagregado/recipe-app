@@ -9,6 +9,14 @@ import { RecipeForm } from './recipe-form'
 const router = vi.hoisted(() => ({ push: vi.fn() }))
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => router }))
 
+const categories = [
+	{ id: 'category-breakfast', name: 'Breakfast' },
+	{ id: 'category-lunch', name: 'Lunch' },
+	{ id: 'category-dinner', name: 'Dinner' },
+	{ id: 'category-snacks', name: 'Snacks' },
+	{ id: 'category-desserts', name: 'Desserts' },
+]
+
 const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
 const revoked: string[] = []
 
@@ -21,8 +29,8 @@ beforeEach(() => {
 })
 afterEach(() => { vi.restoreAllMocks() })
 
-function renderForm() {
-	return render(<AppToaster><RecipeForm mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></AppToaster>)
+function renderForm(availableCategories = categories) {
+	return render(<AppToaster><RecipeForm categories={availableCategories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></AppToaster>)
 }
 // The toast region also exposes alerts, so the form's own alert is looked up inside the form.
 const formElement = () => screen.getByRole('form', { name: 'Create Recipe' })
@@ -58,6 +66,13 @@ it('shows the title, required marks and an empty starting form', () => {
 	expect(screen.getByLabelText('Prep time in minutes')).toHaveValue('')
 	expect(screen.getByRole('button', { name: 'Move ingredient 1 up' })).toBeDisabled()
 	expect(screen.getByRole('button', { name: 'Move ingredient 1 down' })).toBeDisabled()
+})
+
+it('links to Categories without rendering category chips when there are none', () => {
+	renderForm([])
+	expect(screen.queryByRole('group', { name: 'Category' })).not.toBeInTheDocument()
+	expect(screen.getByText(/No categories yet. Add some in/)).toBeInTheDocument()
+	expect(screen.getByRole('link', { name: 'Categories' })).toHaveAttribute('href', '/categories')
 })
 
 it('reports blank fields inline, focuses the first invalid control and does not save', async () => {
@@ -182,7 +197,7 @@ it('sends the normalized recipe, announces saving and ignores a second submit wh
 	expect(onSave).toHaveBeenCalledOnce()
 	const data = onSave.mock.calls[0][0]
 	expect(JSON.parse(data.get('recipe') as string)).toMatchObject({
-		title: 'Creamy Garlic Pasta', categories: [], servings: null,
+		title: 'Creamy Garlic Pasta', categoryIds: [], servings: null,
 		ingredients: [{ name: 'Spaghetti', quantity: 200, unit: 'g' }], instructions: [{ description: 'Boil the pasta.', hasImage: true }],
 	})
 	expect((data.get('step-0') as File).name).toBe('boil.jpg')
@@ -280,14 +295,21 @@ it.each([
 	expect(toasts.map((toast) => toast.textContent)).toContain('Couldn’t save recipe. Try again.')
 })
 
-it('toasts the same message for invalid results while the field errors stay inline', async () => {
+it.each([
+	['title', 'Title is taken.'],
+	['categories', 'A category was removed. Reload the page to see the current list.'],
+] as const)('toasts the same message for invalid results while %s errors stay inline', async (field, message) => {
 	const user = userEvent.setup()
-	onSave.mockResolvedValue({ status: 'invalid', message: 'Check the highlighted fields and try again.', fieldErrors: { title: ['Title is taken.'] } })
+	onSave.mockResolvedValue({ status: 'invalid', message: 'Check the highlighted fields and try again.', fieldErrors: { [field]: [message] } })
 	renderForm()
 	await fillMinimum(user)
 	await user.click(save())
 
-	await waitFor(() => expect(screen.getByLabelText('Title')).toHaveAccessibleDescription('Title is taken.'))
+	const control = field === 'title' ? screen.getByLabelText('Title') : screen.getByRole('group', { name: 'Category' })
+	await waitFor(() => expect(control).toHaveAccessibleDescription(message))
+	if (field === 'categories') expect(within(control.parentElement!).getByText(message)).toBeInTheDocument()
+	expect(onSave).toHaveBeenCalledOnce()
+	expect(router.push).not.toHaveBeenCalled()
 	const toasts = screen.getAllByRole('alert').filter((element) => !formElement().contains(element))
 	expect(toasts.map((toast) => toast.textContent)).toContain('Couldn’t save recipe. Try again.')
 })
@@ -378,7 +400,7 @@ it('hands a successful save’s redirect to Next instead of reporting a failure,
 		render() { return this.state.error ? <p>navigating: {this.state.error.digest}</p> : this.props.children }
 	}
 	vi.spyOn(console, 'error').mockImplementation(() => undefined)
-	render(<AppToaster><Boundary><RecipeForm mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></Boundary></AppToaster>)
+	render(<AppToaster><Boundary><RecipeForm categories={categories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></Boundary></AppToaster>)
 	await fillMinimum(user)
 	await user.click(save())
 	expect(await screen.findByText(/navigating: NEXT_REDIRECT/)).toBeInTheDocument()

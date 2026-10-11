@@ -2,14 +2,15 @@ import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { inArray, like, or } from 'drizzle-orm';
+import { eq, inArray, like, or } from 'drizzle-orm';
 import { authUserResponseSchema } from '@recipe-app/contracts/schemas';
-import type { AuthUser, RecipeSummary } from '@recipe-app/contracts/types';
+import type { AuthUser } from '@recipe-app/contracts/types';
 import { mountAuth } from '../src/auth/auth.http.js';
 import { rateLimitKey } from '../src/auth/auth.rate-limit.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import type { DrizzleDb } from '../src/database/database.service.js';
 import { authRateLimits, categories, recipeCategories, recipes, users } from '../src/database/schema.js';
+import type { SeedRecipe } from '../src/recipes/fixtures/fixture.js';
 import { seedRecipes } from '../src/recipes/seed-recipes.js';
 import { getDevDatabaseUrl } from './neon-dev.js';
 
@@ -71,9 +72,9 @@ export async function signupUser(client: ReturnType<typeof apiClient>, username 
 
 export const ownedId = (tag: string, id: string) => `${tag}-${id}`;
 
-/** Copies seed summaries under a temporary owner; deleting that user cascades every row. */
-export async function insertOwnedRecipes(db: DrizzleDb, user: Pick<AuthUser, 'id'>, tag: string, samples: readonly RecipeSummary[] = seedRecipes): Promise<void> {
-  const categoryRows = await db.select().from(categories);
+/** Copies seed summaries under an owner, tagged with that owner's default categories; deleting the user cascades every row. */
+export async function insertOwnedRecipes(db: DrizzleDb, user: Pick<AuthUser, 'id'>, tag: string, samples: readonly SeedRecipe[] = seedRecipes): Promise<void> {
+  const categoryRows = await db.select().from(categories).where(eq(categories.userId, user.id));
   await db.insert(recipes).values(samples.map((sample) => ({
     id: ownedId(tag, sample.id), userId: user.id, title: sample.title, description: sample.description,
     servings: sample.servings, prepTimeMinutes: sample.prepTimeMinutes, cookTimeMinutes: sample.cookTimeMinutes,

@@ -7,6 +7,7 @@ import { RecipeAttempts } from './recipe-attempts.js';
 import type { RecipeWriteResult } from './recipe-attempts.js';
 import { validateRecipeImage } from './recipe-images.js';
 import { matchRecipeFiles, parseRecipeMetadata, recipeRequestHash } from './recipe-metadata.js';
+import { assertOwnedCategories } from './recipe-persist.js';
 import { applyRecipeUpdate, loadRecipeState, planRecipeUpdate } from './recipe-update.js';
 import type { RecipeUploadRequest } from './recipe-upload.js';
 
@@ -24,7 +25,10 @@ export class RecipeUpdateService {
         recipeId: id, objectKeys: images.map((image) => image.key) },
       uploads: images,
       // After the claim, so a replay still answers once its own edit has removed the steps it names; before any upload.
-      prepare: async () => { planRecipeUpdate(await loadRecipeState(this.db, id, userId), metadata, images); },
+      prepare: async () => {
+        planRecipeUpdate(await loadRecipeState(this.db, id, userId), metadata, images);
+        await assertOwnedCategories(this.db, userId, metadata.categoryIds);
+      },
       apply: (tx) => applyRecipeUpdate(tx, { id, userId, metadata, images }),
     });
   }

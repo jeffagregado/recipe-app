@@ -5,7 +5,7 @@ import { authRateLimits, recipeImages, recipes } from '../apps/api/src/database/
 import { seedRecipes } from '../apps/api/src/recipes/seed-recipes.js';
 import { creatorTest as test, expect, WEB_URL } from './fixtures.js';
 import {
-  COVER, RICH, RICH_FILES, STEP_ONE, STEP_THREE, WIDTHS, chooseUnit, createRecipeViaApi, field, imageState, imagesLoaded, ingredientRows, metadataWith, minimalMetadata,
+  COVER, RICH, RICH_FILES, STEP_ONE, STEP_THREE, WIDTHS, chooseUnit, categoryIdsFor, createRecipeViaApi, field, imageState, imagesLoaded, ingredientRows, metadataWith, minimalMetadata,
   noOverflow, openRecipe, photo, recipeCards, richMetadata, stepTexts, stubVideoHosts, toast, waitHydrated, watchConsole,
   type CreateMetadata, type Photo,
 } from './create-recipe-helpers.js';
@@ -31,8 +31,8 @@ const restoreWrites = (db: Parameters<typeof imageState>[0], userId: string) => 
 const FOUR_STEPS = ['Bring salted water to a boil.', 'Cook the bacon until crisp.', 'Toss everything together.', 'Plate and garnish.'];
 const PLATE = photo('plate.png', [90, 140, 90]);
 const fourStepFiles: Record<string, Photo> = { cover: COVER, 'step-0': STEP_ONE, 'step-2': STEP_THREE, 'step-3': PLATE };
-const fourStepMetadata = (title: string): CreateMetadata => ({
-  ...richMetadata(title),
+const fourStepMetadata = (title: string, categoryIds: string[]): CreateMetadata => ({
+  ...richMetadata(title, categoryIds),
   instructions: FOUR_STEPS.map((description, index) => ({ description, hasImage: index !== 1 })),
 });
 
@@ -74,8 +74,8 @@ async function formState(page: Page) {
 test.describe('delete', () => {
   test('the dialog names the recipe; Cancel and Escape keep it and return focus; confirming deletes it, its photos and updates the list', async ({ page, creator, workerData }) => {
     test.setTimeout(150_000);
-    const keep = await createRecipeViaApi(creator, workerData.address, metadataWith('Stays', { categories: ['Dinner'] }));
-    const target = await createRecipeViaApi(creator, workerData.address, fourStepMetadata('Goes away'), fourStepFiles);
+    const keep = await createRecipeViaApi(creator, workerData.address, metadataWith('Stays', { categoryIds: await categoryIdsFor(creator, ['Dinner']) }));
+    const target = await createRecipeViaApi(creator, workerData.address, fourStepMetadata('Goes away', await categoryIdsFor(creator, RICH.categories)), fourStepFiles);
     const before = await imageState(workerData.db, target);
     expect(before.images).toHaveLength(4);
     const keys = before.images.map(({ key }) => key);
@@ -226,7 +226,7 @@ test.describe('delete', () => {
 test.describe('edit: pre-fill and no-op save', () => {
   test('every field and every image is pre-filled from the menu, and saving with no change keeps the same stored photos', async ({ page, creator, workerData }) => {
     test.setTimeout(150_000);
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Prefilled'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Prefilled', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     const before = await imageState(workerData.db, id);
     expect(before.images).toHaveLength(3);
     await openEdit(page, id, 'Prefilled');
@@ -273,7 +273,7 @@ test.describe('edit: pre-fill and no-op save', () => {
 test.describe('edit: changing everything', () => {
   test('text, categories, ingredients, step order, photos replaced, removed, added and deleted all land exactly as edited', async ({ page, creator, workerData }) => {
     test.setTimeout(240_000);
-    const id = await createRecipeViaApi(creator, workerData.address, fourStepMetadata('Before edit'), fourStepFiles);
+    const id = await createRecipeViaApi(creator, workerData.address, fourStepMetadata('Before edit', await categoryIdsFor(creator, RICH.categories)), fourStepFiles);
     const before = await imageState(workerData.db, id);
     expect(before.images).toHaveLength(4);
     const [coverBefore, photoA, photoC, photoD] = before.images; // positions: cover, step 1, step 3, step 4
@@ -375,7 +375,7 @@ test.describe('edit: changing everything', () => {
 test.describe('edit: freshness elsewhere', () => {
   test('the list card and the recipe page show the update by link and by browser Back and Forward', async ({ page, creator, workerData }) => {
     test.setTimeout(180_000);
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Fresh before'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Fresh before', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     await page.goto('/recipes');
     await expect(page.getByRole('link', { name: 'Fresh before' }).first()).toBeVisible();
     await expect(recipeCards(page).first().getByText('Dinner')).toBeVisible();
@@ -456,7 +456,7 @@ test.describe('edit: leaving, errors and access', () => {
   });
 
   test('validation errors on edit are inline, focus goes to the first, and nothing is saved', async ({ page, creator, workerData }) => {
-    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Validate edit'), RICH_FILES);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('Validate edit', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
     await openEdit(page, id, 'Validate edit');
     await field.title(page).fill('');
     await field.ingredientName(page, 2).fill('');
@@ -512,7 +512,7 @@ test.describe('edit: leaving, errors and access', () => {
 test.describe('edit: layout', () => {
   test('the pre-filled edit page never overflows at any width, also with the discard dialog and an error toast open', async ({ page, creator, workerData }) => {
     test.setTimeout(240_000);
-    const id = await createRecipeViaApi(creator, workerData.address, fourStepMetadata('Edit layout with a deliberately long title that has to wrap inside the header instead of overflowing'), fourStepFiles);
+    const id = await createRecipeViaApi(creator, workerData.address, fourStepMetadata('Edit layout with a deliberately long title that has to wrap inside the header instead of overflowing', await categoryIdsFor(creator, RICH.categories)), fourStepFiles);
     await openEdit(page, id, 'Edit layout with a deliberately long title that has to wrap inside the header instead of overflowing');
     await expect.poll(() => imagesLoaded(page, 'form img')).toBe(true);
     for (const width of WIDTHS) {

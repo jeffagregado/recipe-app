@@ -20,7 +20,7 @@ describe('Update recipe HTTP', () => {
   beforeEach(() => s.resetLimits());
   afterAll(() => s?.close(), 60_000);
 
-  const base = (): CreateRecipeMetadata => ({ title: 'Base recipe', description: 'Old description', categories: ['Dinner', 'Lunch'],
+  const base = (): CreateRecipeMetadata => ({ title: 'Base recipe', description: 'Old description', categoryIds: s.categoryIds(['Dinner', 'Lunch']),
     servings: 2, prepTimeMinutes: 5, cookTimeMinutes: 10, videoUrl: 'https://www.youtube.com/watch?v=old', notes: 'Old notes',
     ingredients: [{ name: `${s.name} flour`, quantity: 1, unit: 'cup' }, { name: `${s.name} salt`, quantity: null, unit: null }],
     instructions: ['A', 'B', 'C', 'D'].map((description, index) => ({ description, hasImage: index < 3 })) });
@@ -31,7 +31,7 @@ describe('Update recipe HTTP', () => {
     return { id, value: await s.detail(id), rows: await s.imageRows(id) };
   }
   /** The edit form's starting point: every field as saved and every image slot kept. */
-  const unchanged = (value: RecipeDetail): UpdateRecipeMetadata => ({ title: value.title, description: value.description, categories: value.categories,
+  const unchanged = (value: RecipeDetail): UpdateRecipeMetadata => ({ title: value.title, description: value.description, categoryIds: value.categories.map(({ id }) => id),
     servings: value.servings, prepTimeMinutes: value.prepTimeMinutes, cookTimeMinutes: value.cookTimeMinutes, videoUrl: value.videoUrl, notes: value.notes,
     ingredients: value.ingredients.map(({ name, quantity, unit }) => ({ name, quantity, unit })), cover: 'keep',
     instructions: value.instructions.map(({ id, description }) => ({ id, description, image: 'keep' })) });
@@ -52,12 +52,13 @@ describe('Update recipe HTTP', () => {
   it('updates every scalar field, category order and ingredients while keeping photos, favorite state and created_at', async () => {
     const { id, value, rows } = await seed(); const calls = s.upload.mock.calls.length;
     await s.expectEmpty(await s.call('PUT', `/recipes/${id}/favorite`));
-    const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: '  Updated recipe ', description: 'New description', categories: ['Lunch', 'Breakfast', 'Dinner'],
+    const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: '  Updated recipe ', description: 'New description', categoryIds: s.categoryIds(['Lunch', 'Breakfast', 'Dinner']),
       servings: 6, prepTimeMinutes: 0, cookTimeMinutes: 45, videoUrl: 'https://vimeo.com/123456', notes: null,
       ingredients: [{ name: `${s.name} SUGAR`, quantity: 0.125, unit: 'tsp' }, { name: `${s.name} pepper`, quantity: null, unit: null }, { name: `${s.name} flour`, quantity: 2.5, unit: 'cup' }] };
     expect(await s.savedId(await patch(id, metadata), 200)).toBe(id);
     const updated = await s.detail(id);
-    expect(updated).toMatchObject({ title: 'Updated recipe', description: 'New description', categories: ['Lunch', 'Breakfast', 'Dinner'], servings: 6,
+    expect(updated.categories.map(({ name }) => name)).toEqual(['Lunch', 'Breakfast', 'Dinner']);
+    expect(updated).toMatchObject({ title: 'Updated recipe', description: 'New description', servings: 6,
       prepTimeMinutes: 0, cookTimeMinutes: 45, videoUrl: 'https://vimeo.com/123456', notes: null, isFavorite: true, userId: s.owner.user.id, createdAt: value.createdAt });
     expect(updated.ingredients.map(({ name, quantity, unit, sortOrder }) => ({ name, quantity, unit, sortOrder }))).toEqual([
       { name: `${s.name} SUGAR`, quantity: 0.125, unit: 'tsp', sortOrder: 0 }, { name: `${s.name} pepper`, quantity: null, unit: null, sortOrder: 1 },
@@ -118,7 +119,7 @@ describe('Update recipe HTTP', () => {
     const injected = (key: string) => JSON.parse(JSON.stringify(valid).slice(0, -1) + `,"${key}":"injected"}`) as unknown;
     const cases: [unknown, Photo[], number, string, string][] = [
       [{ ...valid, title: ' ' }, [], 400, 'VALIDATION_FAILED', 'title'],
-      [{ ...valid, categories: ['Dinner', 'Lunch', 'Breakfast', 'Snacks'] }, [], 400, 'VALIDATION_FAILED', 'categories'],
+      [{ ...valid, categoryIds: s.categoryIds(['Dinner', 'Lunch', 'Breakfast', 'Snacks']) }, [], 400, 'VALIDATION_FAILED', 'categoryIds'],
       [{ ...valid, ingredients: [{ name: `${s.name} flour`, quantity: 0.1234, unit: 'g' }] }, [], 400, 'VALIDATION_FAILED', 'ingredients.0.quantity'],
       [{ ...valid, instructions: [{ id: null, description: 'New', image: 'keep' }, ...rest] }, [], 400, 'VALIDATION_FAILED', 'instructions.0.image'],
       [{ ...valid, instructions: [first, { ...rest[0], id: foreign.value.instructions[0].id }, ...rest.slice(1)] }, [], 400, 'VALIDATION_FAILED', 'instructions.1.id'],
@@ -160,7 +161,7 @@ describe('Update recipe HTTP', () => {
 
   it('rolls back a forced transaction failure, removes the new uploads and allows a same-key retry', async () => {
     const { id, value, rows } = await seed(); const before = await snapshot(id); const uploaded = s.uploadedKeys(); const key = randomUUID();
-    const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: 'Rolled back', cover: 'replace', categories: ['Snacks'],
+    const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: 'Rolled back', cover: 'replace', categoryIds: s.categoryIds(['Snacks']),
       ingredients: [{ name: `${s.name} butter`, quantity: 3, unit: 'tbsp' }],
       instructions: [{ id: value.instructions[1].id, description: 'Only step', image: 'replace' }] };
     const photos = [{ field: 'cover', bytes: jpeg(50) }, { field: 'step-0', bytes: jpeg(51) }];
@@ -344,9 +345,9 @@ describe('Update recipe HTTP', () => {
   it('serializes two concurrent updates of one recipe so that one of them wins entirely', async () => {
     const { id, value, rows } = await seed(); const uploaded = s.uploadedKeys();
     const [a, b, ...rest] = unchanged(value).instructions;
-    const first: UpdateRecipeMetadata = { ...unchanged(value), title: 'First writer', cover: 'replace', categories: ['Breakfast'],
+    const first: UpdateRecipeMetadata = { ...unchanged(value), title: 'First writer', cover: 'replace', categoryIds: s.categoryIds(['Breakfast']),
       ingredients: [{ name: `${s.name} oats`, quantity: 1, unit: 'cup' }], instructions: [{ ...a, image: 'replace' }, { ...b, image: 'remove' }, ...rest] };
-    const second: UpdateRecipeMetadata = { ...unchanged(value), title: 'Second writer', cover: 'replace', categories: ['Desserts'],
+    const second: UpdateRecipeMetadata = { ...unchanged(value), title: 'Second writer', cover: 'replace', categoryIds: s.categoryIds(['Desserts']),
       ingredients: [{ name: `${s.name} cocoa`, quantity: 2, unit: 'tbsp' }], instructions: [{ ...a, image: 'remove' }, { ...b, image: 'replace' }, ...rest] };
     const service = s.app.get(RecipeUpdateService);
     const requests = [serviceRequest(first, [{ field: 'cover', bytes: jpeg(91) }, { field: 'step-0', bytes: jpeg(93) }]),
@@ -356,7 +357,7 @@ describe('Update recipe HTTP', () => {
     expect(results).toEqual([{ id, replay: false }, { id, replay: false }]);
     const final = await s.detail(id);
     const images = await Promise.all([final.imageUrl, final.instructions[0].imageUrl, final.instructions[1].imageUrl].map((url) => s.bytesAt(url)));
-    const view = { title: final.title, categories: final.categories, ingredients: final.ingredients.map(({ name }) => name), images: images.map((bytes) => bytes?.at(6) ?? null) };
+    const view = { title: final.title, categories: final.categories.map(({ name }) => name), ingredients: final.ingredients.map(({ name }) => name), images: images.map((bytes) => bytes?.at(6) ?? null) };
     expect([
       { title: 'First writer', categories: ['Breakfast'], ingredients: [`${s.name} oats`], images: [91, 93, null] },
       { title: 'Second writer', categories: ['Desserts'], ingredients: [`${s.name} cocoa`], images: [92, null, 94] },

@@ -1,7 +1,6 @@
 'use client'
 
-import { RECIPE_CATEGORIES } from '@recipe-app/contracts/types'
-import type { RecipeCounts, RecipeFilters } from '@recipe-app/contracts/types'
+import type { Category, RecipeCounts, RecipeFilters } from '@recipe-app/contracts/types'
 import { ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -25,9 +24,11 @@ const sortLabels = {
 /** The category row is a single choice: every recipe, favorites, or one category. */
 export type RecipeChoice = Pick<RecipeFilters, 'category' | 'favorites'>
 
-type RecipeChip = { label: string; choice: RecipeChoice; pressed: boolean; total?: number }
+type RecipeChip = { key: string; label: string; choice: RecipeChoice; pressed: boolean; total?: number }
 
 type RecipeControlsProps = {
+	/** The user's own categories in their order; with none, the row is All and Favorites only. */
+	categories: Category[]
 	filters: RecipeFilters
 	counts?: RecipeCounts
 	loading: boolean
@@ -35,16 +36,20 @@ type RecipeControlsProps = {
 	onSort: (sort: Pick<RecipeFilters, 'sortBy' | 'order'>) => void
 }
 
-export function RecipeControls({ filters, counts, loading, onFilter, onSort }: RecipeControlsProps) {
+export function RecipeControls({ categories, filters, counts, loading, onFilter, onSort }: RecipeControlsProps) {
 	const chips: RecipeChip[] = [
-		{ label: 'All', choice: {}, pressed: !filters.category && !filters.favorites, total: counts?.total },
-		{ label: 'Favorites', choice: { favorites: true }, pressed: filters.favorites === true, total: counts?.favorites },
-		...RECIPE_CATEGORIES.map((value) => ({ label: value, choice: { category: value }, pressed: filters.category === value, total: counts?.categories[value] })),
+		{ key: 'all', label: 'All', choice: {}, pressed: !filters.category && !filters.favorites, total: counts?.total },
+		{ key: 'favorites', label: 'Favorites', choice: { favorites: true }, pressed: filters.favorites === true, total: counts?.favorites },
+		// Keyed and counted by id: a user may name a category "All", and names change while ids do not.
+		...categories.map(({ id, name }) => ({
+			key: `category:${id}`, label: name, choice: { category: id }, pressed: filters.category === id,
+			total: counts?.categories.find((category) => category.id === id)?.total,
+		})),
 	]
 	return <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center">
 		<div role="group" aria-label="Recipe categories" aria-busy={loading} className="flex min-w-0 gap-2 overflow-x-auto pb-1 xl:flex-1">
 			{chips.map((chip) => <Button
-				key={chip.label}
+				key={chip.key}
 				variant={chip.pressed ? 'default' : 'secondary'}
 				aria-pressed={chip.pressed}
 				onClick={() => onFilter(chip.choice)}

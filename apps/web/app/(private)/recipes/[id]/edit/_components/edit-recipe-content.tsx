@@ -1,4 +1,5 @@
 import { PageNotFound } from '@/components/layout/page-not-found'
+import { getCategories } from '@/features/categories/queries/get-categories'
 import { EditRecipeForm } from '@/features/recipes/form/components/edit-recipe-form'
 import { toRecipeFormValues } from '@/features/recipes/form/lib/recipe-edit'
 import { getRecipe } from '@/features/recipes/queries/get-recipe'
@@ -13,11 +14,16 @@ type EditRecipeContentProps = {
  */
 export async function EditRecipeContent({ params }: EditRecipeContentProps) {
 	const { id } = await params
-	const recipe = await getRecipe(id)
+	const [recipe, categories] = await Promise.all([getRecipe(id), getCategories()])
 	if (!recipe) return <PageNotFound />
 
 	return (
 		// A saved update changes updatedAt, so a hidden (preserved) edit page remounts with the saved values instead of the ones from before.
-		<EditRecipeForm key={`${recipe.id}:${recipe.updatedAt}`} recipeId={recipe.id} initialValues={toRecipeFormValues(recipe)} />
+		<EditRecipeForm
+			key={`${recipe.id}:${recipe.updatedAt}`}
+			recipeId={recipe.id}
+			categories={categories.map(({ id, name }) => ({ id, name }))}
+			initialValues={toRecipeFormValues(recipe)}
+		/>
 	)
 }

@@ -1,3 +1,4 @@
+import type { Category } from '@recipe-app/contracts/types'
 import { FileText, Link2 } from 'lucide-react'
 import { useFormContext, useFormState } from 'react-hook-form'
 import { Input } from '@/components/ui/input'
@@ -10,7 +11,7 @@ import { SectionCard } from './section-card'
 
 type TimeFieldProps = { id: string; name: 'prepTime' | 'cookTime' | 'servings'; label: string; suffix?: string; error?: string }
 
-export function BasicInformationSection() {
+export function BasicInformationSection({ categories }: { categories: Category[] }) {
 	const { register, control } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
 
@@ -24,7 +25,7 @@ export function BasicInformationSection() {
 				{(a11y) => <textarea {...a11y} {...register('description')} className={textareaClass} rows={3} placeholder="Write a short description…" />}
 			</FormField>
 
-			<CategoryChips />
+			<CategoryChips categories={categories} />
 
 			<fieldset className="min-w-0 space-y-1.5">
 				<legend className="mb-1.5 flex items-center gap-2 text-sm font-medium">

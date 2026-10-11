@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { RECIPE_CATEGORIES } from "../types/recipe.js";
 import {
   createRecipeMetadataSchema,
   createRecipeResultSchema,
@@ -17,7 +16,7 @@ import { apiErrorEnvelopeSchema } from "./common.schema.js";
 const ingredient = { name: " Salt ", quantity: null, unit: null };
 const instruction = { description: " Stir ", hasImage: false };
 const metadata = {
-  title: " Soup ", description: null, categories: [], servings: null,
+  title: " Soup ", description: null, categoryIds: [], servings: null,
   prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
   ingredients: [ingredient], instructions: [instruction],
 };
@@ -37,8 +36,8 @@ describe("recipe creation metadata", () => {
     }
   });
   it("trims text, normalizes blank optional text and preserves category order", () => {
-    const result = createRecipeMetadataSchema.parse({ ...metadata, description: " \t ", notes: " \n ", videoUrl: "  ", categories: ["Dinner", "Lunch"] });
-    expect(result).toMatchObject({ title: "Soup", description: null, notes: null, videoUrl: null, categories: ["Dinner", "Lunch"], ingredients: [{ name: "Salt" }], instructions: [{ description: "Stir" }] });
+    const result = createRecipeMetadataSchema.parse({ ...metadata, description: " \t ", notes: " \n ", videoUrl: "  ", categoryIds: ["c-dinner", "c-lunch"] });
+    expect(result).toMatchObject({ title: "Soup", description: null, notes: null, videoUrl: null, categoryIds: ["c-dinner", "c-lunch"], ingredients: [{ name: "Salt" }], instructions: [{ description: "Stir" }] });
     expect(createRecipeMetadataSchema.parse({ ...metadata, description: " Rich ", notes: " Tip " })).toMatchObject({ description: "Rich", notes: "Tip" });
   });
 
@@ -65,11 +64,12 @@ describe("recipe creation metadata", () => {
     }
   });
 
-  it("accepts zero to three unique known categories", () => {
-    expect(createRecipeMetadataSchema.safeParse({ ...metadata, categories: RECIPE_CATEGORIES.slice(0, 3) }).success).toBe(true);
-    for (const categories of [RECIPE_CATEGORIES.slice(0, 4), ["Dinner", "Dinner"], ["Unknown"]]) {
-      expect(createRecipeMetadataSchema.safeParse({ ...metadata, categories }).success).toBe(false);
+  it("accepts zero to three unique category ids and no category names", () => {
+    expect(createRecipeMetadataSchema.safeParse({ ...metadata, categoryIds: ["c1", "c2", "c3"] }).success).toBe(true);
+    for (const categoryIds of [["c1", "c2", "c3", "c4"], ["c1", "c1"], [""], [{ id: "c1", name: "Dinner" }]]) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, categoryIds }).success).toBe(false);
     }
+    expect(createRecipeMetadataSchema.safeParse({ ...metadata, categories: ["Dinner"] }).success).toBe(false);
   });
 
   it("requires a parseable HTTPS video URL within 2048 characters", () => {
@@ -196,7 +196,7 @@ describe("favorite state in recipe responses", () => {
 
   it("requires the favorites total beside the other list counts", () => {
     const meta = { page: 1, limit: 20, total: 0, totalPages: 0 };
-    const counts = { total: 2, categories: { Breakfast: 0, Lunch: 0, Dinner: 2, Snacks: 0, Desserts: 0 } };
+    const counts = { total: 2, categories: [{ id: "c1", name: "Dinner", total: 2 }, { id: "c2", name: "Soup", total: 0 }] };
     expect(recipeListResponseSchema.safeParse({ data: [], meta, counts: { ...counts, favorites: 1 } }).success).toBe(true);
     expect(recipeListResponseSchema.safeParse({ data: [], meta, counts }).success).toBe(false);
     expect(recipeListResponseSchema.safeParse({ data: [], meta, counts: { ...counts, favorites: -1 } }).success).toBe(false);
@@ -211,5 +211,32 @@ describe("favorites filter in the recipe list query", () => {
 
   it.each([["false"], [""], ["1"], ["TRUE"], [["true", "true"]]])("rejects favorites=%j", (favorites) => {
     expect(recipeListQuerySchema.safeParse({ favorites }).success).toBe(false);
+  });
+});
+
+describe("categories in recipe responses and the list query", () => {
+  const item = { id: "r1", title: "Soup", description: null, imageUrl: null, servings: null, prepTimeMinutes: null, cookTimeMinutes: null, isFavorite: false, createdAt: "2026-10-09T00:00:00.000Z", updatedAt: "2026-10-09T00:00:00.000Z" };
+  const category = (id: string) => ({ id, name: `Name ${id}` });
+
+  it("carries up to three ordered categories as id and name", () => {
+    const categories = [category("c2"), category("c1"), category("c3")];
+    expect(recipeListItemSchema.parse({ ...item, categories }).categories).toEqual(categories);
+    for (const invalid of [[...categories, category("c4")], [category("c1"), category("c1")], ["Dinner"]]) {
+      expect(recipeListItemSchema.safeParse({ ...item, categories: invalid }).success).toBe(false);
+    }
+  });
+
+  it("lists category totals by id in the owner's order, with none for an owner without categories", () => {
+    const meta = { page: 1, limit: 20, total: 0, totalPages: 0 };
+    expect(recipeListResponseSchema.safeParse({ data: [], meta, counts: { total: 0, favorites: 0, categories: [] } }).success).toBe(true);
+    for (const categories of [{ Dinner: 2 }, [{ id: "c1", name: "Dinner" }], [{ id: "c1", name: "Dinner", total: -1 }]]) {
+      expect(recipeListResponseSchema.safeParse({ data: [], meta, counts: { total: 0, favorites: 0, categories } }).success).toBe(false);
+    }
+  });
+
+  it("filters by a category id, never a repeated or blank value", () => {
+    expect(recipeListQuerySchema.parse({ category: "c1" }).category).toBe("c1");
+    expect(recipeListQuerySchema.parse({}).category).toBeUndefined();
+    for (const value of ["", ["c1", "c2"], "x".repeat(201)]) expect(recipeListQuerySchema.safeParse({ category: value }).success).toBe(false);
   });
 });

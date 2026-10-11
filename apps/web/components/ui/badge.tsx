@@ -18,11 +18,7 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
-        breakfast: "h-6 rounded-[6px] bg-category-breakfast text-sm text-category-breakfast-foreground",
-        lunch: "h-6 rounded-[6px] bg-category-lunch text-sm text-category-lunch-foreground",
-        dinner: "h-6 rounded-[6px] bg-category-dinner text-sm text-category-dinner-foreground",
-        snack: "h-6 rounded-[6px] bg-category-snack text-sm text-category-snack-foreground",
-        dessert: "h-6 rounded-[6px] bg-category-dessert text-sm text-category-dessert-foreground",
+        category: "h-6 max-w-full rounded-[6px] bg-secondary text-sm text-secondary-foreground",
       },
     },
     defaultVariants: {

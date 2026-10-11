@@ -1,12 +1,11 @@
 import { sql } from 'drizzle-orm';
 import { check, foreignKey, index, integer, numeric, pgTable, primaryKey, text, unique, uniqueIndex } from 'drizzle-orm/pg-core';
-import { MEASUREMENT_UNITS, RECIPE_CATEGORIES } from '@recipe-app/contracts/types';
-import type { MeasurementUnit, RecipeCategory } from '@recipe-app/contracts/types';
+import { MEASUREMENT_UNITS, RECIPE_LIMITS } from '@recipe-app/contracts/types';
+import type { MeasurementUnit } from '@recipe-app/contracts/types';
 import { users } from './auth.schema.js';
 import { textId, time, timestamps } from './columns.js';
 
 const units = sql.join(MEASUREMENT_UNITS.map((unit) => sql`${sql.raw(`'${unit}'`)}`), sql`, `);
-const categoryNames = sql.join(RECIPE_CATEGORIES.map((name) => sql`${sql.raw(`'${name}'`)}`), sql`, `);
 
 export const recipes = pgTable('recipes', {
   id: textId(),
@@ -81,11 +80,15 @@ export const recipeInstructions = pgTable('recipe_instructions', {
 ]);
 
 export const categories = pgTable('categories', {
-  id: textId(), name: text('name').$type<RecipeCategory>().notNull(),
+  id: textId(), userId: text('user_id').notNull(), name: text('name').notNull(), sortOrder: integer('sort_order').notNull(),
 }, (t) => [
   primaryKey({ name: 'categories_pkey', columns: [t.id] }),
-  unique('categories_name_key').on(t.name),
-  check('categories_name_check', sql`${t.name} IN (${categoryNames})`),
+  foreignKey({ name: 'categories_user_id_fkey', columns: [t.userId], foreignColumns: [users.id] }).onDelete('cascade'),
+  uniqueIndex('categories_user_name_key').on(t.userId, sql`lower(${t.name})`),
+  // One slot per position plus the range check cap every owner at ten categories.
+  unique('categories_user_order_key').on(t.userId, t.sortOrder),
+  check('categories_name_check', sql`length(btrim(${t.name})) BETWEEN 1 AND ${sql.raw(String(RECIPE_LIMITS.categoryName))}`),
+  check('categories_sort_order_check', sql`${t.sortOrder} BETWEEN 0 AND ${sql.raw(String(RECIPE_LIMITS.categoriesPerUser - 1))}`),
 ]);
 
 export const recipeCategories = pgTable('recipe_categories', {
@@ -93,7 +96,7 @@ export const recipeCategories = pgTable('recipe_categories', {
 }, (t) => [
   primaryKey({ name: 'recipe_categories_pkey', columns: [t.recipeId, t.categoryId] }),
   foreignKey({ name: 'recipe_categories_recipe_id_fkey', columns: [t.recipeId], foreignColumns: [recipes.id] }).onDelete('cascade'),
-  foreignKey({ name: 'recipe_categories_category_id_fkey', columns: [t.categoryId], foreignColumns: [categories.id] }).onDelete('restrict'),
+  foreignKey({ name: 'recipe_categories_category_id_fkey', columns: [t.categoryId], foreignColumns: [categories.id] }).onDelete('cascade'),
   index('recipe_categories_category_id_idx').on(t.categoryId),
   unique('recipe_categories_recipe_order_key').on(t.recipeId, t.sortOrder),
   // Three unique slots plus the composite PK enforce at most three distinct categories.

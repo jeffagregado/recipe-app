@@ -28,7 +28,7 @@ describe('Recipe favorites and delete HTTP', () => {
     s.db.$count(recipeInstructions, eq(recipeInstructions.recipeId, id)), s.db.$count(recipeCategories, eq(recipeCategories.recipeId, id)),
     s.db.$count(recipeImages, eq(recipeImages.recipeId, id)), favoriteRows(id),
   ]);
-  const rich = (): CreateRecipeMetadata => ({ ...minimalRecipe(s.name), categories: ['Dinner', 'Lunch'],
+  const rich = (): CreateRecipeMetadata => ({ ...minimalRecipe(s.name), categoryIds: s.categoryIds(['Dinner', 'Lunch']),
     ingredients: [{ name: `${s.name} flour`, quantity: 1.5, unit: 'cup' }, { name: `${s.name} salt`, quantity: null, unit: null }],
     instructions: [{ description: 'First', hasImage: true }, { description: 'Second', hasImage: false }] });
   const richPhotos = [{ field: 'cover', bytes: jpeg(1) }, { field: 'step-0', bytes: jpeg(2) }];
@@ -74,7 +74,7 @@ describe('Recipe favorites and delete HTTP', () => {
   }, 60_000);
 
   it('adds a favorited recipe to the favorites count and leaves list paging, totals and other counts unchanged', async () => {
-    const ids = [await create({ ...minimalRecipe(s.name), categories: ['Dinner'] }, [], s.other.cookie),await create(undefined, [], s.other.cookie), await create(undefined, [], s.other.cookie)];
+    const ids = [await create({ ...minimalRecipe(s.name), categoryIds: s.categoryIds(['Dinner'], 'other') }, [], s.other.cookie),await create(undefined, [], s.other.cookie), await create(undefined, [], s.other.cookie)];
     const pages = async () => Promise.all([1, 2, 3, 4].map((page) => s.list(`?limit=1&page=${page}`, s.other.cookie)));
     const before = await pages();
     await s.expectEmpty(await favorite('PUT', ids[1], { cookie: s.other.cookie }));
@@ -83,7 +83,7 @@ describe('Recipe favorites and delete HTTP', () => {
     expect(after[0].meta).toMatchObject({ total: 3, totalPages: 3 }); expect(after[0].counts.total).toBe(3); expect(after[3].data).toEqual([]);
     expect(after.flatMap(({ data }) => data.map(({ id }) => id))).toEqual(before.flatMap(({ data }) => data.map(({ id }) => id)));
     expect(after.flatMap(({ data }) => data).filter(({ isFavorite }) => isFavorite).map(({ id }) => id)).toEqual([ids[1]]);
-    expect((await s.list('?search=Temporary&category=Dinner&sortBy=title&order=asc', s.other.cookie)).data.map(({ id }) => id)).toEqual([ids[0]]);
+    expect((await s.list(`?search=Temporary&category=${s.categoryIds(['Dinner'], 'other')[0]}&sortBy=title&order=asc`, s.other.cookie)).data.map(({ id }) => id)).toEqual([ids[0]]);
   }, 60_000);
 
   it('deletes the recipe, its child rows, favorites, attempts and stored objects, and keeps canonical ingredients', async () => {

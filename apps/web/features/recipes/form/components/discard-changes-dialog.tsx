@@ -13,16 +13,17 @@ type DiscardChangesDialogProps = {
 	open: boolean
 	onOpenChange: (open: boolean) => void
 	onDiscard: () => void
+	description?: string
 }
 
 /** Asked before leaving a form with unsaved changes; Escape and the backdrop keep the user editing. */
-export function DiscardChangesDialog({ open, onOpenChange, onDiscard }: DiscardChangesDialogProps) {
+export function DiscardChangesDialog({ open, onOpenChange, onDiscard, description = 'Your changes to this recipe will be lost.' }: DiscardChangesDialogProps) {
 	return (
 		<AlertDialog open={open} onOpenChange={onOpenChange}>
 			<AlertDialogContent>
 				<AlertDialogHeader>
 					<AlertDialogTitle>Discard changes?</AlertDialogTitle>
-					<AlertDialogDescription>Your changes to this recipe will be lost.</AlertDialogDescription>
+					<AlertDialogDescription>{description}</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
 					<AlertDialogCancel>Keep editing</AlertDialogCancel>

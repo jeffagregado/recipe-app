@@ -9,7 +9,7 @@ export function toRecipeFormValues(recipe: RecipeDetail): RecipeFormValues {
 	return {
 		title: recipe.title,
 		description: recipe.description ?? '',
-		categories: recipe.categories,
+		categories: recipe.categories.map(({ id }) => id),
 		prepTime: text(recipe.prepTimeMinutes),
 		cookTime: text(recipe.cookTimeMinutes),
 		servings: text(recipe.servings),

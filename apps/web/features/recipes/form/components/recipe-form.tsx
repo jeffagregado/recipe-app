@@ -1,5 +1,6 @@
 'use client'
 
+import type { Category } from '@recipe-app/contracts/types'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { FormProvider } from 'react-hook-form'
@@ -23,6 +24,8 @@ type RecipeFormProps = {
 	submitLabel: string
 	cancelHref: string
 	onSave: SaveRecipeAction
+	/** The user's own categories, offered as chips. */
+	categories: Category[]
 	initialValues?: RecipeFormValues
 }
 
@@ -30,7 +33,7 @@ type RecipeFormProps = {
  * Shared by Create and Edit: the mode, title, submit label, initial values, destination on cancel and the save action are props.
  * Mount it with a `key` that changes when the stored recipe does, so a revisit never shows values from before a save.
  */
-export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, initialValues }: RecipeFormProps) {
+export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, categories, initialValues }: RecipeFormProps) {
 	const router = useRouter()
 	const { form, formRef, busy, alert, isDirty, submit, resetWhenHidden } = useRecipeForm({ mode, initialValues, onSave })
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false)
@@ -56,7 +59,7 @@ export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, initi
 					{alert && <RecipeFormAlert alert={alert} busy={busy} onRetry={() => void submit()} />}
 					<div className="grid gap-4 sm:gap-5 xl:grid-cols-12 xl:items-start">
 						<div className="space-y-4 sm:space-y-5 xl:col-span-5">
-							<BasicInformationSection />
+							<BasicInformationSection categories={categories} />
 							<CoverPhotoSection disabled={busy} />
 						</div>
 						<div className="space-y-4 sm:space-y-5 xl:col-span-7">

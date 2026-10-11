@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { expect, vi } from 'vitest';
 import { asc, eq, inArray, like, sql } from 'drizzle-orm';
-import { apiErrorEnvelopeSchema, createRecipeResultSchema, recipeDetailSchema, recipeListResponseSchema } from '@recipe-app/contracts/schemas';
+import { apiErrorEnvelopeSchema, categoryListSchema, createRecipeResultSchema, recipeDetailSchema, recipeListResponseSchema } from '@recipe-app/contracts/schemas';
+import type { DefaultCategoryName } from '../src/categories/default-categories.js';
 import type { ApiErrorEnvelope, CreateRecipeMetadata } from '@recipe-app/contracts/types';
 import { authRateLimits, favorites, ingredients, recipeImages, recipes, recipeWriteAttempts, users } from '../src/database/schema.js';
 import { StorageService } from '../src/storage/storage.service.js';
@@ -20,7 +21,7 @@ type SendOptions = CallOptions & { method?: 'POST' | 'PATCH'; key?: string | nul
 export type RecipeSuite = Awaited<ReturnType<typeof openRecipeSuite>>;
 
 export const minimalRecipe = (name: string): CreateRecipeMetadata => ({
-  title: 'Temporary recipe', description: null, categories: [], servings: null, prepTimeMinutes: null,
+  title: 'Temporary recipe', description: null, categoryIds: [], servings: null, prepTimeMinutes: null,
   cookTimeMinutes: null, videoUrl: null, notes: null,
   ingredients: [{ name, quantity: null, unit: null }], instructions: [{ description: 'Mix.', hasImage: false }],
 });
@@ -37,12 +38,23 @@ export async function openRecipeSuite() {
   // One permanent tracking spy: scenarios stack one-shot failures on it instead of restoring it.
   const upload = vi.spyOn(storage, 'upload').mockImplementation(async (key, bytes, mime) => { objectKeys.add(key); return actualUpload(key, bytes, mime); });
   let owner: Awaited<ReturnType<typeof signupUser>>; let other: Awaited<ReturnType<typeof signupUser>>;
+  const categories: Record<'owner' | 'other', ReturnType<typeof categoryListSchema.parse>> = { owner: [], other: [] };
   try {
     const client = apiClient(baseUrl, addresses[0]);
     owner = await signupUser(client, usernames[0]); other = await signupUser(client, usernames[1]);
+    for (const [who, user] of [['owner', owner], ['other', other]] as const) {
+      const response = await fetch(`${baseUrl}/categories`, { headers: { Cookie: user.cookie } });
+      expect(response.status).toBe(200);
+      categories[who] = categoryListSchema.parse(await response.json());
+    }
   } catch (cause) { await removeTestData(db, { usernames, addresses }); await app.close(); throw cause; }
   const userIds = [owner.user.id, other.user.id];
-  const limitKeys = userIds.flatMap((id) => [`wrapper:recipe-write:user:${id}`, `wrapper:recipe-favorite:user:${id}`]);
+  const limitKeys = userIds.flatMap((id) => [`wrapper:recipe-write:user:${id}`, `wrapper:recipe-favorite:user:${id}`, `wrapper:category-write:user:${id}`]);
+  const categoryIds = (names: DefaultCategoryName[], who: 'owner' | 'other' = 'owner'): string[] => names.map((name) => {
+    const category = categories[who].find((category) => category.name === name);
+    if (!category) throw new Error(`Missing default category: ${name}`);
+    return category.id;
+  });
 
   const headers = ({ cookie = owner.cookie, origin = TEST_ORIGIN }: CallOptions, key?: string | null) => {
     const values = new Headers();
@@ -139,6 +151,6 @@ export async function openRecipeSuite() {
     try { await cleanup(); } finally { vi.restoreAllMocks(); await app.close(); }
   }
 
-  return { app, db, baseUrl, storage, name, owner, other, upload, send, call, expectError, expectEmpty, savedId, detail, list, stored, bytesAt,
+  return { app, db, baseUrl, storage, name, owner, other, categories, categoryIds, upload, send, call, expectError, expectEmpty, savedId, detail, list, stored, bytesAt,
     imageRows, resetLimits, fillLimit, orphans, uploadedKeys: () => new Set(objectKeys), cleanup, close };
 }

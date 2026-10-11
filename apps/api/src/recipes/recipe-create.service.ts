@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { DRIZZLE_DB } from '../database/database.module.js';
+import type { DrizzleDb } from '../database/database.service.js';
 import { parseRecipeMetadata, recipeRequestHash, validateRecipeFiles } from './recipe-metadata.js';
 import { validateRecipeImage } from './recipe-images.js';
 import type { RecipeUploadRequest } from './recipe-upload.js';
 import { RecipeAttempts } from './recipe-attempts.js';
 import type { RecipeWriteResult } from './recipe-attempts.js';
-import { persistRecipe } from './recipe-persist.js';
+import { assertOwnedCategories, persistRecipe } from './recipe-persist.js';
 
 @Injectable()
 export class RecipeCreateService {
-  constructor(private readonly attempts: RecipeAttempts) {}
+  constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb, private readonly attempts: RecipeAttempts) {}
 
   create(request: RecipeUploadRequest): Promise<RecipeWriteResult> {
     const metadata = parseRecipeMetadata(request.body ?? {});
@@ -22,6 +24,8 @@ export class RecipeCreateService {
       attempt: { id: randomUUID(), userId, idempotencyKey: request.idempotencyKey!, operation: 'create', requestHash: recipeRequestHash(metadata, files),
         recipeId, objectKeys: images.map((image) => image.key) },
       uploads: images,
+      // Before any upload, so a stale category never costs a stored photo.
+      prepare: () => assertOwnedCategories(this.db, userId, metadata.categoryIds),
       apply: async (tx) => { await persistRecipe(tx, metadata, userId, recipeId, images); return []; },
     });
   }

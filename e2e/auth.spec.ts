@@ -155,8 +155,10 @@ test('session tokens stay out of rendered HTML and browser storage; the create f
 for (const width of [320, 390, 768, 1440]) {
   test(`root and recipes fit ${width}px without horizontal overflow or console errors`, async ({ page, workerData }) => {
     const errors: string[] = [];
-    // Sidebar prefetches of routes outside this feature (/categories, /settings) 404 by design.
-    page.on('console', (message) => { if (message.type() === 'error' && !message.text().includes('404 (Not Found)')) errors.push(message.text()); });
+    // Settings is the only sidebar route that still answers 404 by design.
+    page.on('console', (message) => {
+      if (message.type() === 'error' && !(message.text().includes('404 (Not Found)') && /\/settings(\?|$)/.test(message.location().url))) errors.push(message.text());
+    });
     page.on('pageerror', (error) => errors.push(error.message));
     const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
     await page.setViewportSize({ width, height: 900 });

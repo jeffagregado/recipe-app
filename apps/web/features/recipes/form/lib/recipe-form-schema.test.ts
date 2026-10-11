@@ -24,8 +24,8 @@ describe('toCreateRecipeMetadata', () => {
 	})
 
 	it('keeps zero prep time, reads whole numbers and keeps category selection order', () => {
-		const metadata = toCreateRecipeMetadata(valid({ prepTime: '0', cookTime: '20', servings: '2', categories: ['Dinner', 'Breakfast'] }))
-		expect(metadata).toMatchObject({ prepTimeMinutes: 0, cookTimeMinutes: 20, servings: 2, categories: ['Dinner', 'Breakfast'] })
+		const metadata = toCreateRecipeMetadata(valid({ prepTime: '0', cookTime: '20', servings: '2', categories: ['category-dinner', 'category-breakfast'] }))
+		expect(metadata).toMatchObject({ prepTimeMinutes: 0, cookTimeMinutes: 20, servings: 2, categoryIds: ['category-dinner', 'category-breakfast'] })
 	})
 
 	it('maps decimals and "to taste" rows', () => {
@@ -92,7 +92,7 @@ describe('recipeFormSchema', () => {
 		const found = issues(valid({ prepTime: '1.5', cookTime: '-2', servings: '0', videoUrl: 'http://example.com/v', notes: 'n'.repeat(5001), description: 'd'.repeat(2001) }))
 		expect(Object.keys(found).sort()).toEqual(['cookTime', 'description', 'notes', 'prepTime', 'servings', 'videoUrl'])
 		expect(issues(valid({ title: 't'.repeat(201) }))['title']).toBeDefined()
-		expect(issues(valid({ categories: ['Lunch', 'Dinner', 'Snacks', 'Desserts'] }))['categories']).toBeDefined()
+		expect(issues(valid({ categories: ['category-lunch', 'category-dinner', 'category-snacks', 'category-desserts'] }))['categories']).toBeDefined()
 	})
 
 	it('limits rows to 100 and requires at least one', () => {
