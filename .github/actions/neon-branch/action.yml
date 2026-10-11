@@ -1,6 +1,7 @@
 name: Create Neon test branch
 description: >
-  Create a disposable child of the Neon dev branch and export its connection string as DATABASE_URL for later steps.
+  Create a disposable child of the Neon dev branch and export, for later steps, its connection string as DATABASE_URL
+  and its own object storage as AWS_ENDPOINT_URL_S3 and RECIPE_STORAGE_HOST.
   Uses the repository's Neon CLI rather than neondatabase/create-branch-action because that action leaves the
   connection string and role password unmasked in its outputs, and child branches inherit the parent's password.
 
@@ -40,3 +41,36 @@ runs:
         branch: ${{ inputs.name }}
         project-id: ${{ inputs.project-id }}
         api-key: ${{ inputs.api-key }}
+
+    # Every Neon branch has its own object storage: it starts with the parent's objects, and its own uploads and
+    # deletions stay on it. The storage credential belongs to an ancestor branch, so only the endpoint differs.
+    - name: Export the branch's storage endpoint
+      shell: bash
+      env:
+        NEON_API_KEY: ${{ inputs.api-key }}
+        NEON_PROJECT_ID: ${{ inputs.project-id }}
+        BRANCH_NAME: ${{ inputs.name }}
+        PARENT_BRANCH: ${{ inputs.parent }}
+      run: |
+        set -euo pipefail
+        file=$(mktemp "$RUNNER_TEMP/neon-storage.XXXXXX")
+        # Writes the one named variable to the file and prints variable names only.
+        pnpm exec neon --no-analytics env pull --project-id "$NEON_PROJECT_ID" --branch "$BRANCH_NAME" \
+          --file "$file" -e AWS_ENDPOINT_URL_S3 > /dev/null
+        mapfile -t lines < "$file"
+        rm -f "$file"
+        # The file is never printed: accept exactly one line holding an https origin, and nothing else.
+        if [[ ${#lines[@]} -ne 1 || ! "${lines[0]}" =~ ^AWS_ENDPOINT_URL_S3=https://([a-z0-9.-]+)$ ]]; then
+          echo "::error::Could not read the storage endpoint of the Neon branch from neon env pull."
+          exit 1
+        fi
+        host=${BASH_REMATCH[1]}
+        # A storage host starts with its branch id. Refuse the parent's, so a run can never write its objects there.
+        if [[ "$host" == "$PARENT_BRANCH".* ]]; then
+          echo "::error::The Neon branch resolved to its parent's storage endpoint."
+          exit 1
+        fi
+        # The endpoint holds no credential, so it is exported unmasked and its host is logged as evidence of the target.
+        echo "AWS_ENDPOINT_URL_S3=https://$host" >> "$GITHUB_ENV"
+        echo "RECIPE_STORAGE_HOST=$host" >> "$GITHUB_ENV"
+        echo "Object storage host for $BRANCH_NAME: $host"

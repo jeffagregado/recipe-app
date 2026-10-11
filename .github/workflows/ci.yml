@@ -137,9 +137,9 @@ jobs:
           SHARD_FILES: ${{ matrix.files }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           BETTER_AUTH_URL: http://127.0.0.1:4101
+          # AWS_ENDPOINT_URL_S3 is this shard's own storage, exported by the Neon branch step; a value here would override it.
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_ENDPOINT_URL_S3: ${{ vars.AWS_ENDPOINT_URL_S3 }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           S3_BUCKET: ${{ vars.S3_BUCKET }}
 
@@ -165,6 +165,15 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      # Before the build: the web app only optimizes recipe photos from RECIPE_STORAGE_HOST, which this step exports
+      # for the run's own storage. The build and the server Playwright starts both read it from the job environment.
+      - uses: ./.github/actions/neon-branch
+        with:
+          name: ci/e2e-${{ env.NEON_BRANCH_SUFFIX }}
+          parent: ${{ env.NEON_PARENT_BRANCH }}
+          project-id: ${{ vars.NEON_PROJECT_ID }}
+          api-key: ${{ secrets.NEON_API_KEY }}
+
       - name: Build
         run: pnpm build
 
@@ -173,13 +182,6 @@ jobs:
       # run on demand through "Run workflow" until they are known to pass.
       - name: Install browsers
         run: pnpm exec playwright install --with-deps ${{ env.E2E_PROJECTS == 'chromium' && 'chromium' || '' }}
-
-      - uses: ./.github/actions/neon-branch
-        with:
-          name: ci/e2e-${{ env.NEON_BRANCH_SUFFIX }}
-          parent: ${{ env.NEON_PARENT_BRANCH }}
-          project-id: ${{ vars.NEON_PROJECT_ID }}
-          api-key: ${{ secrets.NEON_API_KEY }}
 
       - name: Apply migrations
         run: pnpm --filter @recipe/api run db:migrate
@@ -194,9 +196,9 @@ jobs:
         env:
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           BETTER_AUTH_URL: http://127.0.0.1:4101
+          # AWS_ENDPOINT_URL_S3 is this run's own storage, exported by the Neon branch step; a value here would override it.
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_ENDPOINT_URL_S3: ${{ vars.AWS_ENDPOINT_URL_S3 }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           S3_BUCKET: ${{ vars.S3_BUCKET }}
 
