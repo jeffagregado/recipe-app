@@ -100,13 +100,17 @@ jobs:
         # also add it to `named` in the run step below, or it will run twice.
         include:
           - shard: update
-            files: update-recipe.spec
+            files: update-recipe.spec storage.spec diag-idle.spec
+            aim: start
           - shard: update-b
-            files: update-recipe.spec
+            files: update-recipe.spec storage.spec diag-idle.spec
+            aim: start
           - shard: update-c
-            files: update-recipe.spec
+            files: update-recipe.spec storage.spec diag-idle.spec
+            aim: hold
           - shard: update-d
-            files: update-recipe.spec
+            files: update-recipe.spec storage.spec diag-idle.spec
+            aim: hold
     steps:
       - uses: actions/checkout@v7
 
@@ -135,11 +139,12 @@ jobs:
           else
             for file in $named; do args+=(--exclude "**/$file.ts"); done
           fi
-          pnpm exec vitest run --config vitest.integration.config.ts "${args[@]}"
+          pnpm exec vitest run --config vitest.integration.config.ts "${args[@]}" -t "serializes two concurrent|Storage connections|idle storage connection"
         env:
           SHARD_FILES: ${{ matrix.files }}
           # [DIAG-10] temporary
-          DIAG_10_REPEATS: 25
+          DIAG_10_REPEATS: 14
+          DIAG_10_AIM: ${{ matrix.aim }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           BETTER_AUTH_URL: http://127.0.0.1:4101
           # AWS_ENDPOINT_URL_S3 is this shard's own storage, exported by the Neon branch step; a value here would override it.

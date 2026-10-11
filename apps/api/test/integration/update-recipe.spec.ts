@@ -18,7 +18,7 @@ describe('Update recipe HTTP', () => {
   let s: RecipeSuite;
   beforeAll(async () => { s = await openRecipeSuite(); }, 60_000);
   beforeEach(() => s.resetLimits());
-  afterAll(() => s?.close(), 60_000);
+  afterAll(() => s?.close(), process.env.DIAG_10_REPEATS ? 300_000 : 60_000); // [DIAG-10] temporary: repeats leave more objects to verify
 
   const base = (): CreateRecipeMetadata => ({ title: 'Base recipe', description: 'Old description', categoryIds: s.categoryIds(['Dinner', 'Lunch']),
     servings: 2, prepTimeMinutes: 5, cookTimeMinutes: 10, videoUrl: 'https://www.youtube.com/watch?v=old', notes: 'Old notes',
@@ -343,7 +343,7 @@ describe('Update recipe HTTP', () => {
   }, 90_000);
 
   // [DIAG-10] temporary: repeats the test and prints a timeline of every run.
-  const diagRepeats = Number(process.env.DIAG_10_REPEATS ?? 1);
+  const diagRepeats = Number(process.env.DIAG_10_REPEATS ?? 1); const diagLeads: number[] = []; let diagIdleSince = 0;
   it.each(Array.from({ length: diagRepeats }, (_, index) => index + 1))('serializes two concurrent updates of one recipe so that one of them wins entirely (%i)', async (diagRun) => {
     const { id, value, rows } = await seed(); const uploaded = s.uploadedKeys();
     const [a, b, ...rest] = unchanged(value).instructions;
@@ -352,9 +352,31 @@ describe('Update recipe HTTP', () => {
     const second: UpdateRecipeMetadata = { ...unchanged(value), title: 'Second writer', cover: 'replace', categoryIds: s.categoryIds(['Desserts']),
       ingredients: [{ name: `${s.name} cocoa`, quantity: 2, unit: 'tbsp' }], instructions: [{ ...a, image: 'remove' }, { ...b, image: 'replace' }, ...rest] };
     const service = s.app.get(RecipeUpdateService);
+    // [DIAG-10] temporary aim: five pooled storage connections are used at once and then left idle, so that the first
+    // committer's third deletion reuses one of them close to 60 s later, which is when the storage server closes it.
+    // "start" only chooses when the writers begin. "hold" also keeps each deletion back, by less than a second, until the chosen instant.
+    let diagAim = 'not aimed'; let diagHold: (() => Promise<void>) | undefined; let diagArrived: number | undefined;
+    if (process.env.DIAG_10_AIM) {
+      const burst = () => Promise.all(Array.from({ length: 5 }, async () => { const at = Date.now(); await s.storage.deleteObject(`verification/diag-${randomUUID()}.jpg`); return { took: Date.now() - at, done: Date.now() }; }));
+      await burst(); const warm = await burst(); const roundTrip = Math.min(...warm.map(({ took }) => took));
+      // The third most recently used connection: the two newer ones are taken by the writers' concurrent uploads.
+      const idleSince = warm.map(({ done }) => done).sort((x, y) => y - x)[2];
+      const lead = diagLeads.length ? [...diagLeads].sort((x, y) => x - y)[Math.floor(diagLeads.length / 2)] : undefined;
+      // Fractions of one round trip before the 60 s mark; the first run only measures the lead.
+      const fraction = [0.5, 0.2, 0.8, 0.5, 1.1, -0.1][diagRun % 6];
+      const target = idleSince + 60_000 - Math.round(roundTrip * fraction);
+      const startAt = lead === undefined ? idleSince + 8000 : target - lead - (process.env.DIAG_10_AIM === 'hold' ? 700 : 0);
+      if (process.env.DIAG_10_AIM === 'hold' && lead !== undefined) diagHold = () => { diagArrived ??= Date.now(); return new Promise((resolve) => setTimeout(resolve, Math.max(0, target - Date.now()))); };
+      // Both pooled database connections stay warm, as they are when the test follows another one.
+      while (startAt - Date.now() > 3500) { await Promise.all([s.db.execute(sql`select 1`), s.db.execute(sql`select 1`)]); await new Promise((resolve) => setTimeout(resolve, 2500)); }
+      await Promise.all([s.db.execute(sql`select 1`), s.db.execute(sql`select 1`)]);
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, startAt - Date.now())));
+      diagAim = `round trip ${roundTrip} ms, lead ${lead ?? 'unknown'}, fraction ${fraction}, writers began ${Date.now() - idleSince} ms after the burst`;
+      diagIdleSince = idleSince;
+    }
     const requests = [serviceRequest(first, [{ field: 'cover', bytes: jpeg(91) }, { field: 'step-0', bytes: jpeg(93) }]),
       serviceRequest(second, [{ field: 'cover', bytes: jpeg(92) }, { field: 'step-1', bytes: jpeg(94) }])];
-    const cleanup = s.recordCleanup();
+    const cleanup = s.recordCleanup(diagHold);
     // [DIAG-10] temporary: every transaction and each writer's answer, in milliseconds since the writes began.
     const diagStart = Date.now(); const diag: string[] = []; let diagTx = 0;
     const diagReason = (start: unknown) => { const parts: string[] = []; for (let error = start, depth = 0; error instanceof Error && depth < 6; error = error.cause, depth++) parts.push(`${error.name}${'code' in error && typeof error.code === 'string' ? ` ${error.code}` : ''}`); return parts.join(' <- '); };
@@ -389,7 +411,9 @@ describe('Update recipe HTTP', () => {
     const left = settled.some(({ state }) => state !== 'completed'); const during = cleanup.events.length;
     if (left) console.log(`Concurrent updates left cleanup to reconciliation; ${states}.\nCleanup until then: ${cleanup.events.join('; ') || 'nothing recorded'}.`);
     // [DIAG-10] temporary: one line per run, clean or not.
-    console.log(`[DIAG-10] run ${diagRun} ${left ? 'LEFT' : 'clean'} began ${new Date(diagStart).toISOString()} read at +${Date.now() - diagStart}:${diag.join('; ')} | ${cleanup.events.join('; ')} | stale: ${settled.flatMap(({ stale }) => stale).join(', ') || 'none'}`);
+    const diagSent = Number(/^\+(\d+) ms delete/.exec(cleanup.events[0] ?? '')?.[1]); const diagLead = diagArrived === undefined ? diagSent : diagArrived - diagStart;
+    if (Number.isFinite(diagLead)) diagLeads.push(diagLead);
+    console.log(`[DIAG-10] run ${diagRun} ${left ? 'LEFT' : 'clean'} began ${new Date(diagStart).toISOString()} read at +${Date.now() - diagStart}: ${diagAim}${diagIdleSince ? `, first deletion sent ${diagStart + diagSent - diagIdleSince} ms after that connection was last used${diagArrived === undefined ? '' : `, held ${diagSent - diagLead} ms`}` : ''} |${diag.join('; ')} | ${cleanup.events.join('; ')} | stale: ${settled.flatMap(({ stale }) => stale).join(', ') || 'none'}`);
     // 20 s: a deletion in flight ends at the storage client's 10 s abort; one reconciliation round took 5.4 s at 415 ms a statement.
     try {
       await vi.waitFor(async () => {
@@ -404,13 +428,14 @@ describe('Update recipe HTTP', () => {
     const kept = new Set(remaining.map(({ objectKey }) => objectKey));
     for (const row of rows.filter(({ objectKey }) => !kept.has(objectKey))) expect(await s.stored(row.objectKey), states).toBe(false);
     expect(await s.db.$count(recipeWriteAttempts, eq(recipeWriteAttempts.recipeId, id))).toBe(3);
+    if (process.env.DIAG_10_AIM) return; // [DIAG-10] temporary: the rest happens after the cleanup under study
     // Through HTTP the per-user upload slot admits one at a time; whatever is admitted still leaves one whole recipe.
     const current = await s.detail(id);
     const responses = await Promise.all(['Third writer', 'Fourth writer'].map((title) => patch(id, { ...unchanged(current), title })));
     expect(responses.some((response) => response.status === 200)).toBe(true);
     for (const response of responses) if (response.status === 200) await s.savedId(response, 200); else await s.expectError(response, 409, 'IDEMPOTENCY_IN_PROGRESS');
     expect(['Third writer', 'Fourth writer']).toContain((await s.detail(id)).title);
-  }, 120_000);
+  }, process.env.DIAG_10_AIM ? 200_000 : 120_000); // [DIAG-10] temporary: aim mode waits 60 s by design
 
   it('routes a JSON PATCH to the 415 guard and applies the per-user write limit', async () => {
     const { id, value } = await seed(); const before = await snapshot(id);

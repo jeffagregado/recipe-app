@@ -129,7 +129,7 @@ export async function openRecipeSuite() {
   /** Until `stop`, records each object deletion and each failure the API logs, as milliseconds since the call. The test API runs
    * with logging off, so nothing else keeps them. Names, codes, statuses and object keys only; never an error message.
    */
-  function recordCleanup() {
+  function recordCleanup(diagHold?: () => Promise<void>) { // [DIAG-10] temporary parameter
     const started = Date.now(); const events: string[] = [];
     const reason = (start: unknown) => {
       const parts: string[] = []; const seen = new Set<Error>();
@@ -142,6 +142,7 @@ export async function openRecipeSuite() {
       return parts.join(' <- ') || 'unknown';
     };
     const deletion = vi.spyOn(storage, 'deleteObject').mockImplementation(async (key) => {
+      await diagHold?.(); // [DIAG-10] temporary
       const at = Date.now();
       try { await actualDelete(key); events.push(`+${at - started} ms delete ${key}: done in ${Date.now() - at} ms`); }
       catch (cause) { events.push(`+${at - started} ms delete ${key}: failed in ${Date.now() - at} ms, ${reason(cause)}`); throw cause; }
