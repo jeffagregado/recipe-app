@@ -16,11 +16,12 @@ describe("category name", () => {
     ["x".repeat(10), "x".repeat(10)],
     ["  " + "x".repeat(10) + "  ", "x".repeat(10)],
     ["Crème 🍮", "Crème 🍮"],
+    ["🍳🥗🍝🍿🍰🍜🥐🍣🍛🥘", "🍳🥗🍝🍿🍰🍜🥐🍣🍛🥘"],
   ])("normalizes %j to %j", (input, expected) => {
     expect(categoryNameSchema.parse(input)).toBe(expected);
   });
 
-  it.each([[""], ["   "], ["\t\n"], ["x".repeat(11)], ["a b c d e f"], ["Soup\u0000"], [5], [null]])("rejects %j", (input) => {
+  it.each([[""], ["   "], ["\t\n"], ["x".repeat(11)], ["a b c d e f"], ["Soup\u0000"], ["🍳".repeat(11)], [5], [null]])("rejects %j", (input) => {
     expect(categoryNameSchema.safeParse(input).success).toBe(false);
   });
 });

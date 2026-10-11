@@ -19,11 +19,12 @@ export function readCategories(db: Pick<DrizzleDb, 'select'>, userId: string): P
 
 const sameName = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
 
-function isUniqueViolation(error: unknown): boolean {
+/** A unique violation on the per-owner name index, wherever the driver error sits in the cause chain. */
+function isDuplicateName(error: unknown): boolean {
   const seen = new Set<Error>();
   for (let cause = error; cause instanceof Error && !seen.has(cause); cause = cause.cause) {
     seen.add(cause);
-    if ('code' in cause && cause.code === '23505') return true;
+    if ('code' in cause && cause.code === '23505' && 'constraint' in cause && cause.constraint === 'categories_user_name_key') return true;
   }
   return false;
 }
@@ -79,7 +80,7 @@ export class CategoriesService {
     } catch (cause) {
       if (cause instanceof RecipeError) throw cause;
       // PostgreSQL folds case slightly differently from JavaScript for a few characters; its index has the last word.
-      if (isUniqueViolation(cause)) throw fieldError('categories', 'Category names must be different from each other.');
+      if (isDuplicateName(cause)) throw fieldError('categories', 'Category names must be different from each other.');
       throw recipeUnavailable('categories', cause);
     }
   }

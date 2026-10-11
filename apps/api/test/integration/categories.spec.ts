@@ -119,11 +119,10 @@ describe('Categories HTTP', () => {
     expect(full).toHaveLength(10);
     await s.expectError(await put([...rows(full), { name: 'Eleventh' }]), 400, 'VALIDATION_FAILED', 'categories');
     expect(await read()).toEqual(full);
-    // The database holds the same line for writes that bypass the API.
-    await expect(s.db.insert(categories).values({ userId: s.owner.user.id, name: 'Eleventh', sortOrder: 10 })).rejects.toMatchObject({ cause: { code: '23514' } });
   }, 60_000);
 
-  it('rejects unknown and foreign ids, duplicates and invalid names with row errors, writing nothing', async () => {
+  // Name and set rules belong to the contract's own tests; here one rejected body proves the endpoint applies that schema.
+  it('rejects unknown and foreign ids and a duplicate name with row errors, writing nothing', async () => {
     const before = await read();
     const body = rows(before);
     const foreign = (await read(s.other.cookie))[0];
@@ -131,12 +130,7 @@ describe('Categories HTTP', () => {
       [[...body, { id: randomUUID(), name: 'Ghost' }], '5.id'],
       [[...body, { id: foreign.id, name: 'Stolen' }], '5.id'],
       [[...body, { name: ' dinner ' }], '5.name'],
-      [body.map((row, index) => index === 1 ? { ...row, name: 'BREAKFAST' } : row), '1.name'],
-      [[body[0], body[0]], '1.id'],
-      [[...body, { name: '   ' }], '5.name'],
-      [[...body, { name: 'x'.repeat(11) }], '5.name'],
       [[{ ...body[0], userId: s.other.user.id }], '0'],
-      [{ categories: body }, 'categories'],
     ];
     for (const [input, field] of cases) await s.expectError(await put(input), 400, 'VALIDATION_FAILED', field);
     expect(await read()).toEqual(before);

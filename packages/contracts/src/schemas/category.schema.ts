@@ -12,11 +12,15 @@ export const categoryIdSchema = entityIdSchema.max(200).refine(withoutNul, "NUL 
 /** The stored form of a name: trimmed, with inner whitespace collapsed to one space. */
 export const normalizeCategoryName = (value: string) => value.trim().replace(/\s+/g, " ");
 
-/** Normalized, then 1 to 10 characters. */
+/** Characters as a person counts them and as PostgreSQL's `length()` does: an emoji is one, not two UTF-16 units. */
+export const categoryNameLength = (value: string) => Array.from(normalizeCategoryName(value)).length;
+
+/** Normalized, then 1 to 10 characters of any kind. */
 export const categoryNameSchema = z.string()
   .refine(withoutNul, "NUL characters are not allowed.")
   .transform(normalizeCategoryName)
-  .pipe(z.string().min(1, "Enter a category name.").max(RECIPE_LIMITS.categoryName, `Use ${RECIPE_LIMITS.categoryName} characters or fewer.`));
+  .pipe(z.string().min(1, "Enter a category name.")
+    .refine((value) => categoryNameLength(value) <= RECIPE_LIMITS.categoryName, `Use ${RECIPE_LIMITS.categoryName} characters or fewer.`));
 
 export const categorySchema: z.ZodType<Category> = z.object({ id: categoryIdSchema, name: z.string().min(1) });
 

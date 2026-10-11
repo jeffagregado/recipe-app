@@ -14,9 +14,8 @@ type EditRecipeContentProps = {
  */
 export async function EditRecipeContent({ params }: EditRecipeContentProps) {
 	const { id } = await params
-	const recipe = await getRecipe(id)
+	const [recipe, categories] = await Promise.all([getRecipe(id), getCategories()])
 	if (!recipe) return <PageNotFound />
-	const categories = await getCategories()
 
 	return (
 		// A saved update changes updatedAt, so a hidden (preserved) edit page remounts with the saved values instead of the ones from before.

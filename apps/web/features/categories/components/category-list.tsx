@@ -1,5 +1,5 @@
 import type { CategoryWithUsage } from '@recipe-app/contracts/types'
-import { normalizeCategoryName } from '@recipe-app/contracts/schemas'
+import { categoryNameLength, normalizeCategoryName } from '@recipe-app/contracts/schemas'
 import { Plus, Trash2 } from 'lucide-react'
 import { useId, useRef } from 'react'
 import { useFormContext, useFormState, useWatch, type UseFieldArrayReturn } from 'react-hook-form'
@@ -11,7 +11,7 @@ import { FieldError } from '@/features/recipes/form/components/form-field'
 import { useRowFocus } from '@/features/recipes/form/hooks/use-row-focus'
 import { fieldA11y, inputClass } from '@/features/recipes/form/lib/field-props'
 import { cn } from '@/lib/utils'
-import { emptyCategoryRow, recipeCountLabel, savedNameLength, MAX_CATEGORIES, MAX_NAME_LENGTH, type CategoryFormValues } from '../lib/category-form'
+import { emptyCategoryRow, recipeCountLabel, MAX_CATEGORIES, MAX_NAME_LENGTH, type CategoryFormValues } from '../lib/category-form'
 
 type CategoryListProps = {
 	/** The stored categories, for each row's recipe count and to tell a renamed row from an untouched one. */
@@ -92,7 +92,7 @@ function CategoryRow({ index, stored, disabled, onRemove }: CategoryRowProps) {
 						enterKeyHint="done"
 					/>
 					<span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-3 hidden -translate-y-1/2 text-xs text-muted-foreground tabular-nums sm:block">
-						{savedNameLength(row.name)}/{MAX_NAME_LENGTH}
+						{categoryNameLength(row.name)}/{MAX_NAME_LENGTH}
 					</span>
 				</div>
 				<UsagePill saved={saved} renamed={saved !== undefined && normalizeCategoryName(row.name) !== saved.name} />

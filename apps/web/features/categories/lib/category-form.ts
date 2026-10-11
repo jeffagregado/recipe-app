@@ -1,4 +1,4 @@
-import { normalizeCategoryName, saveCategoriesSchema } from '@recipe-app/contracts/schemas'
+import { saveCategoriesSchema } from '@recipe-app/contracts/schemas'
 import { RECIPE_LIMITS, type CategoryWithUsage, type SaveCategoryInput } from '@recipe-app/contracts/types'
 import { z } from 'zod'
 
@@ -31,9 +31,6 @@ export const categoryFormSchema = z.object({
 		ctx.issues.push({ code: 'custom', input: ctx.value, path: typeof index === 'number' ? ['categories', index, 'name'] : ['categories'], message: issue.message })
 	}
 })
-
-/** Characters the name will occupy once saved, for the counter beside the input. */
-export const savedNameLength = (name: string) => normalizeCategoryName(name).length
 
 /** Stored categories the edited list no longer contains and that still tag at least one recipe. */
 export function removedInUse(stored: readonly CategoryWithUsage[], rows: readonly CategoryFormRow[]): CategoryWithUsage[] {
