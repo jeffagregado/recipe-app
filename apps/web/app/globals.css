@@ -119,32 +119,6 @@
 
   /*
   |--------------------------------------------------------------------------
-  | Recipe categories
-  |--------------------------------------------------------------------------
-  */
-
-  --color-category-breakfast: var(--category-breakfast);
-  --color-category-breakfast-foreground:
-    var(--category-breakfast-foreground);
-
-  --color-category-lunch: var(--category-lunch);
-  --color-category-lunch-foreground:
-    var(--category-lunch-foreground);
-
-  --color-category-dinner: var(--category-dinner);
-  --color-category-dinner-foreground:
-    var(--category-dinner-foreground);
-
-  --color-category-snack: var(--category-snack);
-  --color-category-snack-foreground:
-    var(--category-snack-foreground);
-
-  --color-category-dessert: var(--category-dessert);
-  --color-category-dessert-foreground:
-    var(--category-dessert-foreground);
-
-  /*
-  |--------------------------------------------------------------------------
   | Radius
   |--------------------------------------------------------------------------
   |
@@ -289,27 +263,6 @@
 
   /*
   |--------------------------------------------------------------------------
-  | Recipe category colors
-  |--------------------------------------------------------------------------
-  */
-
-  --category-breakfast: oklch(0.94 0.075 78);
-  --category-breakfast-foreground: oklch(0.5 0.12 65);
-
-  --category-lunch: oklch(0.92 0.06 135);
-  --category-lunch-foreground: oklch(0.37 0.09 145);
-
-  --category-dinner: oklch(0.94 0.075 75);
-  --category-dinner-foreground: oklch(0.53 0.13 55);
-
-  --category-snack: oklch(0.94 0.07 60);
-  --category-snack-foreground: oklch(0.51 0.13 45);
-
-  --category-dessert: oklch(0.94 0.05 20);
-  --category-dessert-foreground: oklch(0.48 0.11 20);
-
-  /*
-  |--------------------------------------------------------------------------
   | Charts
   |--------------------------------------------------------------------------
   |
@@ -427,27 +380,6 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.62 0.1 145);
-
-  /*
-  |--------------------------------------------------------------------------
-  | Recipe categories
-  |--------------------------------------------------------------------------
-  */
-
-  --category-breakfast: oklch(0.32 0.055 70);
-  --category-breakfast-foreground: oklch(0.88 0.08 78);
-
-  --category-lunch: oklch(0.3 0.055 140);
-  --category-lunch-foreground: oklch(0.85 0.08 135);
-
-  --category-dinner: oklch(0.32 0.06 65);
-  --category-dinner-foreground: oklch(0.88 0.08 75);
-
-  --category-snack: oklch(0.31 0.06 50);
-  --category-snack-foreground: oklch(0.88 0.08 60);
-
-  --category-dessert: oklch(0.3 0.045 20);
-  --category-dessert-foreground: oklch(0.87 0.06 20);
 
   /*
   |--------------------------------------------------------------------------

@@ -3,7 +3,7 @@ import { authAccounts, authSessions, users } from './auth.schema.js';
 import { categories, favorites, ingredients, recipeCategories, recipeImages, recipeIngredients, recipeInstructions, recipes, recipeWriteAttempts } from './recipe.schema.js';
 
 export const usersRelations = relations(users, ({ many }) => ({
-  accounts: many(authAccounts), sessions: many(authSessions), recipes: many(recipes), favorites: many(favorites),
+  accounts: many(authAccounts), sessions: many(authSessions), recipes: many(recipes), favorites: many(favorites), categories: many(categories),
   writeAttempts: many(recipeWriteAttempts),
 }));
 export const authAccountsRelations = relations(authAccounts, ({ one }) => ({
@@ -25,7 +25,10 @@ export const recipeInstructionsRelations = relations(recipeInstructions, ({ one 
   recipe: one(recipes, { fields: [recipeInstructions.recipeId], references: [recipes.id] }),
   image: one(recipeImages, { fields: [recipeInstructions.imageId], references: [recipeImages.id] }),
 }));
-export const categoriesRelations = relations(categories, ({ many }) => ({ recipes: many(recipeCategories) }));
+export const categoriesRelations = relations(categories, ({ one, many }) => ({
+  owner: one(users, { fields: [categories.userId], references: [users.id] }),
+  recipes: many(recipeCategories),
+}));
 export const recipeCategoriesRelations = relations(recipeCategories, ({ one }) => ({
   recipe: one(recipes, { fields: [recipeCategories.recipeId], references: [recipes.id] }),
   category: one(categories, { fields: [recipeCategories.categoryId], references: [categories.id] }),

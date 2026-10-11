@@ -6,25 +6,17 @@ import type {
   SortDirection,
 } from "./common.js";
 
+import type { Category } from "./category.js";
+
 import type {
   CreateRecipeIngredientInput,
   MeasurementUnit,
   RecipeIngredient,
 } from "./ingredient.js";
 
-export const RECIPE_CATEGORIES = [
-  "Breakfast",
-  "Lunch",
-  "Dinner",
-  "Snacks",
-  "Desserts",
-] as const;
-
-export type RecipeCategory = (typeof RECIPE_CATEGORIES)[number];
-
 export const RECIPE_LIMITS = {
   title: 200, description: 2000, notes: 5000, videoUrl: 2048,
-  categories: 3, ingredients: 100, instructions: 100,
+  categories: 3, categoriesPerUser: 10, categoryName: 10, ingredients: 100, instructions: 100,
   ingredientName: 100, instructionDescription: 5000,
   maxInteger: 2147483647, maxQuantity: 999999999.999, quantityDecimals: 3,
   imageBytes: 5 * 1024 * 1024, metadataBytes: 1024 * 1024,
@@ -49,7 +41,8 @@ export type CreateRecipeMetadataInstruction = {
 export type CreateRecipeMetadata = {
   title: string;
   description: string | null;
-  categories: RecipeCategory[];
+  /** The owner's categories in the chosen order. */
+  categoryIds: EntityId[];
   servings: number | null;
   prepTimeMinutes: number | null;
   cookTimeMinutes: number | null;
@@ -98,7 +91,7 @@ export type Recipe = {
   userId: EntityId;
 
   title: string;
-  categories: RecipeCategory[];
+  categories: Category[];
   description: string | null;
 
   imageUrl: string | null;
@@ -136,7 +129,7 @@ export type CreateRecipeInstructionInput = {
 export type CreateRecipeInput = {
   title: string;
 
-  categories?: RecipeCategory[];
+  categoryIds?: EntityId[];
 
   description?: string | null;
 
@@ -168,7 +161,8 @@ export type RecipeSortField = (typeof RECIPE_SORT_FIELDS)[number];
 
 export type RecipeFilters = {
   search?: string;
-  category?: RecipeCategory;
+  /** Id of one of the owner's categories. */
+  category?: EntityId;
   /** Present only when the list is narrowed to the signed-in user's favorites. */
   favorites?: true;
   sortBy: RecipeSortField;
@@ -180,7 +174,8 @@ export type RecipeListQuery = Required<PaginationParams> & RecipeFilters;
 export type RecipeCounts = {
   total: number;
   favorites: number;
-  categories: Record<RecipeCategory, number>;
+  /** Every category the owner keeps, in their order, including unused ones. */
+  categories: Array<Category & { total: number }>;
 };
 
 export type RecipeListItem = RecipeSummary & { isFavorite: boolean };

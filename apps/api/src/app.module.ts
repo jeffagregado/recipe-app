@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { RecipesModule } from './recipes/recipes.module.js';
+import { CategoriesModule } from './categories/categories.module.js';
 import { validateEnvironment } from './config/environment.js';
 import { DatabaseModule } from './database/database.module.js';
 import { StorageModule } from './storage/storage.module.js';
@@ -25,6 +26,7 @@ import { authResiliencePresets } from './auth/auth.resilience.js';
     StorageModule,
     AuthModule,
     RecipesModule,
+    CategoriesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

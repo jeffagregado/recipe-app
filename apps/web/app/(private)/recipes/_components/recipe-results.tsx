@@ -1,6 +1,6 @@
 'use client'
 
-import type { RecipeFilters } from '@recipe-app/contracts/types'
+import type { Category, RecipeFilters } from '@recipe-app/contracts/types'
 import type { ReactNode, RefObject } from 'react'
 import { RecipeControls, type RecipeChoice } from './recipe-controls'
 import { RecipeList } from './recipe-list'
@@ -12,15 +12,16 @@ import { SessionExpiredError } from '@/features/auth/errors'
 type RecipeResultsProps = {
 	userId: string
 	endpoint: string
+	categories: Category[]
 	filters: RecipeFilters
 	onFilter: (choice: RecipeChoice) => void
 	onSort: (sort: Pick<RecipeFilters, 'sortBy' | 'order'>) => void
 }
 
-export function RecipeResults({ userId, endpoint, filters, onFilter, onSort }: RecipeResultsProps) {
+export function RecipeResults({ userId, endpoint, categories, filters, onFilter, onSort }: RecipeResultsProps) {
 	const { query, sentinel, counts } = useRecipePages(userId, endpoint, filters)
 	if (query.error instanceof SessionExpiredError) return <p role="status">Your session has expired. Returning to login...</p>
-	const controls = <RecipeControls filters={filters} counts={counts} loading={query.isLoading} onFilter={onFilter} onSort={onSort} />
+	const controls = <RecipeControls categories={categories} filters={filters} counts={counts} loading={query.isLoading} onFilter={onFilter} onSort={onSort} />
 	const error = <RecipeRequestError error={query.error} laterPage={query.isFetchNextPageError} pending={query.isFetching} onRetry={() => {
 		if (query.isFetchNextPageError) void query.fetchNextPage({ cancelRefetch: false })
 		else void query.refetch()

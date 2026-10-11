@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { eq, sql } from 'drizzle-orm';
-import type { CreateRecipeMetadata, RecipeCategory } from '@recipe-app/contracts/types';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import type { CreateRecipeMetadata } from '@recipe-app/contracts/types';
+import type { DrizzleDb } from '../database/database.service.js';
 import { categories, ingredients, recipeCategories, recipeImages, recipeIngredients, recipeInstructions, recipes, recipeWriteAttempts } from '../database/schema.js';
 import type { RecipeTransaction } from './recipe-write-hook.js';
 import type { RecipeFile } from './recipe-images.js';
-import { RecipeError } from './recipe-errors.js';
+import { fieldError } from './recipe-errors.js';
 
 export type PlannedImage = { file: RecipeFile; id: string; key: string; sortOrder: number };
 
@@ -20,7 +21,7 @@ export async function persistRecipe(tx: RecipeTransaction, metadata: CreateRecip
     id: randomUUID(), recipeId, stepNumber: index + 1, description: step.description,
     imageId: images.find((image) => image.file.fieldname === `step-${index}`)?.id ?? null,
   })));
-  await insertRecipeCategories(tx, recipeId, metadata.categories);
+  await insertRecipeCategories(tx, recipeId, userId, metadata.categoryIds);
 }
 
 /** Upserts canonical ingredients case-insensitively, then stores the recipe's own ordered snapshots. */
@@ -43,15 +44,18 @@ export async function insertRecipeIngredients(tx: RecipeTransaction, recipeId: s
   })));
 }
 
-export async function insertRecipeCategories(tx: RecipeTransaction, recipeId: string, names: RecipeCategory[]): Promise<void> {
-  if (!names.length) return;
-  const catalog = await tx.select().from(categories);
-  const joins = names.map((name, sortOrder) => {
-    const category = catalog.find((row) => row.name === name);
-    if (!category) throw new RecipeError(503, 'SERVICE_UNAVAILABLE', 'Recipe category catalog is incomplete. Contact support.');
-    return { recipeId, categoryId: category.id, sortOrder };
-  });
-  await tx.insert(recipeCategories).values(joins);
+/** Rejects an id that is not one of the owner's categories: unknown, deleted since the form loaded, or another account's. */
+export async function assertOwnedCategories(db: Pick<DrizzleDb, 'select'>, userId: string, ids: string[], lock = false): Promise<void> {
+  if (!ids.length) return;
+  const owned = db.select({ id: categories.id }).from(categories).where(and(eq(categories.userId, userId), inArray(categories.id, ids)));
+  // The key-share lock keeps a concurrent category delete from removing a row between this check and the tag insert.
+  if ((await (lock ? owned.for('key share') : owned)).length !== ids.length) throw fieldError('categories', 'A category was removed. Reload the page to see the current list.');
+}
+
+export async function insertRecipeCategories(tx: RecipeTransaction, recipeId: string, userId: string, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  await assertOwnedCategories(tx, userId, ids, true);
+  await tx.insert(recipeCategories).values(ids.map((categoryId, sortOrder) => ({ recipeId, categoryId, sortOrder })));
 }
 
 /** Objects the committed write replaced stay recorded as `cleanup_pending` until they are deleted from storage. */

@@ -42,7 +42,7 @@ export class RecipeDetailService {
         signal.throwIfAborted();
         return recipeDetailSchema.parse({ id: recipe.id, userId: recipe.userId, title: recipe.title, description: recipe.description,
           notes: recipe.notes, videoUrl: recipe.videoUrl, servings: recipe.servings, prepTimeMinutes: recipe.prepTimeMinutes,
-          cookTimeMinutes: recipe.cookTimeMinutes, categories: recipe.categories.map(({ category }) => category.name),
+          cookTimeMinutes: recipe.cookTimeMinutes, categories: recipe.categories.map(({ category }) => ({ id: category.id, name: category.name })),
           ingredients: recipe.ingredients.map((row) => ({ ...row, quantity: row.quantity === null ? null : Number(row.quantity) })),
           instructions, imageUrl, isFavorite: recipe.favorites.length > 0, createdAt: recipe.createdAt.toISOString(), updatedAt: recipe.updatedAt.toISOString(),
         });

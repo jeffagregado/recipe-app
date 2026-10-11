@@ -9,7 +9,6 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { FavoriteButton } from '@/features/recipes/components/favorite-button'
 import { RecipeMenu } from '@/features/recipes/components/recipe-menu'
-import { categoryVariants } from '@/features/recipes/lib/category-variants'
 
 export type RecipeCardData = Pick<RecipeListItem, 'id' | 'title' | 'imageUrl' | 'categories' | 'updatedAt' | 'isFavorite'> & {
 	updatedLabel: string
@@ -58,7 +57,7 @@ export function RecipeCard({ recipe, preload = false }: RecipeCardProps) {
 				{recipe.categories.length > 0 && (
 					<div className="flex flex-wrap gap-1.5">
 						{recipe.categories.slice(0, 2).map((category) => (
-							<Badge key={category} variant={categoryVariants[category]}>{category}</Badge>
+							<Badge key={category.id} variant="category">{category.name}</Badge>
 						))}
 					</div>
 				)}

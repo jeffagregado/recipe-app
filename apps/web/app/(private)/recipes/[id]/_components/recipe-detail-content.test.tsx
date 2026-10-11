@@ -49,7 +49,7 @@ it('starts at the title when there is no cover', async () => {
 it('renders every detail of a rich recipe, with the sections in mobile order', async () => {
 	await renderRecipe(recipeDetailFixture({
 		title: 'Layered Cake',
-		categories: ['Desserts', 'Breakfast', 'Snacks'],
+		categories: [{ id: 'category-desserts', name: 'Desserts' }, { id: 'category-breakfast', name: 'Breakfast' }, { id: 'category-snacks', name: 'Snacks' }],
 		description: 'Sweet and soft.',
 		imageUrl: 'https://storage.example/cover.jpg',
 		servings: 8,

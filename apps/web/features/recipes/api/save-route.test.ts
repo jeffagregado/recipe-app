@@ -32,7 +32,7 @@ async function saveRecipe(formData: FormData) {
 const KEY = '2c1d3c2e-8a9b-4f6a-9d1f-0a7f6a1b2c3d'
 const fetchMock = vi.fn<typeof fetch>()
 const metadata = {
-	title: 'Pasta', description: null, categories: ['Dinner'], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
+	title: 'Pasta', description: null, categoryIds: ['category-dinner'], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
 	ingredients: [{ name: 'Pasta', quantity: 200, unit: 'g' }],
 	instructions: [{ description: 'Boil', hasImage: true }, { description: 'Serve', hasImage: false }],
 }

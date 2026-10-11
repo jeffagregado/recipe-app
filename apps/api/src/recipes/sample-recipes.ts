@@ -1,7 +1,7 @@
-import type { RecipeSummary } from '@recipe-app/contracts/types';
+import type { SeedRecipe } from './fixtures/fixture.js';
 
 // Seed summaries preserve the original public dataset and list order.
-export const sampleRecipes: RecipeSummary[] = [
+export const sampleRecipes: SeedRecipe[] = [
   {
     id: 'creamy-garlic-pasta',
     title: 'Creamy Garlic Pasta',

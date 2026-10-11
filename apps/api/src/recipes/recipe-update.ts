@@ -58,7 +58,7 @@ export async function applyRecipeUpdate(tx: RecipeTransaction, { id, userId, met
   await tx.delete(recipeIngredients).where(eq(recipeIngredients.recipeId, id));
   await insertRecipeIngredients(tx, id, metadata.ingredients);
   await tx.delete(recipeCategories).where(eq(recipeCategories.recipeId, id));
-  await insertRecipeCategories(tx, id, metadata.categories);
+  await insertRecipeCategories(tx, id, userId, metadata.categoryIds);
   // PostgreSQL's clock at this statement, so serialized updates always move updated_at forward.
   await tx.update(recipes).set({ title: metadata.title, description: metadata.description, notes: metadata.notes, videoUrl: metadata.videoUrl,
     servings: metadata.servings, prepTimeMinutes: metadata.prepTimeMinutes, cookTimeMinutes: metadata.cookTimeMinutes,

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildRecipeFormData, buildRecipeUpdateFormData } from './build-recipe-form-data'
 
 const metadata: CreateRecipeMetadata = {
-	title: 'Pasta', description: null, categories: ['Dinner'], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
+	title: 'Pasta', description: null, categoryIds: ['category-dinner'], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
 	ingredients: [{ name: 'Pasta', quantity: 200, unit: 'g' }],
 	instructions: [{ description: 'Boil', hasImage: true }, { description: 'Drain', hasImage: false }, { description: 'Serve', hasImage: true }],
 }
@@ -35,7 +35,7 @@ it('never sends a file the metadata does not declare', () => {
 
 describe('buildRecipeUpdateFormData', () => {
 	const update: UpdateRecipeMetadata = {
-		title: 'Pasta', description: null, categories: ['Dinner'], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
+		title: 'Pasta', description: null, categoryIds: ['category-dinner'], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
 		ingredients: [{ name: 'Pasta', quantity: 200, unit: 'g' }],
 		cover: 'keep',
 		instructions: [

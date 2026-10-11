@@ -1,5 +1,5 @@
 import { createRecipeMetadataSchema } from '@recipe-app/contracts/schemas'
-import { MEASUREMENT_UNITS, RECIPE_CATEGORIES, RECIPE_LIMITS, type CreateRecipeMetadata } from '@recipe-app/contracts/types'
+import { MEASUREMENT_UNITS, RECIPE_LIMITS, type CreateRecipeMetadata } from '@recipe-app/contracts/types'
 import { z } from 'zod'
 import { toFormFieldPath } from './map-save-errors'
 import { checkRecipeImage } from './recipe-files'
@@ -67,7 +67,8 @@ const instructionRowSchema = z.object({
 export const recipeFormSchema = z.object({
 	title: z.string().trim().min(1, 'Add a title before saving.').max(RECIPE_LIMITS.title, `Use ${RECIPE_LIMITS.title} characters or fewer.`),
 	description: optionalText(RECIPE_LIMITS.description),
-	categories: z.array(z.enum(RECIPE_CATEGORIES)).max(RECIPE_LIMITS.categories, `Choose up to ${RECIPE_LIMITS.categories} categories.`),
+	/** Ids of the user's own categories, in the order they were chosen. */
+	categories: z.array(z.string()).max(RECIPE_LIMITS.categories, `Choose up to ${RECIPE_LIMITS.categories} categories.`),
 	prepTime: optionalWhole('Enter whole minutes, for example 10.', 0),
 	cookTime: optionalWhole('Enter whole minutes, for example 20.', 0),
 	servings: optionalWhole('Enter a whole number of servings, 1 or more.', 1),
@@ -119,7 +120,7 @@ export function toSharedMetadata(values: RecipeFormValues): Omit<CreateRecipeMet
 	return {
 		title: values.title.trim(),
 		description: blankToNull(values.description),
-		categories: values.categories,
+		categoryIds: values.categories,
 		servings: wholeNumberOrNull(values.servings),
 		prepTimeMinutes: wholeNumberOrNull(values.prepTime),
 		cookTimeMinutes: wholeNumberOrNull(values.cookTime),

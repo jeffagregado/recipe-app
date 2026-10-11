@@ -22,7 +22,7 @@ beforeEach(() => {
 })
 
 const item = (isFavorite: boolean) => ({
-	id, title: 'Tomato Soup', categories: ['Dinner' as const], description: null, imageUrl: null, servings: null,
+	id, title: 'Tomato Soup', categories: [{ id: 'category-dinner', name: 'Dinner' }], description: null, imageUrl: null, servings: null,
 	prepTimeMinutes: null, cookTimeMinutes: null, createdAt: '2026-10-01T10:00:00.000Z', updatedAt: '2026-10-02T10:00:00.000Z', isFavorite,
 })
 const renderCard = (isFavorite: boolean) => render(<AppToaster><RecipeCard recipe={toRecipeCard(item(isFavorite))} /></AppToaster>)

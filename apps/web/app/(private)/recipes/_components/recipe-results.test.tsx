@@ -10,9 +10,9 @@ vi.mock('./recipe-controls', () => ({ RecipeControls: () => <div>Controls</div> 
 vi.mock('./recipe-list', () => ({ RecipeList: ({ recipes }: { recipes: unknown[] }) => <p>{recipes.length} recipes listed</p> }))
 
 const filters = { sortBy: 'createdAt', order: 'desc' } as const
-const page = (total: number) => ({ data: Array.from({ length: Math.min(total, 2) }, (_, index) => ({ id: `r${index}` })), meta: { total }, counts: { total, favorites: 0 } })
-const renderResults = (extra: Partial<RecipeFilters> = {}) => render(<RecipeResults userId="user-1" endpoint="/backend/recipes" filters={{ ...filters, ...extra }} onFilter={vi.fn()} onSort={vi.fn()} />)
-const unmatched = (favorites: number) => ({ data: [], meta: { total: 0 }, counts: { total: 3, favorites } })
+const page = (total: number) => ({ data: Array.from({ length: Math.min(total, 2) }, (_, index) => ({ id: `r${index}` })), meta: { total }, counts: { total, favorites: 0, categories: [] } })
+const renderResults = (extra: Partial<RecipeFilters> = {}) => render(<RecipeResults categories={[]} userId="user-1" endpoint="/backend/recipes" filters={{ ...filters, ...extra }} onFilter={vi.fn()} onSort={vi.fn()} />)
+const unmatched = (favorites: number) => ({ data: [], meta: { total: 0 }, counts: { total: 3, favorites, categories: [] } })
 const state = (query: object) => hook.useRecipePages.mockReturnValue({ sentinel: { current: null }, query: { error: null, isPending: false, isFetching: false, isLoading: false, isFetchNextPageError: false, isFetchingNextPage: false, ...query } })
 
 beforeEach(() => { hook.useRecipePages.mockReset() })

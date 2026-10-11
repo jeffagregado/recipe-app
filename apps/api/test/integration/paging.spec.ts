@@ -3,9 +3,11 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, inArray, sql, TransactionRollbackError } from 'drizzle-orm';
 import { ResilienceTimeoutError } from '@nestjs/resilience';
-import { recipeListResponseSchema } from '@recipe-app/contracts/schemas';
-import { RECIPE_CATEGORIES, RECIPE_SORT_FIELDS } from '@recipe-app/contracts/types';
-import type { AuthUser, RecipeListQuery, RecipeSummary } from '@recipe-app/contracts/types';
+import { categoryListSchema, recipeListResponseSchema } from '@recipe-app/contracts/schemas';
+import { RECIPE_SORT_FIELDS } from '@recipe-app/contracts/types';
+import type { AuthUser, CategoryWithUsage, RecipeListQuery, RecipeSummary } from '@recipe-app/contracts/types';
+import { DEFAULT_CATEGORY_NAMES } from '../../src/categories/default-categories.js';
+import type { DefaultCategoryName } from '../../src/categories/default-categories.js';
 import { DatabaseService } from '../../src/database/database.service.js';
 import { favorites, recipes } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
@@ -17,6 +19,19 @@ describe('Owner-scoped SQL recipe pagination', () => {
   let baseUrl: string;
   let user: AuthUser;
   let cookie: string;
+  let categories: Array<CategoryWithUsage & { name: DefaultCategoryName }>;
+  let other: Awaited<ReturnType<typeof signupUser>>;
+  let otherCategories: CategoryWithUsage[];
+  async function fetchCategories(cookie: string) {
+    const response = await fetch(`${baseUrl}/categories`, { headers: { Cookie: cookie } });
+    expect(response.status).toBe(200);
+    return categoryListSchema.parse(await response.json());
+  }
+  function categoryId(name: DefaultCategoryName) {
+    const category = categories.find((category) => category.name === name);
+    if (!category) throw new Error(`Missing default category: ${name}`);
+    return category.id;
+  }
   const address = testAddress();
   const username = testUsername();
   const otherUsername = testUsername();
@@ -25,8 +40,12 @@ describe('Owner-scoped SQL recipe pagination', () => {
     const started = await startApi();
     app = started.app;
     baseUrl = started.baseUrl;
-    // The sample seed is out of use for now (2026-10-10); the five categories this suite needs stay in recipe-app-dev.
     ({ user, cookie } = await signupUser(apiClient(baseUrl, address), username));
+    const fetched = await fetchCategories(cookie);
+    expect(fetched.map(({ name }) => name)).toEqual(DEFAULT_CATEGORY_NAMES);
+    categories = fetched.map((category, index) => ({ ...category, name: DEFAULT_CATEGORY_NAMES[index] }));
+    other = await signupUser(apiClient(baseUrl, address), otherUsername);
+    otherCategories = await fetchCategories(other.cookie);
     await insertOwnedRecipes(started.db, user, tag);
   }, 60_000);
   afterAll(async () => {
@@ -59,7 +78,12 @@ describe('Owner-scoped SQL recipe pagination', () => {
       expect(page.data).toHaveLength(20);
       expect(page.meta).toEqual({ page: index + 1, limit: 20, total: 100, totalPages: 5 });
       expect(page.counts.total).toBe(100);
-      for (const category of RECIPE_CATEGORIES) expect(page.counts.categories[category]).toBe(seedRecipes.filter((recipe) => recipe.categories.includes(category)).length);
+      expect(page.counts.categories.map(({ name }) => name)).toEqual(DEFAULT_CATEGORY_NAMES);
+      for (const category of categories) expect(page.counts.categories.find(({ id }) => id === category.id)?.total).toBe(seedRecipes.filter((recipe) => recipe.categories.includes(category.name)).length);
+      for (const recipe of page.data) {
+        const fixture = seedRecipes.find((sample) => ownedId(tag, sample.id) === recipe.id);
+        expect(recipe.categories.map(({ name }) => name)).toEqual(fixture?.categories);
+      }
     }
     const ids = pages.flatMap((page) => page.data.map(({ id }) => id));
     expect(new Set(ids).size).toBe(100);
@@ -69,33 +93,33 @@ describe('Owner-scoped SQL recipe pagination', () => {
   }, 30_000);
 
   it('filters before counting and paginating without duplicating multi-category recipes', async () => {
-    for (const category of RECIPE_CATEGORIES) {
-      const expected = seedRecipes.filter((recipe) => recipe.categories.includes(category));
-      const first = await list({ category });
+    for (const category of categories) {
+      const expected = seedRecipes.filter((recipe) => recipe.categories.includes(category.name));
+      const first = await list({ category: category.id });
       const records: RecipeSummary[] = [...first.data];
-      for (let page = 2; page <= first.meta.totalPages; page++) records.push(...(await list({ category, page })).data);
+      for (let page = 2; page <= first.meta.totalPages; page++) records.push(...(await list({ category: category.id, page })).data);
       expect(first.meta.total).toBe(expected.length);
       expect(first.counts.total).toBe(100);
-      expect(first.counts.categories[category]).toBe(expected.length);
-      expect(records.every((recipe) => recipe.categories.includes(category))).toBe(true);
+      expect(first.counts.categories.find(({ id }) => id === category.id)?.total).toBe(expected.length);
+      expect(records.every((recipe) => recipe.categories.some(({ id, name }) => id === category.id && name === category.name))).toBe(true);
       expect(records.map(({ id }) => id)).toEqual(ordered('createdAt', 'desc', expected));
       expect(new Set(records.map(({ id }) => id)).size).toBe(expected.length);
-      expect((await list({ category, page: first.meta.totalPages + 1 })).data).toEqual([]);
+      expect((await list({ category: category.id, page: first.meta.totalPages + 1 })).data).toEqual([]);
     }
   }, 60_000);
 
   it('searches title and description case-insensitively before filtering, sorting and paging', async () => {
-    for (const category of [undefined, 'Breakfast'] as const) {
-      const expected = seedRecipes.filter((recipe) => (!category || recipe.categories.includes(category)) &&
+    for (const category of [undefined, categories.find(({ name }) => name === 'Breakfast')]) {
+      const expected = seedRecipes.filter((recipe) => (!category || recipe.categories.includes(category.name)) &&
         `${recipe.title} ${recipe.description ?? ''}`.toLowerCase().includes('oat'));
       expect(expected.length).toBeGreaterThan(1);
-      const first = await list({ search: '  OaT  ', ...(category ? { category } : {}), sortBy: 'title', order: 'asc', limit: 2 });
+      const first = await list({ search: '  OaT  ', ...(category ? { category: category.id } : {}), sortBy: 'title', order: 'asc', limit: 2 });
       const pages = [first];
-      for (let page = 2; page <= first.meta.totalPages; page++) pages.push(await list({ search: 'oat', ...(category ? { category } : {}), sortBy: 'title', order: 'asc', limit: 2, page }));
+      for (let page = 2; page <= first.meta.totalPages; page++) pages.push(await list({ search: 'oat', ...(category ? { category: category.id } : {}), sortBy: 'title', order: 'asc', limit: 2, page }));
       expect(first.meta.total).toBe(expected.length);
       expect(first.counts.total).toBe(100);
       expect(pages.flatMap(({ data }) => data.map(({ id }) => id))).toEqual(ordered('title', 'asc', expected));
-      expect((await list({ search: 'oat', ...(category ? { category } : {}), limit: 2, page: first.meta.totalPages + 1 })).data).toEqual([]);
+      expect((await list({ search: 'oat', ...(category ? { category: category.id } : {}), limit: 2, page: first.meta.totalPages + 1 })).data).toEqual([]);
     }
     const description = await list({ search: 'softened apple' });
     expect(description.data.map(({ id }) => id)).toEqual([ownedId(tag, 'apple-cinnamon-porridge')]);
@@ -113,7 +137,6 @@ describe('Owner-scoped SQL recipe pagination', () => {
     try {
       await db.insert(favorites).values(picked.map((recipe) => ({ userId: user.id, recipeId: ownedId(tag, recipe.id) })));
       // Recipes are owner-only, so another user's row can only exist out of band; it must never widen this list.
-      const other = await signupUser(apiClient(baseUrl, address), otherUsername);
       await db.insert(favorites).values({ userId: other.user.id, recipeId: ownedId(tag, seedRecipes[1].id) });
       const first = await list({ favorites: true, limit: 10 });
       const pages = [first];
@@ -126,12 +149,12 @@ describe('Owner-scoped SQL recipe pagination', () => {
       const narrowed = picked.filter((recipe) => recipe.categories.includes('Breakfast') && `${recipe.title} ${recipe.description ?? ''}`.toLowerCase().includes('oat'));
       expect(narrowed.length).toBeGreaterThan(0);
       expect(narrowed.length).toBeLessThan(picked.length);
-      const combined = await list({ favorites: true, category: 'Breakfast', search: 'oat', sortBy: 'title', order: 'asc' });
+      const combined = await list({ favorites: true, category: categoryId('Breakfast'), search: 'oat', sortBy: 'title', order: 'asc' });
       expect(combined.data.map(({ id }) => id)).toEqual(ordered('title', 'asc', narrowed));
       expect(combined.meta.total).toBe(narrowed.length);
       // Like the other counts, the favorites total ignores the active filters.
       expect(combined.counts.favorites).toBe(picked.length);
-      expect((await list({ category: 'Breakfast' })).counts.favorites).toBe(picked.length);
+      expect((await list({ category: categoryId('Breakfast') })).counts.favorites).toBe(picked.length);
     } finally { await db.delete(favorites).where(eq(favorites.userId, user.id)); }
   }, 60_000);
 
@@ -166,13 +189,13 @@ describe('Owner-scoped SQL recipe pagination', () => {
   }, 60_000);
 
   it('rejects malformed supported parameters with actionable HTTP 400 errors', async () => {
-    for (const query of ['page=0', 'page=-1', 'page=1.5', 'page=no', 'page=', 'page=1&page=2', 'limit=0', 'limit=21', 'limit=', 'category=no', 'category=', 'category=Dinner&category=Lunch', 'favorites=false', 'favorites=true&favorites=true', 'sortBy=no', 'sortBy=', 'order=no', 'order=', 'order=ASC']) {
+    for (const query of ['page=0', 'page=-1', 'page=1.5', 'page=no', 'page=', 'page=1&page=2', 'limit=0', 'limit=21', 'limit=', `category=${randomUUID()}`, 'category=', 'category=a&category=b', `category=${otherCategories[0].id}`, 'favorites=false', 'favorites=true&favorites=true', 'sortBy=no', 'sortBy=', 'order=no', 'order=', 'order=ASC']) {
       const response = await fetch(`${baseUrl}/recipes?${query}`, { headers: { Cookie: cookie } });
       expect(response.status, query).toBe(400);
       const payload: unknown = await response.json();
       expect(payload).toMatchObject({
         message: expect.stringContaining('Invalid recipe query'),
-        errors: expect.arrayContaining([expect.objectContaining({ parameter: expect.stringMatching(/\S+/), message: expect.any(String) })]),
+        errors: expect.arrayContaining([expect.objectContaining({ parameter: query.startsWith('category=') ? 'category' : expect.stringMatching(/\S+/), message: expect.any(String) })]),
       });
     }
   }, 30_000);

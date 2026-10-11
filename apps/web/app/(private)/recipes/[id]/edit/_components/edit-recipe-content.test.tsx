@@ -8,6 +8,7 @@ import { recipeDetailFixture } from '@/features/recipes/queries/recipe-detail.fi
 
 const read = vi.hoisted(() => ({ getRecipe: vi.fn<(id: string) => Promise<RecipeDetail | null>>() }))
 vi.mock('@/features/recipes/queries/get-recipe', () => ({ getRecipe: read.getRecipe }))
+vi.mock('@/features/categories/queries/get-categories', () => ({ getCategories: async () => [] }))
 vi.mock('@/features/recipes/actions/open-saved-recipe', () => ({ openSavedRecipe: vi.fn() }))
 const fetchMock = vi.fn<typeof fetch>()
 const router = vi.hoisted(() => ({ push: vi.fn() }))

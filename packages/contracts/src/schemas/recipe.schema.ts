@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import {
-  RECIPE_CATEGORIES,
   RECIPE_SORT_FIELDS,
   RECIPE_IMAGE_SLOTS,
   RECIPE_LIMITS,
@@ -15,7 +14,6 @@ import {
   type CreateRecipeInput,
   type CreateRecipeInstructionInput,
   type Recipe,
-  type RecipeCategory,
   type RecipeInstruction,
   type RecipeQueryParams,
   type RecipeSortField,
@@ -32,18 +30,19 @@ import {
   paginationMetaSchema,
 } from "./common.schema.js";
 
+import { categoryIdSchema, categorySchema } from "./category.schema.js";
+
 import {
   createRecipeIngredientSchema,
   recipeIngredientSchema,
   measurementUnitSchema,
 } from "./ingredient.schema.js";
 
-export const recipeCategorySchema: z.ZodType<RecipeCategory> = z.enum(
-  RECIPE_CATEGORIES,
-);
+const recipeCategoriesSchema = z.array(categorySchema).max(RECIPE_LIMITS.categories)
+  .refine((categories) => new Set(categories.map(({ id }) => id)).size === categories.length, "Categories must be unique");
 
-const recipeCategoriesSchema = z.array(recipeCategorySchema).max(3)
-  .refine((categories) => new Set(categories).size === categories.length, "Categories must be unique");
+const recipeCategoryIdsSchema = z.array(categoryIdSchema).max(RECIPE_LIMITS.categories)
+  .refine((ids) => new Set(ids).size === ids.length, "Categories must be unique");
 
 export const recipeInstructionSchema: z.ZodType<RecipeInstruction> = z.object({
   id: entityIdSchema,
@@ -104,7 +103,7 @@ export const recipeSummarySchema: z.ZodType<RecipeSummary> = z.object({
 export const createRecipeSchema: z.ZodType<CreateRecipeInput> = z.object({
   title: z.string().trim().min(1).max(200),
 
-  categories: recipeCategoriesSchema.optional(),
+  categoryIds: recipeCategoryIdsSchema.optional(),
 
   description: z.string().trim().max(2_000).nullable().optional(),
 
@@ -124,7 +123,7 @@ export const createRecipeSchema: z.ZodType<CreateRecipeInput> = z.object({
 export const updateRecipeSchema: z.ZodType<UpdateRecipeInput> = z.object({
   title: z.string().trim().min(1).max(200).optional(),
 
-  categories: recipeCategoriesSchema.optional(),
+  categoryIds: recipeCategoryIdsSchema.optional(),
 
   description: z.string().trim().max(2_000).nullable().optional(),
 
@@ -157,7 +156,7 @@ export const recipeSearchSchema = z.string().trim().max(200).transform((value) =
 
 export const recipeListQuerySchema: z.ZodType<RecipeListQuery> = z.object({
   search: recipeSearchSchema,
-  category: recipeCategorySchema.optional(),
+  category: categoryIdSchema.optional(),
   // Only the literal flag turns the filter on; leave it out to list every recipe.
   favorites: z.literal("true").transform(() => true as const).optional(),
   page: queryInteger(z.number().int().positive().max(Math.floor(Number.MAX_SAFE_INTEGER / 20))).default(1),
@@ -172,7 +171,7 @@ export const recipeListResponseSchema: z.ZodType<RecipeListResponse> = z.object(
   counts: z.object({
     total: z.number().int().nonnegative(),
     favorites: z.number().int().nonnegative(),
-    categories: z.record(z.enum(RECIPE_CATEGORIES), z.number().int().nonnegative()),
+    categories: z.array(z.object({ id: categoryIdSchema, name: z.string().min(1), total: z.number().int().nonnegative() })),
   }),
 });
 
@@ -215,8 +214,7 @@ const videoUrlSchema = nullableText(RECIPE_LIMITS.videoUrl).refine((value) => {
 const metadataFields = {
   title: metadataText().min(1).max(RECIPE_LIMITS.title),
   description: nullableText(RECIPE_LIMITS.description),
-  categories: z.array(recipeCategorySchema).max(RECIPE_LIMITS.categories)
-    .refine((values) => new Set(values).size === values.length, "Categories must be unique"),
+  categoryIds: recipeCategoryIdsSchema,
   servings: z.number().int().positive().max(RECIPE_LIMITS.maxInteger).nullable(),
   prepTimeMinutes: z.number().int().nonnegative().max(RECIPE_LIMITS.maxInteger).nullable(),
   cookTimeMinutes: z.number().int().nonnegative().max(RECIPE_LIMITS.maxInteger).nullable(),

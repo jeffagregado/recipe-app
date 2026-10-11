@@ -15,7 +15,7 @@ vi.mock('../actions/favorite', () => action)
 const sorting = { sortBy: 'createdAt', order: 'desc' } as const
 const favoritesOnly = { ...sorting, favorites: true } as const
 const listPage = (favorites: number, page = 1, totalPages = 1) => ({
-	data: [], meta: { page, limit: 20, total: 0, totalPages }, counts: { total: 5, favorites, categories: {} },
+	data: [], meta: { page, limit: 20, total: 0, totalPages }, counts: { total: 5, favorites, categories: [] },
 })
 
 function Pages({ filters }: { filters: RecipeFilters }) {

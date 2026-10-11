@@ -3,7 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { eq, like } from 'drizzle-orm';
-import { authErrorResponseSchema, authSessionResponseSchema, recipeListResponseSchema } from '@recipe-app/contracts/schemas';
+import { authErrorResponseSchema, categoryListSchema, authSessionResponseSchema, recipeListResponseSchema } from '@recipe-app/contracts/schemas';
+import { DEFAULT_CATEGORY_NAMES } from '../../src/categories/default-categories.js';
 import { createAuth } from '../../src/auth/auth.js';
 import { AuthRateLimiter, rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import { validateEnvironment } from '../../src/config/environment.js';
@@ -282,29 +283,44 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
       expect(response.headers.get('cache-control')).toBe('private, no-store');
       return recipeListResponseSchema.parse(await response.json());
     };
+    const categoriesFor = async (token: string) => {
+      const response = await client.get('/categories', { cookie: token });
+      expect(response.status).toBe(200);
+      const categories = categoryListSchema.parse(await response.json());
+      expect(categories.map(({ name }) => name)).toEqual(DEFAULT_CATEGORY_NAMES);
+      return categories.map((category, index) => ({ ...category, name: DEFAULT_CATEGORY_NAMES[index] }));
+    };
+    const categoriesA = await categoriesFor(cookie);
     // A new account starts empty: seed fixtures stay with the demo owner.
     const empty = await list(cookie);
     expect(empty.data).toEqual([]);
     expect(empty.meta).toMatchObject({ total: 0, totalPages: 0 });
-    expect(empty.counts).toEqual({ total: 0, favorites: 0, categories: { Breakfast: 0, Lunch: 0, Dinner: 0, Snacks: 0, Desserts: 0 } });
+    expect(empty.counts).toEqual({ total: 0, favorites: 0, categories: categoriesA.map(({ id, name }) => ({ id, name, total: 0 })) });
 
     const first = await db.query.users.findFirst({ where: eq(users.username, username), columns: { id: true } });
     const other = await signupUser(apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]), track());
+    const categoriesB = await categoriesFor(other.cookie);
     if (!first) throw new Error('Temporary auth verification user missing.');
     const tagA = `verify-a-${randomUUID()}`, tagB = `verify-b-${randomUUID()}`;
     const mine = seedRecipes.slice(0, 7), theirs = seedRecipes.slice(5, 30);
     await insertOwnedRecipes(db, first, tagA, mine);
     await insertOwnedRecipes(db, other.user, tagB, theirs);
-    const countsFor = (samples: typeof seedRecipes) => Object.fromEntries((['Breakfast', 'Lunch', 'Dinner', 'Snacks', 'Desserts'] as const)
-      .map((name) => [name, samples.filter((recipe) => recipe.categories.includes(name)).length]));
+    const countsFor = (samples: typeof seedRecipes, categories: typeof categoriesA) => categories
+      .map(({ id, name }) => ({ id, name, total: samples.filter((recipe) => recipe.categories.includes(name)).length }));
 
     const a = await list(cookie);
     expect(a.meta.total).toBe(mine.length);
-    expect(a.counts).toEqual({ total: mine.length, favorites: 0, categories: countsFor(mine) });
+    expect(a.counts).toEqual({ total: mine.length, favorites: 0, categories: countsFor(mine, categoriesA) });
     expect(a.data.map(({ id }) => id).sort()).toEqual(mine.map(({ id }) => ownedId(tagA, id)).sort());
     const b = await list(other.cookie, '?limit=20');
     expect(b.meta.total).toBe(theirs.length);
-    expect(b.counts).toEqual({ total: theirs.length, favorites: 0, categories: countsFor(theirs) });
+    expect(b.counts).toEqual({ total: theirs.length, favorites: 0, categories: countsFor(theirs, categoriesB) });
+    for (const [result, samples, tag] of [[a, mine, tagA], [b, theirs, tagB]] as const) {
+      for (const recipe of result.data) {
+        const fixture = samples.find((sample) => ownedId(tag, sample.id) === recipe.id);
+        expect(recipe.categories.map(({ name }) => name)).toEqual(fixture?.categories);
+      }
+    }
     expect(b.data.every(({ id }) => id.startsWith(tagB))).toBe(true);
     // The same search and category return only each owner's matches, including shared seed titles.
     const shared = seedRecipes[5];
@@ -313,10 +329,17 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect((await list(other.cookie, `?search=${word}`)).data.map(({ id }) => id)).toEqual([ownedId(tagB, shared.id)]);
     const onlyTheirs = encodeURIComponent(seedRecipes[29].title);
     expect((await list(cookie, `?search=${onlyTheirs}`)).meta.total).toBe(0);
-    for (const name of ['Breakfast', 'Dinner'] as const) {
-      const filtered = await list(cookie, `?category=${name}`);
-      expect(filtered.meta.total).toBe(countsFor(mine)[name]);
+    expect(a.counts.categories.map(({ name }) => name)).toEqual(DEFAULT_CATEGORY_NAMES);
+    expect(b.counts.categories.map(({ name }) => name)).toEqual(DEFAULT_CATEGORY_NAMES);
+    for (const category of categoriesA) {
+      const filtered = await list(cookie, `?category=${category.id}`);
+      expect(filtered.meta.total).toBe(countsFor(mine, categoriesA).find(({ id }) => id === category.id)?.total);
       expect(filtered.counts.total).toBe(mine.length);
+    }
+    for (const query of ['category=', 'category=a&category=b', `category=${randomUUID()}`, `category=${categoriesB[0].id}`]) {
+      const response = await client.get(`/recipes?${query}`, { cookie });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ errors: expect.arrayContaining([expect.objectContaining({ parameter: 'category' })]) });
     }
     // Request-supplied owner identifiers are rejected rather than honored.
     expect((await client.get(`/recipes?userId=${other.user.id}`, { cookie })).status).toBe(400);

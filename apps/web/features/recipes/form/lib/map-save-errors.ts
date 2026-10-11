@@ -8,7 +8,7 @@ const INSTRUCTION_FIELDS: Record<string, string> = { description: 'description',
 export function toFormFieldPath(key: string): string | null {
 	const [head, second, third] = key.split('.')
 	if (SIMPLE_FIELDS.has(head) && second === undefined) return head
-	if (head === 'categories') return 'categories'
+	if (head === 'categories' || head === 'categoryIds') return 'categories'
 	if (head in RENAMED_FIELDS && second === undefined) return RENAMED_FIELDS[head]
 	const index = Number(second)
 	if (head === 'ingredients' && Number.isInteger(index) && third in INGREDIENT_FIELDS) return `ingredients.${index}.${INGREDIENT_FIELDS[third]}`

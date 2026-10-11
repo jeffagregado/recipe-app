@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { recipeSummarySchema } from '@recipe-app/contracts/schemas';
-import { RECIPE_CATEGORIES } from '@recipe-app/contracts/types';
-import type { RecipeSummary } from '@recipe-app/contracts/types';
 import type { DrizzleDb } from './database.service.js';
 import { categories, ingredients, recipeCategories, recipeIngredients, recipeInstructions, recipes, users } from './schema.js';
+import { insertDefaultCategories } from '../categories/default-categories.js';
+import type { SeedRecipe } from '../recipes/fixtures/fixture.js';
 import { seedRecipes, seedDetails } from '../recipes/seed-recipes.js';
 
 export const DEMO_AUTHOR_ID = 'seed-demo-author';
@@ -24,7 +24,7 @@ function requireId<K>(ids: Map<K, string>, name: K): string {
   return id;
 }
 
-async function checkOwner(tx: Transaction, samples: RecipeSummary[]): Promise<void> {
+async function checkOwner(tx: Transaction, samples: SeedRecipe[]): Promise<void> {
   await tx.insert(users).values({ id: DEMO_AUTHOR_ID, name: 'Alex Sample', email: 'alex.sample@example.invalid', createdAt: seedDate, updatedAt: seedDate }).onConflictDoNothing();
   const author = await tx.query.users.findFirst({ where: eq(users.id, DEMO_AUTHOR_ID), with: { accounts: { columns: { id: true } } } });
   if (!author || author.email !== 'alex.sample@example.invalid' || author.accounts.length > 0) {
@@ -34,19 +34,20 @@ async function checkOwner(tx: Transaction, samples: RecipeSummary[]): Promise<vo
   if (existing.length > 0) throw new Error('Recipe seed ID collision with a non-seed owner. No records changed.');
 }
 
-async function seedCatalog(tx: Transaction, samples: RecipeSummary[]) {
-  await tx.insert(categories).values(RECIPE_CATEGORIES.map((name) => ({ id: `seed-category-${name.toLowerCase()}`, name }))).onConflictDoNothing();
-  const categoryRows = await tx.select().from(categories);
+async function seedCatalog(tx: Transaction, samples: SeedRecipe[]) {
+  // The demo author has no login, so its defaults are created here rather than by sign-up; a repeated seed reuses them.
+  const existing = await tx.select({ id: categories.id, name: categories.name }).from(categories).where(eq(categories.userId, DEMO_AUTHOR_ID)).orderBy(asc(categories.sortOrder));
+  const categoryRows = existing.length ? existing : await insertDefaultCategories(tx, DEMO_AUTHOR_ID);
   const names = [...new Set(samples.flatMap(({ id }) => detailsFor(id).ingredients.map(([name]) => name)))];
   await tx.insert(ingredients).values(names.map((name) => ({ id: ingredientId(name), name }))).onConflictDoNothing();
   const ingredientRows = await tx.select().from(ingredients).where(inArray(sql`lower(btrim(${ingredients.name}))`, names));
   return {
-    categoryIds: new Map(categoryRows.map(({ id, name }) => [name, id])),
+    categoryIds: new Map<string, string>(categoryRows.map(({ id, name }) => [name, id])),
     ingredientIds: new Map(ingredientRows.map(({ id, name }) => [name.trim().toLowerCase(), id])),
   };
 }
 
-async function seedRecipeRows(tx: Transaction, samples: RecipeSummary[]): Promise<void> {
+async function seedRecipeRows(tx: Transaction, samples: SeedRecipe[]): Promise<void> {
   const rows = samples.map((sample, sortOrder) => ({
     id: sample.id, userId: DEMO_AUTHOR_ID, title: sample.title, description: sample.description,
     servings: sample.servings, prepTimeMinutes: sample.prepTimeMinutes, cookTimeMinutes: sample.cookTimeMinutes,
@@ -60,7 +61,7 @@ async function seedRecipeRows(tx: Transaction, samples: RecipeSummary[]): Promis
   if (saved.length !== rows.length) throw new Error('Recipe seed owner changed during seed. No records changed.');
 }
 
-async function seedContent(tx: Transaction, samples: RecipeSummary[], catalog: Awaited<ReturnType<typeof seedCatalog>>): Promise<void> {
+async function seedContent(tx: Transaction, samples: SeedRecipe[], catalog: Awaited<ReturnType<typeof seedCatalog>>): Promise<void> {
   const items = samples.flatMap(({ id }) => detailsFor(id).ingredients.map(([name, quantity, unit, preparation], sortOrder) => ({
     id: `${id}-ingredient-${sortOrder}`, recipeId: id, ingredientId: requireId(catalog.ingredientIds, name),
     name, quantity: quantity.toFixed(3), unit, preparation: preparation ?? null, note: null, sortOrder,
@@ -79,7 +80,9 @@ async function seedContent(tx: Transaction, samples: RecipeSummary[], catalog: A
 
 /** Explicit, transactional seed; collisions with non-seed recipe owners fail rather than overwrite. */
 export async function seedDatabase(db: DrizzleDb): Promise<void> {
-  const samples = recipeSummarySchema.array().parse(seedRecipes);
+  // Fixtures name categories; everything else must already be a valid recipe summary.
+  recipeSummarySchema.array().parse(seedRecipes.map((recipe) => ({ ...recipe, categories: [] })));
+  const samples = seedRecipes;
   if (samples.length !== 100 || new Set(samples.map(({ id }) => id)).size !== samples.length) {
     throw new Error('Recipe seed requires exactly 100 unique fixture IDs. No records changed.');
   }
