@@ -8,7 +8,7 @@ export default defineConfig({
   testMatch: '**/*.spec.ts',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
-  workers: process.env.CI ? 2 : undefined,
+  workers: process.env.CI ? 4 : undefined,
   // Browser action steps can contain form values; keep only the value-free list output. The html reporter writes
   // every typed value, passwords included, into its step titles.
   reporter: [['list']],
