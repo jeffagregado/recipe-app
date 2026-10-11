@@ -82,10 +82,115 @@ jobs:
       - name: Apply migrations
         run: pnpm --filter @recipe/api run db:migrate
 
+  # A merge to master usually pushes a tree its pull request already ran the whole suite on. This job looks for
+  # that proof and, only when it finds all of it, tells integration and e2e to skip. Every other outcome, a failed
+  # lookup included, leaves the suite to run. check and migrate-dev do not depend on it.
+  gate:
+    name: Decide whether the suite runs
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    outputs:
+      suite: ${{ steps.decide.outputs.suite }}
+    steps:
+      - name: Look for a run that covers this tree
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          suite=run
+          doing="starting"
+          reason=""
+          covering=""
+
+          # Runs on every exit. A command that failed leaves suite=run, and the job still passes: a broken
+          # lookup costs the time of a full run, never a red master.
+          report() {
+            if [ -z "$reason" ]; then
+              reason="the lookup failed while $doing"
+              echo "::warning title=Suite gate::$reason; running the full suite"
+            fi
+            echo "suite=$suite" >> "$GITHUB_OUTPUT"
+            {
+              if [ "$suite" = skip ]; then
+                echo "### Integration and end-to-end skipped"
+              else
+                echo "### Integration and end-to-end run"
+              fi
+              echo "- Commit: \`$SHA\`"
+              echo "- Reason: $reason"
+              if [ -n "$covering" ]; then
+                echo "- Covering run: [$covering]($GITHUB_SERVER_URL/$REPO/actions/runs/$covering)"
+              fi
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          trap report EXIT
+          run_suite() { reason=$1; exit 0; }
+          api() { gh api -H "X-GitHub-Api-Version: 2022-11-28" "$@"; }
+
+          doing="reading commit $SHA"
+          commit=$(api "repos/$REPO/commits/$SHA")
+          tree=$(jq -er '.commit.tree.sha' <<<"$commit")
+          parent=$(jq -er '.parents[0].sha' <<<"$commit")
+
+          doing="listing the pull requests of commit $SHA"
+          pulls=$(api "repos/$REPO/commits/$SHA/pulls")
+          count=$(jq -e 'arrays | length' <<<"$pulls")
+          [ "$count" = 1 ] || run_suite "the commit belongs to $count pull requests, and the gate needs exactly one"
+          pull=$(jq -er '.[0].number' <<<"$pulls")
+          head=$(jq -er '.[0].head.sha' <<<"$pulls")
+
+          # Trees, not commits: a squash merge and a merge commit both push a new commit, and either one carries
+          # the pull request's tree when the branch was up to date.
+          doing="reading the head $head of pull request #$pull"
+          head_tree=$(api "repos/$REPO/commits/$head" | jq -er '.commit.tree.sha')
+          [ "$tree" = "$head_tree" ] || run_suite "the pushed tree differs from the head of pull request #$pull, so this combination was never tested"
+
+          # A pull request run tests the head merged into master as it was then. That is the head's own tree only
+          # when the head already held master, which is certain when it holds the master this push landed on.
+          doing="comparing master before the push with the head of pull request #$pull"
+          base=$(api "repos/$REPO/compare/$parent...$head" | jq -er '.merge_base_commit.sha')
+          [ "$base" = "$parent" ] || run_suite "the head of pull request #$pull did not contain master, so its runs tested another tree"
+
+          doing="listing the runs of $head"
+          runs=$(api -X GET "repos/$REPO/actions/workflows/ci.yml/runs" -f event=pull_request -f head_sha="$head" -f status=success -f per_page=100 |
+            jq -er --arg head "$head" '[.workflow_runs[] | select(.event == "pull_request" and .head_sha == $head and .status == "completed" and .conclusion == "success") | .id] | join(" ")')
+
+          # A draft's run succeeds with integration and e2e skipped, so the run's conclusion is not enough: each
+          # job is checked by the name it has in this file. A renamed job stops matching and the suite runs.
+          for run in $runs; do
+            doing="listing the jobs of run $run"
+            jobs=$(api -X GET "repos/$REPO/actions/runs/$run/jobs" -f filter=latest -f per_page=100)
+            if jq -e '
+              def green(f): [.jobs[] | select(.name | f)] | length > 0 and all(.conclusion == "success");
+              .total_count == (.jobs | length)
+              and green(. == "Lint, typecheck, unit tests, build")
+              and green(startswith("API integration tests"))
+              and green(. == "End-to-end tests")
+            ' <<<"$jobs" > /dev/null; then
+              suite=skip
+              covering=$run
+              reason="the pushed tree equals the head of pull request #$pull, and check, every integration shard and end-to-end succeeded on it in run $run"
+              exit 0
+            fi
+          done
+          run_suite "no pull request run of $head finished with check, every integration shard and end-to-end successful"
+
   integration:
     name: API integration tests (${{ matrix.shard }})
-    needs: check
-    if: github.event.pull_request.draft != true
+    needs: [check, gate]
+    # The gate is skipped on pull request and manual runs, and a skipped dependency skips this job unless the
+    # condition has a status function. Only the gate's explicit "skip" holds the job back: an empty output,
+    # from a skipped or failed gate, runs it.
+    if: ${{ !cancelled() && needs.check.result == 'success' && needs.gate.outputs.suite != 'skip' && github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     # Suites within a shard run serially against a database in another region; unsplit, they took 19 minutes.
     timeout-minutes: 25
@@ -97,10 +202,9 @@ jobs:
         # The two named shards hold the slowest suites. "rest" excludes exactly those files, so a new
         # spec file always runs there without editing this list. When moving a file into a named shard,
         # also add it to `named` in the run step below, or it will run twice.
-        # storage.spec is one test that idles for a minute; it rides in "update" to keep it out of "rest".
         include:
           - shard: update
-            files: update-recipe.spec storage.spec
+            files: update-recipe.spec
           - shard: create-delete
             files: create-recipe.spec recipe-favorite-delete.spec
           - shard: rest
@@ -126,7 +230,7 @@ jobs:
       - name: Run integration tests
         working-directory: apps/api
         run: |
-          named="update-recipe.spec storage.spec create-recipe.spec recipe-favorite-delete.spec"
+          named="update-recipe.spec create-recipe.spec recipe-favorite-delete.spec"
           args=()
           if [ -n "$SHARD_FILES" ]; then
             for file in $SHARD_FILES; do args+=("$file"); done
@@ -154,8 +258,11 @@ jobs:
 
   e2e:
     name: End-to-end tests
-    needs: check
-    if: github.event.pull_request.draft != true
+    needs: [check, gate]
+    # The gate is skipped on pull request and manual runs, and a skipped dependency skips this job unless the
+    # condition has a status function. Only the gate's explicit "skip" holds the job back: an empty output,
+    # from a skipped or failed gate, runs it.
+    if: ${{ !cancelled() && needs.check.result == 'success' && needs.gate.outputs.suite != 'skip' && github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: dev
