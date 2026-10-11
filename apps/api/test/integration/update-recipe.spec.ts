@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { updateRecipeMetadataSchema } from '@recipe-app/contracts/schemas';
 import type { CreateRecipeMetadata, RecipeDetail, UpdateRecipeMetadata } from '@recipe-app/contracts/types';
 import { recipes, recipeWriteAttempts } from '../../src/database/schema.js';
@@ -352,8 +352,10 @@ describe('Update recipe HTTP', () => {
     const service = s.app.get(RecipeUpdateService);
     const requests = [serviceRequest(first, [{ field: 'cover', bytes: jpeg(91) }, { field: 'step-0', bytes: jpeg(93) }]),
       serviceRequest(second, [{ field: 'cover', bytes: jpeg(92) }, { field: 'step-1', bytes: jpeg(94) }])];
-    const results = await Promise.all(requests.map((request) => service.update(id, request)));
-    await Promise.all(requests.map((request) => request.writeSettled));
+    const record = s.recordCleanup(); const began = Date.now(); let results: unknown;
+    try { results = await Promise.all(requests.map((request) => service.update(id, request))); await Promise.all(requests.map((request) => request.writeSettled)); }
+    finally { record.stop(); }
+    const took = Date.now() - began;
     expect(results).toEqual([{ id, replay: false }, { id, replay: false }]);
     const final = await s.detail(id);
     const images = await Promise.all([final.imageUrl, final.instructions[0].imageUrl, final.instructions[1].imageUrl].map((url) => s.bytesAt(url)));
@@ -366,19 +368,15 @@ describe('Update recipe HTTP', () => {
     expect((await s.bytesAt(final.instructions[2].imageUrl))?.equals(jpeg(13))).toBe(true);
     const remaining = await s.imageRows(id);
     expect(remaining).toHaveLength(3);
-    // Each writer deletes what it replaced after its commit, once per object and inside RECIPE_CLEANUP_BUDGET_MS. What fails or
-    // is still running then stays recorded on its attempt for reconciliation, so the storage checks come after reconciliation.
-    const settled = await s.db.select({ id: recipeWriteAttempts.id, operation: recipeWriteAttempts.operation, state: recipeWriteAttempts.state,
+    // Each writer deletes what it replaced after its commit and inside RECIPE_CLEANUP_BUDGET_MS, so both attempts are completed
+    // and storage is clean once the writes settle. When a writer leaves cleanup to reconciliation, this line says what its
+    // cleanup did, and a cleanup that used up its budget shows in how long the writes took.
+    const settled = await s.db.select({ operation: recipeWriteAttempts.operation, state: recipeWriteAttempts.state,
       stale: recipeWriteAttempts.staleObjectKeys, leased: sql<boolean>`${recipeWriteAttempts.updatedAt} > clock_timestamp()` })
       .from(recipeWriteAttempts).where(eq(recipeWriteAttempts.recipeId, id));
     const states = `attempts when the writes settled: ${settled.map(({ operation, state, stale, leased }) => `${operation} ${state}, ${stale.length} stale${leased ? ', leased' : ''}`).join('; ')}`;
-    // CI has shown a writer leaving cleanup behind without the reason being known. This line and the messages below record it.
-    if (settled.some(({ state }) => state !== 'completed')) console.log(`Concurrent updates left cleanup to reconciliation; ${states}.`);
-    // 20 s: a deletion in flight ends at the storage client's 10 s abort; one reconciliation round took 5.4 s at 415 ms a statement.
-    await vi.waitFor(async () => {
-      await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds: settled.map((attempt) => attempt.id) });
-      expect(await s.db.$count(recipeWriteAttempts, and(eq(recipeWriteAttempts.recipeId, id), ne(recipeWriteAttempts.state, 'completed')))).toBe(0);
-    }, { timeout: 20_000, interval: 500 });
+    if (settled.some(({ state }) => state !== 'completed')) console.log(`Concurrent updates left cleanup to reconciliation; ${states}.\nThe writes took ${took} ms. Cleanup until then: ${record.events.join('; ') || 'nothing recorded'}.`);
+    expect(settled.map(({ state }) => state), states).toEqual(['completed', 'completed', 'completed']);
     expect(await s.orphans(uploaded), states).toBe(0);
     const kept = new Set(remaining.map(({ objectKey }) => objectKey));
     for (const row of rows.filter(({ objectKey }) => !kept.has(objectKey))) expect(await s.stored(row.objectKey), states).toBe(false);

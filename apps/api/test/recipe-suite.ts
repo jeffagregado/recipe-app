@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import { expect, vi } from 'vitest';
 import { asc, eq, inArray, like, sql } from 'drizzle-orm';
 import { apiErrorEnvelopeSchema, categoryListSchema, createRecipeResultSchema, recipeDetailSchema, recipeListResponseSchema } from '@recipe-app/contracts/schemas';
@@ -26,7 +27,7 @@ export const minimalRecipe = (name: string): CreateRecipeMetadata => ({
   ingredients: [{ name, quantity: null, unit: null }], instructions: [{ description: 'Mix.', hasImage: false }],
 });
 
-/** Two temporary users on the dev API plus helpers that never surface cookies, object keys or signed URLs. */
+/** Two temporary users on the dev API plus helpers that never surface cookies or signed URLs, and object keys only in `recordCleanup`. */
 export async function openRecipeSuite() {
   const { app, db, baseUrl } = await startApi();
   const storage = app.get(StorageService);
@@ -34,7 +35,7 @@ export async function openRecipeSuite() {
   /** Prefix of every ingredient name a scenario invents, so canonical rows can be removed afterwards. */
   const name = `verification-${randomUUID()}`;
   const objectKeys = new Set<string>();
-  const actualUpload = storage.upload.bind(storage);
+  const actualUpload = storage.upload.bind(storage); const actualDelete = storage.deleteObject.bind(storage);
   // One permanent tracking spy: scenarios stack one-shot failures on it instead of restoring it.
   const upload = vi.spyOn(storage, 'upload').mockImplementation(async (key, bytes, mime) => { objectKeys.add(key); return actualUpload(key, bytes, mime); });
   let owner: Awaited<ReturnType<typeof signupUser>>; let other: Awaited<ReturnType<typeof signupUser>>;
@@ -125,6 +126,39 @@ export async function openRecipeSuite() {
     return count;
   }
 
+  /** Until `stop`, records each object deletion and each line `logRecipeFailure` writes, as milliseconds since the call. The test
+   * API runs with logging off, so nothing else keeps them. Object keys, and for an error its names, codes and HTTP status; never
+   * its message.
+   */
+  function recordCleanup() {
+    const started = Date.now(); const events: string[] = []; const running = new Set<string>();
+    const errorChain = (start: unknown) => {
+      const parts: string[] = []; const seen = new Set<Error>();
+      for (let error = start; error instanceof Error && !seen.has(error); error = error.cause) {
+        seen.add(error);
+        const code = 'code' in error && typeof error.code === 'string' && /^[A-Z0-9_]{1,40}$/.test(error.code) ? ` ${error.code}` : '';
+        const status = '$metadata' in error ? ` HTTP ${(error.$metadata as { httpStatusCode?: number } | undefined)?.httpStatusCode ?? 'none'}` : '';
+        parts.push(`${/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name) ? error.name : 'Error'}${code}${status}`);
+      }
+      return parts.join(' <- ') || 'unknown';
+    };
+    const deletion = vi.spyOn(storage, 'deleteObject').mockImplementation(async (key) => {
+      const at = Date.now(); running.add(key);
+      try { await actualDelete(key); events.push(`+${at - started} ms delete ${key}: done in ${Date.now() - at} ms`); }
+      catch (cause) { events.push(`+${at - started} ms delete ${key}: failed in ${Date.now() - at} ms, ${errorChain(cause)}`); throw cause; }
+      finally { running.delete(key); }
+    });
+    // Only logRecipeFailure's lines are kept: static labels, a local correlation id, class names and SQLSTATEs.
+    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation((message: unknown) => {
+      if (typeof message === 'string' && /^Recipe \w+ failed \(/.test(message)) events.push(`+${Date.now() - started} ms logged: ${message}`);
+    });
+    const stop = () => {
+      for (const key of running) events.push(`+${Date.now() - started} ms delete ${key}: still running`);
+      deletion.mockRestore(); logged.mockRestore();
+    };
+    return { events, stop };
+  }
+
   /** Every stage runs even when an earlier one threw, so one failure cannot strand the rest; the first failure is rethrown at the end. */
   async function cleanup() {
     const failures: unknown[] = [];
@@ -152,5 +186,5 @@ export async function openRecipeSuite() {
   }
 
   return { app, db, baseUrl, storage, name, owner, other, categories, categoryIds, upload, send, call, expectError, expectEmpty, savedId, detail, list, stored, bytesAt,
-    imageRows, resetLimits, fillLimit, orphans, uploadedKeys: () => new Set(objectKeys), cleanup, close };
+    imageRows, resetLimits, fillLimit, orphans, recordCleanup, uploadedKeys: () => new Set(objectKeys), cleanup, close };
 }

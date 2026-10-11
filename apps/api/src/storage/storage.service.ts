@@ -7,6 +7,10 @@ import { z } from 'zod';
 import type { Environment } from '../config/environment.js';
 
 const downloadExpirySchema = z.number().int().min(1).max(604_800);
+/** How long a pooled connection may sit unused before the client closes it. The storage server closes one 60 s after its last
+ * request, and a call written to it at that moment is reset; with one attempt per call, that call fails.
+ */
+const STORAGE_IDLE_CONNECTION_MS = 30_000;
 
 export class StorageError extends Error {
   override readonly name = 'StorageError';
@@ -32,6 +36,7 @@ export class StorageService implements OnApplicationShutdown {
       },
       forcePathStyle: true,
       maxAttempts: 1,
+      requestHandler: { httpAgent: { timeout: STORAGE_IDLE_CONNECTION_MS }, httpsAgent: { timeout: STORAGE_IDLE_CONNECTION_MS } },
     });
   }
 
