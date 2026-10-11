@@ -88,8 +88,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     # Suites within a shard run serially against a database in another region; unsplit, they took 19 minutes.
-    # [DIAG-10] temporary: 25 -> 45, and four copies of the update shard in place of the three shards and e2e.
-    timeout-minutes: 45
+    timeout-minutes: 25
     environment: dev
     strategy:
       fail-fast: false
@@ -100,17 +99,11 @@ jobs:
         # also add it to `named` in the run step below, or it will run twice.
         include:
           - shard: update
-            files: update-recipe.spec storage.spec diag-idle.spec
-            aim: start
-          - shard: update-b
-            files: update-recipe.spec storage.spec diag-idle.spec
-            aim: start
-          - shard: update-c
-            files: update-recipe.spec storage.spec diag-idle.spec
-            aim: hold
-          - shard: update-d
-            files: update-recipe.spec storage.spec diag-idle.spec
-            aim: hold
+            files: update-recipe.spec
+          - shard: create-delete
+            files: create-recipe.spec recipe-favorite-delete.spec
+          - shard: rest
+            files: ""
     steps:
       - uses: actions/checkout@v7
 
@@ -139,12 +132,9 @@ jobs:
           else
             for file in $named; do args+=(--exclude "**/$file.ts"); done
           fi
-          pnpm exec vitest run --config vitest.integration.config.ts "${args[@]}" -t "serializes two concurrent|Storage connections|idle storage connection"
+          pnpm exec vitest run --config vitest.integration.config.ts "${args[@]}"
         env:
           SHARD_FILES: ${{ matrix.files }}
-          # [DIAG-10] temporary
-          DIAG_10_REPEATS: 14
-          DIAG_10_AIM: ${{ matrix.aim }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           BETTER_AUTH_URL: http://127.0.0.1:4101
           # AWS_ENDPOINT_URL_S3 is this shard's own storage, exported by the Neon branch step; a value here would override it.
@@ -152,27 +142,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           S3_BUCKET: ${{ vars.S3_BUCKET }}
-
-      # [DIAG-10] temporary: the storage log goes with the branch, so print its DELETE records first.
-      # Timestamp, status, duration and object key only.
-      - name: Print storage DELETE records
-        if: always()
-        run: |
-          sleep 60
-          pnpm exec neon --no-analytics logs query --project-id "$NEON_PROJECT_ID" --branch "ci/integration-$SHARD-$NEON_BRANCH_SUFFIX" \
-            --source storage --since 60m --limit 1000 --sort-order asc --body-contains '"operation":"DELETE"' --output json > "$RUNNER_TEMP/storage-deletes.json"
-          node -e '
-            const { logs, is_truncated } = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-            console.log(`[DIAG-10] storage DELETE records: ${logs.length}${is_truncated ? " (truncated)" : ""}`);
-            for (const { timestamp, message } of logs) {
-              const { http_status, duration_ms, object_key } = JSON.parse(message);
-              console.log(`[DIAG-10] ${timestamp} DELETE ${http_status} ${duration_ms} ms ${object_key}`);
-            }
-          ' "$RUNNER_TEMP/storage-deletes.json"
-        env:
-          SHARD: ${{ matrix.shard }}
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
 
       - name: Delete database branch
         if: always()
@@ -185,8 +154,7 @@ jobs:
   e2e:
     name: End-to-end tests
     needs: check
-    # [DIAG-10] temporary: was `github.event.pull_request.draft != true`
-    if: false
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: dev
