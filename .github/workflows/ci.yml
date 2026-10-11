@@ -154,6 +154,8 @@ jobs:
           [ "$count" = 1 ] || run_suite "the commit belongs to $count pull requests, and the gate needs exactly one"
           pull=$(jq -er '.[0].number' <<<"$pulls")
           head=$(jq -er '.[0].head.sha' <<<"$pulls")
+          target=$(jq -er '.[0].base.ref' <<<"$pulls")
+          [ "$target" = master ] || run_suite "pull request #$pull targeted $target, so its runs tested a merge into another branch"
 
           # Trees, not commits: a squash merge and a merge commit both push a new commit, and either one carries
           # the pull request's tree when the branch was up to date.
@@ -162,10 +164,11 @@ jobs:
           [ "$tree" = "$head_tree" ] || run_suite "the pushed tree differs from the head of pull request #$pull, so this combination was never tested"
 
           # A pull request run tests the head merged into master as it was then. That is the head's own tree only
-          # when the head already held master, which is certain when it holds the master this push landed on.
-          doing="comparing master before the push with the head of pull request #$pull"
-          base=$(api "repos/$REPO/compare/$parent...$head" | jq -er '.merge_base_commit.sha')
-          [ "$base" = "$parent" ] || run_suite "the head of pull request #$pull did not contain master, so its runs tested another tree"
+          # when the head already held master, which is certain when it holds the pushed commit's first parent:
+          # the master a squash or a merge commit landed on, and every master before it.
+          doing="comparing the pushed commit's parent with the head of pull request #$pull"
+          merge_base=$(api "repos/$REPO/compare/$parent...$head" | jq -er '.merge_base_commit.sha')
+          [ "$merge_base" = "$parent" ] || run_suite "the head of pull request #$pull did not contain master, so its runs tested another tree"
 
           doing="listing the runs of $head"
           runs=$(api -X GET "repos/$REPO/actions/workflows/ci.yml/runs" -f event=pull_request -f head_sha="$head" -f status=success -f per_page=100 |
