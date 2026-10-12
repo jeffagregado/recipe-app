@@ -9,7 +9,7 @@ import type { PreparedPhoto } from './recipe-images.js';
 import { completeRecipeAttempt } from './recipe-persist.js';
 import { RECIPE_CLEANUP_BUDGET_MS, resolveRecipeAttempt } from './recipe-reconcile.js';
 import type { RecipeUploadRequest } from './recipe-upload.js';
-import { RECIPE_WRITE_TIMEOUT_MS } from './recipe-upload.js';
+import { RECIPE_WRITE_TIMEOUT_MS, writeDeadlineCheck } from './recipe-upload.js';
 import { RecipeWriteHook, setStatementTimeout } from './recipe-write-hook.js';
 import type { RecipeTransaction } from './recipe-write-hook.js';
 
@@ -44,7 +44,7 @@ export class RecipeAttempts {
   execute(request: RecipeUploadRequest, plan: RecipeWritePlan): Promise<RecipeWriteResult> {
     const budget: WriteBudget = { deadline: request.writeDeadline!, transactionStarted: false };
     const deadline = budget.deadline;
-    const checkDeadline = () => { if (Date.now() >= deadline) throw new RecipeError(504, 'TIMEOUT', 'Recipe write timed out. Retry with the same key and payload.'); };
+    const checkDeadline = writeDeadlineCheck(deadline);
     const work = this.write(plan, checkDeadline, budget);
     request.writeSettled = work;
     return new Promise<RecipeWriteResult>((resolve, reject) => {

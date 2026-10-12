@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import sharp from 'sharp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { apiErrorEnvelopeSchema, categoryListSchema, createRecipeResultSchema, recipeDetailSchema } from '@recipe-app/contracts/schemas';
@@ -15,10 +16,11 @@ import { RecipeWriteGuard } from '../../src/recipes/recipe-upload.js';
 import type { RecipeUploadRequest } from '../../src/recipes/recipe-upload.js';
 import { apiClient, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testUsername } from '../auth-harness.js';
 import { rawRecipeRequest } from '../recipe-http.js';
+import { describePhoto, jpeg as photo, storedPhoto } from '../recipe-photos.js';
 import { recipeRequestHash } from '../../src/recipes/recipe-metadata.js';
 import { RecipeCreateService } from '../../src/recipes/recipe-create.service.js';
 
-const jpeg = Buffer.from([255, 216, 255, 224, 0, 2, 255, 217]);
+const jpeg = photo(1);
 type Photo = { field: string; bytes: Buffer; mime?: string };
 const minimal = (name: string): CreateRecipeMetadata => ({
   title: 'Temporary recipe', description: null, categoryIds: [], servings: null, prepTimeMinutes: null,
@@ -73,13 +75,16 @@ describe('Create recipe and private detail HTTP', () => {
     expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('private, no-store');
     return recipeDetailSchema.parse(await response.json());
   };
-  async function readable(url: string | null, bytes: Buffer) {
+  /** The signed URL serves a WebP with the dimensions the API stores for the upload; by default those of the shared `jpeg`. */
+  async function readable(url: string | null, expected: { format: string; width: number; height: number } = storedPhoto(1)) {
     expect(Boolean(url)).toBe(true);
+    let served: { type: string | undefined; bytes: Uint8Array };
     try {
       const response = await fetch(url!); expect(response.status).toBe(200);
-      expect(response.headers.get('content-type')?.split(';')[0]).toBe('image/jpeg');
-      expect(Buffer.from(await response.arrayBuffer()).equals(bytes)).toBe(true);
+      served = { type: response.headers.get('content-type')?.split(';')[0], bytes: new Uint8Array(await response.arrayBuffer()) };
     } catch { throw new Error('Disposable image download failed.'); }
+    expect(served.type).toBe('image/webp');
+    expect(await describePhoto(served.bytes)).toEqual(expected);
   }
 
   beforeAll(async () => {
@@ -140,7 +145,8 @@ describe('Create recipe and private detail HTTP', () => {
       description: 'Description', servings: 4, prepTimeMinutes: 0, cookTimeMinutes: 25, notes: 'Notes', videoUrl: 'https://www.youtube.com/watch?v=example',
       ingredients: [{ name: name.toUpperCase(), quantity: 1.125, unit: 'cup' }, { name, quantity: null, unit: null }],
       instructions: [{ description: 'First', hasImage: true }, { description: 'Second', hasImage: false }, { description: 'Third', hasImage: true }] };
-    const id = await idOf(await send(metadata, [{ field: 'cover', bytes: jpeg }, { field: 'step-0', bytes: jpeg }, { field: 'step-2', bytes: jpeg }]));
+    const large = await sharp({ create: { width: 4000, height: 3000, channels: 3, background: { r: 200, g: 120, b: 40 } } }).jpeg().toBuffer();
+    const id = await idOf(await send(metadata, [{ field: 'cover', bytes: large }, { field: 'step-0', bytes: jpeg }, { field: 'step-2', bytes: photo(2) }]));
     const value = await detail(id);
     expect(value.categories.map(({ id }) => id)).toEqual(metadata.categoryIds); expect(value.categories.map(({ name }) => name)).toEqual(['Dinner', 'Breakfast', 'Lunch']); expect(value.notes).toBe('Notes'); expect(value.videoUrl).toBe(metadata.videoUrl);
     expect(value.ingredients.map(({ name, quantity, sortOrder }) => ({ name, quantity, sortOrder }))).toEqual([
@@ -155,7 +161,8 @@ describe('Create recipe and private detail HTTP', () => {
     expect(stored?.userId).toBe(owner.user.id); expect(stored?.categories.map(({ category }) => ({ id: category.id, name: category.name }))).toEqual(value.categories);
     expect(stored?.images.map(({ sortOrder }) => sortOrder)).toEqual([0, 1, 2]);
     expect(stored?.instructions.map(({ imageId }) => Boolean(imageId))).toEqual([true, false, true]);
-    await readable(value.imageUrl, jpeg); await readable(value.instructions[0].imageUrl, jpeg); await readable(value.instructions[2].imageUrl, jpeg);
+    await readable(value.imageUrl, { format: 'webp', width: 2048, height: 1536 });
+    await readable(value.instructions[0].imageUrl); await readable(value.instructions[2].imageUrl, storedPhoto(2));
   }, 60_000);
 
   it('rejects invalid metadata and injected fields before claiming or uploading', async () => {
@@ -302,7 +309,7 @@ describe('Create recipe and private detail HTTP', () => {
     const photos = [{ field: 'cover', bytes: jpeg }, { field: 'step-0', bytes: jpeg }];
     const id = await idOf(await send(metadata, photos, { key }));
     expect(await idOf(await send(metadata, [...photos].reverse(), { key }), 200)).toBe(id);
-    await error(await send(metadata, [{ field: 'cover', bytes: Buffer.concat([jpeg, Buffer.from([1])]) }, photos[1]], { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    await error(await send(metadata, [{ field: 'cover', bytes: photo(2) }, photos[1]], { key }), 409, 'IDEMPOTENCY_CONFLICT');
   }, 30_000);
 
   it('upserts one new canonical ingredient for concurrent creates with distinct snapshots', async () => {
@@ -316,7 +323,7 @@ describe('Create recipe and private detail HTTP', () => {
   it('keeps a step-only image out of the list/detail cover slot', async () => {
     const metadata = { ...minimal(name), instructions: [{ description: 'Step with photo', hasImage: true }] };
     const id = await idOf(await send(metadata, [{ field: 'step-0', bytes: jpeg }]));
-    const value = await detail(id); expect(value.imageUrl === null).toBe(true); await readable(value.instructions[0].imageUrl, jpeg);
+    const value = await detail(id); expect(value.imageUrl === null).toBe(true); await readable(value.instructions[0].imageUrl);
     const response = await fetch(`${baseUrl}/recipes`, { headers: { Cookie: owner.cookie } });
     expect(response.status).toBe(200);
     const list = await response.json() as { data: { id: string; imageUrl: string | null }[] };
@@ -418,7 +425,7 @@ describe('Create recipe and private detail HTTP', () => {
     try { await resolving; finish(); await committing; id = await idOf(await response); }
     finally { finish(); await committing; await response; seam.mockRestore(); deletion.mockRestore(); }
     expect(deletedBeforeCommit).toBe(false);
-    const value = await detail(id!); await readable(value.imageUrl, jpeg);
+    const value = await detail(id!); await readable(value.imageUrl);
     expect(await idOf(await send(minimal(name), [{ field: 'cover', bytes: jpeg }], { key }), 200)).toBe(id!);
   }, 60_000);
 
@@ -461,7 +468,7 @@ describe('Create recipe and private detail HTTP', () => {
     expect(await db.$count(recipes, eq(recipes.id, oldAttempt!.recipeId))).toBe(0);
     expect(await db.$count(recipeWriteAttempts, eq(recipeWriteAttempts.id, oldAttempt!.id))).toBe(0);
     expect((await fetch(await storage.signedDownloadUrl(oldAttempt!.objectKeys[0]))).status).toBe(404);
-    await readable((await detail(id!)).imageUrl, jpeg);
+    await readable((await detail(id!)).imageUrl);
   }, 60_000);
 
   it('resolves an aged pending attempt with an existing recipe to a 200 replay', async () => {
@@ -551,6 +558,6 @@ describe('Create recipe and private detail HTTP', () => {
     expect((await db.query.recipeWriteAttempts.findFirst({ where: eq(recipeWriteAttempts.id, cleanupId) }))?.state).toBe('completed');
     expect(await reconcileRecipeWrites(db, storage, { now: new Date(), attemptIds })).toEqual({ completed: 0, removed: 0, deletedObjects: 0, failed: 0 });
     for (const key of [pendingKey, staleKey, orphanKey]) expect((await fetch(await storage.signedDownloadUrl(key))).status).toBe(404);
-    await readable((await detail(committedId)).imageUrl, jpeg);
+    await readable((await detail(committedId)).imageUrl);
   }, 60_000);
 });
