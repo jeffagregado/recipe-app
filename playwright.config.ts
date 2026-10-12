@@ -8,13 +8,15 @@ export default defineConfig({
   testMatch: '**/*.spec.ts',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
-  workers: process.env.CI ? 2 : undefined,
+  // One worker per core of the CI runner. Trialled in #18 over consecutive green runs: Playwright 5.3 to 6.0 minutes
+  // against 9 to 12 on 2 workers. Each worker signs up its own owner from its own address.
+  workers: process.env.CI ? 4 : undefined,
   // Browser action steps can contain form values; keep only the value-free list output. The html reporter writes
   // every typed value, passwords included, into its step titles.
   reporter: [['list']],
   outputDir: './test-results',
   // The e2e job is killed at 45 minutes, which would lose the failure screenshots. Playwright stops itself first:
-  // it starts about 1.5 minutes into the job and normally runs 10 to 12, so 35 leaves 8 for the upload and the
+  // it starts about 1.5 minutes into the job and normally runs 5 to 6, so 35 leaves 8 for the upload and the
   // Neon branch deletion.
   globalTimeout: process.env.CI ? 35 * 60_000 : undefined,
   // CI runners are in another region from the database, so a login or save can take longer than the default five seconds.
