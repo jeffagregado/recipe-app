@@ -21,7 +21,7 @@ export function serviceFailure(operation: AuthMutation): AuthFailure {
 export function mapAuthError(status: number, payload: unknown, operation: AuthMutation = 'login'): AuthFailure {
 	const parsed = authErrorResponseSchema.safeParse(payload)
 	if (!parsed.success) return serviceFailure(operation)
-	if (status === 401 && parsed.data.code === 'INVALID_CREDENTIALS') return { ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid username or password' }
+	if (status === 401 && parsed.data.code === 'INVALID_CREDENTIALS') return INVALID_LOGIN
 	if (status === 409 && parsed.data.code === 'USERNAME_UNAVAILABLE') return { ok: false, code: 'USERNAME_UNAVAILABLE', message: 'Username is unavailable.', fieldErrors: { username: ['Username is unavailable.'] } }
 	if (status === 429) return { ok: false, code: 'RATE_LIMITED', message: 'Too many attempts. Please wait and try again.' }
 	if (status === 403) return { ok: false, code: 'ORIGIN_REJECTED', message: 'This request could not be verified. Refresh the page and try again.' }

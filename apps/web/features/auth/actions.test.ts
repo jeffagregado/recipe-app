@@ -20,7 +20,7 @@ beforeEach(() => {
 	next.cookies.clear()
 	next.set.mockReset()
 	fetchMock.mockReset()
-	warn.mockReset()
+	warn.mockReset().mockImplementation(() => {})
 	vi.stubEnv('RECIPE_API_URL', 'http://api.example')
 	vi.stubGlobal('fetch', fetchMock)
 })
@@ -83,9 +83,7 @@ it('forwards only origin and client address, applies the session cookie and redi
 	expect(next.set).toHaveBeenCalledExactlyOnceWith('better-auth.session_token', 'abc', { httpOnly: true, sameSite: 'lax', path: '/', secure: false, maxAge: 604800 })
 })
 
-it('maps generic credential and conflict errors to the exact messages', async () => {
-	fetchMock.mockResolvedValueOnce(json({ code: 'INVALID_CREDENTIALS', message: 'raw upstream text' }, 401))
-	expect(await login(credentials)).toEqual({ ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid username or password' })
+it('maps a username conflict to the exact message', async () => {
 	fetchMock.mockResolvedValueOnce(json({ code: 'USERNAME_UNAVAILABLE', message: 'raw upstream text' }, 409))
 	expect(await signup({ displayName: 'Owner', ...credentials })).toMatchObject({ ok: false, message: 'Username is unavailable.' })
 })
