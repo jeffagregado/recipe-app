@@ -4,10 +4,10 @@ import type { CreateRecipeMetadata } from '@recipe-app/contracts/types';
 import type { DrizzleDb } from '../database/database.service.js';
 import { categories, ingredients, recipeCategories, recipeImages, recipeIngredients, recipeInstructions, recipes, recipeWriteAttempts } from '../database/schema.js';
 import type { RecipeTransaction } from './recipe-write-hook.js';
-import type { RecipeFile } from './recipe-images.js';
+import type { PreparedPhoto } from './recipe-images.js';
 import { fieldError } from './recipe-errors.js';
 
-export type PlannedImage = { file: RecipeFile; id: string; key: string; sortOrder: number };
+export type PlannedImage = { photo: PreparedPhoto; id: string; key: string; sortOrder: number };
 
 export async function persistRecipe(tx: RecipeTransaction, metadata: CreateRecipeMetadata, userId: string, recipeId: string, images: PlannedImage[]): Promise<void> {
   await tx.insert(recipes).values({ id: recipeId, userId, title: metadata.title, description: metadata.description,
@@ -19,7 +19,7 @@ export async function persistRecipe(tx: RecipeTransaction, metadata: CreateRecip
   })));
   await tx.insert(recipeInstructions).values(metadata.instructions.map((step, index) => ({
     id: randomUUID(), recipeId, stepNumber: index + 1, description: step.description,
-    imageId: images.find((image) => image.file.fieldname === `step-${index}`)?.id ?? null,
+    imageId: images.find((image) => image.photo.fieldname === `step-${index}`)?.id ?? null,
   })));
   await insertRecipeCategories(tx, recipeId, userId, metadata.categoryIds);
 }

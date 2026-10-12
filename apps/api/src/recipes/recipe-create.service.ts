@@ -3,7 +3,6 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { parseRecipeMetadata, recipeRequestHash, validateRecipeFiles } from './recipe-metadata.js';
-import { validateRecipeImage } from './recipe-images.js';
 import type { RecipeUploadRequest } from './recipe-upload.js';
 import { RecipeAttempts } from './recipe-attempts.js';
 import type { RecipeWriteResult } from './recipe-attempts.js';
@@ -15,13 +14,13 @@ export class RecipeCreateService {
 
   create(request: RecipeUploadRequest): Promise<RecipeWriteResult> {
     const metadata = parseRecipeMetadata(request.body ?? {});
-    const files = validateRecipeFiles(metadata, request.files ?? []);
+    const photos = validateRecipeFiles(metadata, request.files ?? []);
     const userId = request.user!.id;
     const recipeId = randomUUID();
-    const images = files.map((file, index) => ({ file, id: randomUUID(), key: `recipes/${recipeId}/${randomUUID()}.${validateRecipeImage(file)}`,
-      sortOrder: file.fieldname === 'cover' ? 0 : index + (files[0]?.fieldname === 'cover' ? 0 : 1) }));
+    const images = photos.map((photo, index) => ({ photo, id: randomUUID(), key: `recipes/${recipeId}/${randomUUID()}.${photo.extension}`,
+      sortOrder: photo.fieldname === 'cover' ? 0 : index + (photos[0]?.fieldname === 'cover' ? 0 : 1) }));
     return this.attempts.execute(request, {
-      attempt: { id: randomUUID(), userId, idempotencyKey: request.idempotencyKey!, operation: 'create', requestHash: recipeRequestHash(metadata, files),
+      attempt: { id: randomUUID(), userId, idempotencyKey: request.idempotencyKey!, operation: 'create', requestHash: recipeRequestHash(metadata, photos),
         recipeId, objectKeys: images.map((image) => image.key) },
       uploads: images,
       // Before any upload, so a stale category never costs a stored photo.

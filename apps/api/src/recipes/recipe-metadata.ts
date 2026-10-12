@@ -3,7 +3,7 @@ import type { ZodType } from 'zod';
 import { createRecipeMetadataSchema, expectedRecipeFileFields } from '@recipe-app/contracts/schemas';
 import { RECIPE_LIMITS } from '@recipe-app/contracts/types';
 import type { CreateRecipeMetadata, UpdateRecipeMetadata } from '@recipe-app/contracts/types';
-import type { RecipeFile } from './recipe-images.js';
+import type { PreparedPhoto, RecipeFile } from './recipe-images.js';
 import { validateRecipeImage } from './recipe-images.js';
 import { fieldError, RecipeError } from './recipe-errors.js';
 
@@ -37,19 +37,21 @@ function metadataErrors(issues: MetadataIssue[]): Record<string, string[]> {
   return errors;
 }
 
-export function validateRecipeFiles(metadata: CreateRecipeMetadata, files: RecipeFile[]): RecipeFile[] {
+export function validateRecipeFiles(metadata: CreateRecipeMetadata, files: RecipeFile[]): PreparedPhoto[] {
   return matchRecipeFiles(expectedRecipeFileFields(metadata, files.some((file) => file.fieldname === 'cover')), files);
 }
 
-/** Requires exactly one valid image per expected field and returns them in that order. */
-export function matchRecipeFiles(fields: string[], files: RecipeFile[]): RecipeFile[] {
-  const seen = new Set<string>();
+/** Requires exactly one valid image per expected field and returns the photos ready for storage, in that order.
+ * The one place an upload is validated and prepared: the services build keys and uploads from what it returns.
+ */
+export function matchRecipeFiles(fields: string[], files: RecipeFile[]): PreparedPhoto[] {
+  const prepared = new Map<string, PreparedPhoto>();
   for (const file of files) {
-    if (!fields.includes(file.fieldname) || seen.has(file.fieldname)) throw fieldError(file.fieldname, 'Unexpected or repeated image field.');
-    seen.add(file.fieldname); validateRecipeImage(file);
+    if (!fields.includes(file.fieldname) || prepared.has(file.fieldname)) throw fieldError(file.fieldname, 'Unexpected or repeated image field.');
+    prepared.set(file.fieldname, { fieldname: file.fieldname, buffer: file.buffer, extension: validateRecipeImage(file), contentType: file.mimetype });
   }
-  for (const field of fields) if (!seen.has(field)) throw fieldError(field, 'Declared image is missing.');
-  return fields.map((field) => files.find((file) => file.fieldname === field)!);
+  for (const field of fields) if (!prepared.has(field)) throw fieldError(field, 'Declared image is missing.');
+  return fields.map((field) => prepared.get(field)!);
 }
 
 function stableJson(value: unknown): string {
@@ -62,9 +64,11 @@ function stableJson(value: unknown): string {
 /** Normalizes optional null-only row properties; file order follows semantic slots, not multipart arrival.
  * An update also hashes its operation and target, so its key cannot replay a create or an update of another recipe.
  */
-export function recipeRequestHash(metadata: CreateRecipeMetadata, files: RecipeFile[]): string;
-export function recipeRequestHash(metadata: UpdateRecipeMetadata, files: RecipeFile[], updatedRecipeId: string): string;
-export function recipeRequestHash(metadata: CreateRecipeMetadata | UpdateRecipeMetadata, files: RecipeFile[], updatedRecipeId?: string): string {
+/** The hash covers the uploaded bytes; a prepared photo qualifies while it still carries them. */
+type HashedFile = RecipeFile | PreparedPhoto;
+export function recipeRequestHash(metadata: CreateRecipeMetadata, files: HashedFile[]): string;
+export function recipeRequestHash(metadata: UpdateRecipeMetadata, files: HashedFile[], updatedRecipeId: string): string;
+export function recipeRequestHash(metadata: CreateRecipeMetadata | UpdateRecipeMetadata, files: HashedFile[], updatedRecipeId?: string): string {
   const hash = createHash('sha256');
   if (updatedRecipeId !== undefined) hash.update(JSON.stringify(['update', updatedRecipeId]));
   hash.update(stableJson({ ...metadata, ingredients: metadata.ingredients.map((row) => ({ ...row, preparation: null, note: null })) }));
