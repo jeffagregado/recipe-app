@@ -4,7 +4,7 @@ import { createRecipeMetadataSchema, expectedRecipeFileFields } from '@recipe-ap
 import { RECIPE_LIMITS } from '@recipe-app/contracts/types';
 import type { CreateRecipeMetadata, UpdateRecipeMetadata } from '@recipe-app/contracts/types';
 import type { PreparedPhoto, RecipeFile } from './recipe-images.js';
-import { validateRecipeImage } from './recipe-images.js';
+import { prepareRecipePhoto } from './recipe-images.js';
 import { fieldError, RecipeError } from './recipe-errors.js';
 
 export function parseRecipeMetadata(body: Record<string, unknown>): CreateRecipeMetadata;
@@ -37,21 +37,24 @@ function metadataErrors(issues: MetadataIssue[]): Record<string, string[]> {
   return errors;
 }
 
-export function validateRecipeFiles(metadata: CreateRecipeMetadata, files: RecipeFile[]): PreparedPhoto[] {
-  return matchRecipeFiles(expectedRecipeFileFields(metadata, files.some((file) => file.fieldname === 'cover')), files);
+export function validateRecipeFiles(metadata: CreateRecipeMetadata, files: RecipeFile[], checkDeadline: () => void): Promise<PreparedPhoto[]> {
+  return matchRecipeFiles(expectedRecipeFileFields(metadata, files.some((file) => file.fieldname === 'cover')), files, checkDeadline);
 }
 
 /** Requires exactly one valid image per expected field and returns the photos ready for storage, in that order.
  * The one place an upload is validated and prepared: the services build keys and uploads from what it returns.
+ * Fields are matched before any photo is decoded. Photos are then prepared one at a time, with `checkDeadline` run before each.
  */
-export function matchRecipeFiles(fields: string[], files: RecipeFile[]): PreparedPhoto[] {
-  const prepared = new Map<string, PreparedPhoto>();
+export async function matchRecipeFiles(fields: string[], files: RecipeFile[], checkDeadline: () => void): Promise<PreparedPhoto[]> {
+  const matched = new Map<string, RecipeFile>();
   for (const file of files) {
-    if (!fields.includes(file.fieldname) || prepared.has(file.fieldname)) throw fieldError(file.fieldname, 'Unexpected or repeated image field.');
-    prepared.set(file.fieldname, { fieldname: file.fieldname, buffer: file.buffer, extension: validateRecipeImage(file), contentType: file.mimetype });
+    if (!fields.includes(file.fieldname) || matched.has(file.fieldname)) throw fieldError(file.fieldname, 'Unexpected or repeated image field.');
+    matched.set(file.fieldname, file);
   }
-  for (const field of fields) if (!prepared.has(field)) throw fieldError(field, 'Declared image is missing.');
-  return fields.map((field) => prepared.get(field)!);
+  for (const field of fields) if (!matched.has(field)) throw fieldError(field, 'Declared image is missing.');
+  const photos: PreparedPhoto[] = [];
+  for (const field of fields) { checkDeadline(); photos.push(await prepareRecipePhoto(matched.get(field)!)); }
+  return photos;
 }
 
 function stableJson(value: unknown): string {
@@ -64,14 +67,14 @@ function stableJson(value: unknown): string {
 /** Normalizes optional null-only row properties; file order follows semantic slots, not multipart arrival.
  * An update also hashes its operation and target, so its key cannot replay a create or an update of another recipe.
  */
-/** The hash covers the uploaded bytes; a prepared photo qualifies while it still carries them. */
-type HashedFile = RecipeFile | PreparedPhoto;
+/** The hash covers the bytes as uploaded, never the re-encoded copy, so a retry of the same request hashes alike. */
+type HashedFile = Pick<PreparedPhoto, 'fieldname' | 'uploaded'>;
 export function recipeRequestHash(metadata: CreateRecipeMetadata, files: HashedFile[]): string;
 export function recipeRequestHash(metadata: UpdateRecipeMetadata, files: HashedFile[], updatedRecipeId: string): string;
 export function recipeRequestHash(metadata: CreateRecipeMetadata | UpdateRecipeMetadata, files: HashedFile[], updatedRecipeId?: string): string {
   const hash = createHash('sha256');
   if (updatedRecipeId !== undefined) hash.update(JSON.stringify(['update', updatedRecipeId]));
   hash.update(stableJson({ ...metadata, ingredients: metadata.ingredients.map((row) => ({ ...row, preparation: null, note: null })) }));
-  for (const file of files) hash.update(JSON.stringify([file.fieldname, createHash('sha256').update(file.buffer).digest('hex')]));
+  for (const file of files) hash.update(JSON.stringify([file.fieldname, createHash('sha256').update(file.uploaded).digest('hex')]));
   return hash.digest('hex');
 }

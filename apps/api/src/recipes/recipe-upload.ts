@@ -50,6 +50,11 @@ export class RecipeWriteGuard implements CanActivate {
   }
 }
 
+/** Throws the write timeout once the request's write deadline has passed. */
+export function writeDeadlineCheck(deadline: number): () => void {
+  return () => { if (Date.now() >= deadline) throw new RecipeError(504, 'TIMEOUT', 'Recipe write timed out. Retry with the same key and payload.'); };
+}
+
 @Injectable()
 export class RecipeUploadSlots {
   private active = 0;

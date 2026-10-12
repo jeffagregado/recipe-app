@@ -1,10 +1,16 @@
+import sharp from 'sharp';
 import { RECIPE_IMAGE_MIME_TYPES, RECIPE_LIMITS } from '@recipe-app/contracts/types';
 import { fieldError } from './recipe-errors.js';
 
 export type RecipeFile = { fieldname: string; mimetype: string; buffer: Buffer };
-export type RecipeImageExtension = 'jpg' | 'png' | 'webp';
-/** An accepted upload as storage receives it: the bytes to store, the extension of their object key and the content type they are served with. */
-export type PreparedPhoto = { fieldname: string; buffer: Buffer; extension: RecipeImageExtension; contentType: string };
+/** An accepted upload as storage receives it: the re-encoded bytes to store, the extension of their object key and the content type
+ * they are served with. `uploaded` is the file as it arrived, kept only for the request hash and never stored.
+ */
+export type PreparedPhoto = { fieldname: string; buffer: Buffer; extension: 'webp'; contentType: 'image/webp'; uploaded: Buffer };
+/** Declared pixels above this are refused from the header, before any pixel is decoded. */
+const MAX_INPUT_PIXELS = 50_000_000;
+const MAX_STORED_EDGE = 2048;
+const STORED_QUALITY = 80;
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 type InvalidImage = (message: string) => never;
 
@@ -50,18 +56,34 @@ function validateWebp(buffer: Buffer, invalid: InvalidImage): void {
   if (!image) invalid('WebP has no image data.');
 }
 
-/** Inspects chunk boundaries, not payload substrings; never decodes pixels or trusts filenames. */
-export function validateRecipeImage({ fieldname, mimetype, buffer }: RecipeFile): RecipeImageExtension {
+function validateJpeg(buffer: Buffer, invalid: InvalidImage): void {
+  if (buffer.length < 3 || buffer[0] !== 255 || buffer[1] !== 216 || buffer[2] !== 255) invalid('Image bytes do not match JPEG.');
+}
+
+const signatureChecks: Record<(typeof RECIPE_IMAGE_MIME_TYPES)[number], (buffer: Buffer, invalid: InvalidImage) => void> = {
+  'image/jpeg': validateJpeg, 'image/png': validatePng, 'image/webp': validateWebp,
+};
+
+/** Inspects chunk boundaries, not payload substrings; never trusts filenames. Runs before any pixel is decoded. */
+function validateRecipeImage({ fieldname, mimetype, buffer }: RecipeFile): void {
   const invalid = (message: string): never => { throw fieldError(fieldname, message); };
   if (!buffer.length) invalid('Image must not be empty.');
   if (buffer.length > RECIPE_LIMITS.imageBytes) throw fieldError(fieldname, 'Image exceeds 5 MiB.', 413, 'PAYLOAD_TOO_LARGE');
-  if (!RECIPE_IMAGE_MIME_TYPES.some((mime) => mime === mimetype)) throw fieldError(fieldname, 'Use JPEG, PNG or static WebP.', 415, 'UNSUPPORTED_MEDIA_TYPE');
-  if (mimetype === 'image/jpeg') {
-    if (buffer.length < 3 || buffer[0] !== 255 || buffer[1] !== 216 || buffer[2] !== 255) invalid('Image bytes do not match JPEG.');
-    return 'jpg';
-  }
-  if (mimetype === 'image/png') {
-    validatePng(buffer, invalid); return 'png';
-  }
-  validateWebp(buffer, invalid); return 'webp';
+  const accepted = RECIPE_IMAGE_MIME_TYPES.find((mime) => mime === mimetype);
+  if (!accepted) throw fieldError(fieldname, 'Use JPEG, PNG or static WebP.', 415, 'UNSUPPORTED_MEDIA_TYPE');
+  signatureChecks[accepted](buffer, invalid);
+}
+
+/** Validates one upload, then decodes it and returns the copy that is stored in its place: upright, opaque on white, at most
+ * 2048 px on its long edge, WebP, no metadata. Every photo takes this path, so nothing is ever stored as uploaded.
+ */
+export async function prepareRecipePhoto(file: RecipeFile): Promise<PreparedPhoto> {
+  validateRecipeImage(file);
+  let buffer: Buffer;
+  try {
+    buffer = await sharp(file.buffer, { limitInputPixels: MAX_INPUT_PIXELS }).autoOrient().flatten({ background: '#ffffff' })
+      .resize({ width: MAX_STORED_EDGE, height: MAX_STORED_EDGE, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: STORED_QUALITY }).toBuffer();
+  } catch { throw fieldError(file.fieldname, 'Photo could not be decoded.'); }
+  return { fieldname: file.fieldname, buffer, extension: 'webp', contentType: 'image/webp', uploaded: file.buffer };
 }

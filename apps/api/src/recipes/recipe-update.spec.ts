@@ -11,7 +11,7 @@ const metadata = (cover: UpdateRecipeMetadata['cover'], instructions: UpdateReci
   title: 'Soup', description: null, categoryIds: [], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
   ingredients: [{ name: 'Salt', quantity: null, unit: null }], cover, instructions,
 });
-const upload = (fieldname: string) => ({ id: `new-${fieldname}`, key: `k-new-${fieldname}`, photo: { fieldname, buffer: Buffer.alloc(1), extension: 'jpg' as const, contentType: 'image/jpeg' } });
+const upload = (fieldname: string) => ({ id: `new-${fieldname}`, key: `k-new-${fieldname}`, photo: { fieldname, buffer: Buffer.alloc(1), extension: 'webp' as const, contentType: 'image/webp' as const, uploaded: Buffer.alloc(1) } });
 const keys = (images: { objectKey: string }[]) => images.map(({ objectKey }) => objectKey).sort();
 
 describe('Recipe update image plan', () => {

@@ -8,15 +8,16 @@ import type { RecipeWriteResult } from './recipe-attempts.js';
 import { matchRecipeFiles, parseRecipeMetadata, recipeRequestHash } from './recipe-metadata.js';
 import { assertOwnedCategories } from './recipe-persist.js';
 import { applyRecipeUpdate, loadRecipeState, planRecipeUpdate } from './recipe-update.js';
+import { writeDeadlineCheck } from './recipe-upload.js';
 import type { RecipeUploadRequest } from './recipe-upload.js';
 
 @Injectable()
 export class RecipeUpdateService {
   constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb, private readonly attempts: RecipeAttempts) {}
 
-  update(id: string, request: RecipeUploadRequest): Promise<RecipeWriteResult> {
+  async update(id: string, request: RecipeUploadRequest): Promise<RecipeWriteResult> {
     const metadata = parseRecipeMetadata(request.body ?? {}, updateRecipeMetadataSchema);
-    const photos = matchRecipeFiles(expectedRecipeUpdateFileFields(metadata), request.files ?? []);
+    const photos = await matchRecipeFiles(expectedRecipeUpdateFileFields(metadata), request.files ?? [], writeDeadlineCheck(request.writeDeadline!));
     const userId = request.user!.id;
     const images = photos.map((photo) => ({ photo, id: randomUUID(), key: `recipes/${id}/${randomUUID()}.${photo.extension}` }));
     return this.attempts.execute(request, {

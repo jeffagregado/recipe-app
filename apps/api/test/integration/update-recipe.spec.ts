@@ -11,7 +11,7 @@ import { RECIPE_WRITE_LIMIT, RecipeWriteGuard } from '../../src/recipes/recipe-u
 import type { RecipeUploadRequest } from '../../src/recipes/recipe-upload.js';
 import { RecipeWriteHook } from '../../src/recipes/recipe-write-hook.js';
 import { TEST_ORIGIN } from '../auth-harness.js';
-import { CI_LATENCY_MS, jpeg, minimalRecipe, openRecipeSuite } from '../recipe-suite.js';
+import { CI_LATENCY_MS, jpeg, minimalRecipe, openRecipeSuite, storedPhoto } from '../recipe-suite.js';
 import type { Photo, RecipeSuite } from '../recipe-suite.js';
 
 describe('Update recipe HTTP', () => {
@@ -68,8 +68,8 @@ describe('Update recipe HTTP', () => {
       .toEqual(value.instructions.map(({ id, stepNumber, description }) => ({ id, stepNumber, description })));
     // Kept images are the same rows and objects, and nothing was uploaded again.
     expect(same(await s.imageRows(id), rows)).toBe(true); expect(s.upload.mock.calls.length).toBe(calls);
-    expect((await s.bytesAt(updated.imageUrl))?.equals(jpeg(10))).toBe(true);
-    expect((await s.bytesAt(updated.instructions[1].imageUrl))?.equals(jpeg(12))).toBe(true);
+    expect(await s.photoAt(updated.imageUrl)).toEqual(storedPhoto(10));
+    expect(await s.photoAt(updated.instructions[1].imageUrl)).toEqual(storedPhoto(12));
     expect((await s.list()).data.find((recipe) => recipe.id === id)).toMatchObject({ title: 'Updated recipe', isFavorite: true });
   }, 60_000);
 
@@ -87,9 +87,9 @@ describe('Update recipe HTTP', () => {
     expect(updated.instructions.map(({ stepNumber, description }) => [stepNumber, description])).toEqual([
       [1, 'C moved first'], [2, 'New step'], [3, 'A without photo'], [4, 'D'], [5, 'Plain new step']]);
     expect([updated.instructions[0].id, updated.instructions[2].id, updated.instructions[3].id]).toEqual([c.id, a.id, d.id]);
-    expect((await s.bytesAt(updated.imageUrl))?.equals(jpeg(20))).toBe(true);
-    expect((await s.bytesAt(updated.instructions[0].imageUrl))?.equals(jpeg(13))).toBe(true);
-    expect((await s.bytesAt(updated.instructions[1].imageUrl))?.equals(jpeg(21))).toBe(true);
+    expect(await s.photoAt(updated.imageUrl)).toEqual(storedPhoto(20));
+    expect(await s.photoAt(updated.instructions[0].imageUrl)).toEqual(storedPhoto(13));
+    expect(await s.photoAt(updated.instructions[1].imageUrl)).toEqual(storedPhoto(21));
     expect(updated.instructions.slice(2).map((step) => step.imageUrl === null)).toEqual([true, true, true]);
     const after = await s.imageRows(id);
     // The kept photo is the same row and object; only the two replacements were uploaded.
@@ -172,8 +172,8 @@ describe('Update recipe HTTP', () => {
     for (const row of rows) expect(await s.stored(row.objectKey)).toBe(true);
     expect(await s.savedId(await patch(id, metadata, photos, { key }), 200)).toBe(id);
     const updated = await s.detail(id);
-    expect(updated.title).toBe('Rolled back'); expect((await s.bytesAt(updated.imageUrl))?.equals(jpeg(50))).toBe(true);
-    expect((await s.bytesAt(updated.instructions[0].imageUrl))?.equals(jpeg(51))).toBe(true);
+    expect(updated.title).toBe('Rolled back'); expect(await s.photoAt(updated.imageUrl)).toEqual(storedPhoto(50));
+    expect(await s.photoAt(updated.instructions[0].imageUrl)).toEqual(storedPhoto(51));
     for (const row of rows) expect(await s.stored(row.objectKey)).toBe(false);
     expect(await s.orphans(uploaded)).toBe(0);
   }, 90_000);
@@ -198,7 +198,7 @@ describe('Update recipe HTTP', () => {
     expect(await s.stored(rows[0].objectKey)).toBe(false);
     // A young pending claim answers in progress.
     const pending = randomUUID();
-    const requestHash = recipeRequestHash(updateRecipeMetadataSchema.parse(metadata), [{ fieldname: 'cover', mimetype: 'image/jpeg', buffer: jpeg(60) }], id);
+    const requestHash = recipeRequestHash(updateRecipeMetadataSchema.parse(metadata), [{ fieldname: 'cover', uploaded: jpeg(60) }], id);
     await s.db.insert(recipeWriteAttempts).values({ userId: s.owner.user.id, idempotencyKey: pending, operation: 'update', requestHash, recipeId: id, state: 'pending' });
     await s.expectError(await patch(id, metadata, photos, { key: pending }), 409, 'IDEMPOTENCY_IN_PROGRESS');
     expect(await snapshot(id) === applied).toBe(true);
@@ -238,7 +238,7 @@ describe('Update recipe HTTP', () => {
       expect(await s.savedId(await request, 200)).toBe(id);
       expect(Date.now() - started < Math.min(deadlineMs, RECIPE_CLEANUP_BUDGET_MS) + 4000 + CI_LATENCY_MS).toBe(true);
       const committed = await s.detail(id);
-      expect(committed.title).toBe('Slow cleanup'); expect((await s.bytesAt(committed.imageUrl))?.equals(jpeg(100))).toBe(true);
+      expect(committed.title).toBe('Slow cleanup'); expect(await s.photoAt(committed.imageUrl)).toEqual(storedPhoto(100));
       const attempt = await attemptFor(key);
       expect([attempt?.state, attempt?.staleObjectKeys.length]).toEqual(['cleanup_pending', 4]);
       // The upload slot is free again: the replay is admitted and answers without waiting for cleanup.
@@ -249,7 +249,7 @@ describe('Update recipe HTTP', () => {
         expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds: [attempt!.id] })).toEqual({ completed: 1, removed: 0, deletedObjects: 4, failed: 0 });
       }, { timeout: 20_000, interval: 500 });
       for (const row of rows) expect(await s.stored(row.objectKey)).toBe(false);
-      expect((await attemptFor(key))?.state).toBe('completed'); expect((await s.bytesAt((await s.detail(id)).imageUrl))?.equals(jpeg(100))).toBe(true);
+      expect((await attemptFor(key))?.state).toBe('completed'); expect(await s.photoAt((await s.detail(id)).imageUrl)).toEqual(storedPhoto(100));
     } finally { fail(); deletion.mockRestore(); admission.mockRestore(); await request.catch(() => undefined); }
   }, 90_000);
 
@@ -336,7 +336,7 @@ describe('Update recipe HTTP', () => {
     finally { finish(); await committing; await response.catch(() => undefined); seam.mockRestore(); deletion.mockRestore(); }
     expect(deletedBeforeCommit).toBe(false);
     const updated = await s.detail(id);
-    expect(updated.title).toBe('Acknowledgement lost'); expect((await s.bytesAt(updated.imageUrl))?.equals(jpeg(80))).toBe(true);
+    expect(updated.title).toBe('Acknowledgement lost'); expect(await s.photoAt(updated.imageUrl)).toEqual(storedPhoto(80));
     expect(await s.stored(rows[0].objectKey)).toBe(false); expect(await s.orphans(uploaded)).toBe(0);
     expect((await attemptFor(key))?.state).toBe('completed');
     expect(await s.savedId(await patch(id, metadata, photos, { key }), 200)).toBe(id);
@@ -358,14 +358,14 @@ describe('Update recipe HTTP', () => {
     const took = Date.now() - began;
     expect(results).toEqual([{ id, replay: false }, { id, replay: false }]);
     const final = await s.detail(id);
-    const images = await Promise.all([final.imageUrl, final.instructions[0].imageUrl, final.instructions[1].imageUrl].map((url) => s.bytesAt(url)));
-    const view = { title: final.title, categories: final.categories.map(({ name }) => name), ingredients: final.ingredients.map(({ name }) => name), images: images.map((bytes) => bytes?.at(6) ?? null) };
+    const images = await Promise.all([final.imageUrl, final.instructions[0].imageUrl, final.instructions[1].imageUrl].map((url) => s.photoAt(url)));
+    const view = { title: final.title, categories: final.categories.map(({ name }) => name), ingredients: final.ingredients.map(({ name }) => name), images };
     expect([
-      { title: 'First writer', categories: ['Breakfast'], ingredients: [`${s.name} oats`], images: [91, 93, null] },
-      { title: 'Second writer', categories: ['Desserts'], ingredients: [`${s.name} cocoa`], images: [92, null, 94] },
+      { title: 'First writer', categories: ['Breakfast'], ingredients: [`${s.name} oats`], images: [storedPhoto(91), storedPhoto(93), null] },
+      { title: 'Second writer', categories: ['Desserts'], ingredients: [`${s.name} cocoa`], images: [storedPhoto(92), null, storedPhoto(94)] },
     ]).toContainEqual(view);
     // Step C's kept photo survives both writers; every other original and the loser's uploads are gone.
-    expect((await s.bytesAt(final.instructions[2].imageUrl))?.equals(jpeg(13))).toBe(true);
+    expect(await s.photoAt(final.instructions[2].imageUrl)).toEqual(storedPhoto(13));
     const remaining = await s.imageRows(id);
     expect(remaining).toHaveLength(3);
     // Each writer deletes what it replaced after its commit and inside RECIPE_CLEANUP_BUDGET_MS, so both attempts are completed

@@ -9,7 +9,9 @@ import { authRateLimits, favorites, ingredients, recipeImages, recipes, recipeWr
 import { StorageService } from '../src/storage/storage.service.js';
 import { apiClient, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testUsername } from './auth-harness.js';
 
-export { jpeg } from './recipe-photos.js';
+import { describePhoto } from './recipe-photos.js';
+
+export { jpeg, storedPhoto } from './recipe-photos.js';
 /**
  * Extra allowance for wall-clock bounds in CI, where the runner is an ocean away from the database and object storage.
  * The bounds still prove a response did not wait for cleanup that the test holds open indefinitely.
@@ -100,12 +102,16 @@ export async function openRecipeSuite() {
     try { return (await fetch(await storage.signedDownloadUrl(key))).status === 200; }
     catch { throw new Error('Disposable storage probe failed.'); }
   }
-  async function bytesAt(url: string | null): Promise<Buffer | null> {
+  /** The format and dimensions of the photo a signed URL serves, to compare with `storedPhoto(marker)`; null when there is none. */
+  async function photoAt(url: string | null): Promise<Awaited<ReturnType<typeof describePhoto>> | null> {
     if (url === null) return null;
+    let bytes: Uint8Array;
     try {
       const response = await fetch(url);
-      return response.status === 200 ? Buffer.from(await response.arrayBuffer()) : null;
+      if (response.status !== 200) return null;
+      bytes = new Uint8Array(await response.arrayBuffer());
     } catch { throw new Error('Disposable image download failed.'); }
+    return describePhoto(bytes);
   }
   const imageRows = (recipeId: string) => db.select().from(recipeImages).where(eq(recipeImages.recipeId, recipeId)).orderBy(asc(recipeImages.sortOrder));
   /** Each scenario owns fresh write and favorite windows; rate-limit scenarios set their counters explicitly. */
@@ -184,6 +190,6 @@ export async function openRecipeSuite() {
     try { await cleanup(); } finally { vi.restoreAllMocks(); await app.close(); }
   }
 
-  return { app, db, baseUrl, storage, name, owner, other, categories, categoryIds, upload, send, call, expectError, expectEmpty, savedId, detail, list, stored, bytesAt,
+  return { app, db, baseUrl, storage, name, owner, other, categories, categoryIds, upload, send, call, expectError, expectEmpty, savedId, detail, list, stored, photoAt,
     imageRows, resetLimits, fillLimit, orphans, recordCleanup, uploadedKeys: () => new Set(objectKeys), cleanup, close };
 }

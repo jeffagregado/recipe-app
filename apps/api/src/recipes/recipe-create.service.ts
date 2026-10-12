@@ -3,6 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { parseRecipeMetadata, recipeRequestHash, validateRecipeFiles } from './recipe-metadata.js';
+import { writeDeadlineCheck } from './recipe-upload.js';
 import type { RecipeUploadRequest } from './recipe-upload.js';
 import { RecipeAttempts } from './recipe-attempts.js';
 import type { RecipeWriteResult } from './recipe-attempts.js';
@@ -12,9 +13,9 @@ import { assertOwnedCategories, persistRecipe } from './recipe-persist.js';
 export class RecipeCreateService {
   constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb, private readonly attempts: RecipeAttempts) {}
 
-  create(request: RecipeUploadRequest): Promise<RecipeWriteResult> {
+  async create(request: RecipeUploadRequest): Promise<RecipeWriteResult> {
     const metadata = parseRecipeMetadata(request.body ?? {});
-    const photos = validateRecipeFiles(metadata, request.files ?? []);
+    const photos = await validateRecipeFiles(metadata, request.files ?? [], writeDeadlineCheck(request.writeDeadline!));
     const userId = request.user!.id;
     const recipeId = randomUUID();
     const images = photos.map((photo, index) => ({ photo, id: randomUUID(), key: `recipes/${recipeId}/${randomUUID()}.${photo.extension}`,
