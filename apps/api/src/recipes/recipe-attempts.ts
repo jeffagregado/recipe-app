@@ -5,7 +5,7 @@ import type { DrizzleDb } from '../database/database.service.js';
 import { recipeImages, recipeWriteAttempts } from '../database/schema.js';
 import { StorageService } from '../storage/storage.service.js';
 import { RecipeError, logRecipeFailure, recipeCleanupFailure, recipeUnavailable } from './recipe-errors.js';
-import type { RecipeFile } from './recipe-images.js';
+import type { PreparedPhoto } from './recipe-images.js';
 import { completeRecipeAttempt } from './recipe-persist.js';
 import { RECIPE_CLEANUP_BUDGET_MS, resolveRecipeAttempt } from './recipe-reconcile.js';
 import type { RecipeUploadRequest } from './recipe-upload.js';
@@ -26,7 +26,7 @@ const cleanupBudget = (deadline: number) => Math.max(0, Math.min(RECIPE_CLEANUP_
 /** One idempotent recipe write: the claim to record, the objects to store first, and the rows to change in one transaction. */
 export type RecipeWritePlan = {
   attempt: WriteAttempt;
-  uploads: { key: string; file: RecipeFile }[];
+  uploads: { key: string; photo: PreparedPhoto }[];
   /** Runs once the claim is owned and before any upload; throws to reject the write. */
   prepare?: () => Promise<void>;
   /** Returns the keys of stored objects the committed write no longer references. */
@@ -79,7 +79,7 @@ export class RecipeAttempts {
       const replay = await this.claimAttempt(attempt, claim, checkDeadline);
       if (replay) return replay;
       await prepare?.();
-      for (const upload of uploads) { checkDeadline(); startedKeys.push(upload.key); await this.storage.upload(upload.key, upload.file.buffer, upload.file.mimetype); }
+      for (const upload of uploads) { checkDeadline(); startedKeys.push(upload.key); await this.storage.upload(upload.key, upload.photo.buffer, upload.photo.contentType); }
       checkDeadline();
       budget.transactionStarted = true;
       stale = await this.commit(attempt.id, budget.deadline, checkDeadline, apply);

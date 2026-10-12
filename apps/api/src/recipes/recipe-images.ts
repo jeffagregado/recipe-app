@@ -2,6 +2,9 @@ import { RECIPE_IMAGE_MIME_TYPES, RECIPE_LIMITS } from '@recipe-app/contracts/ty
 import { fieldError } from './recipe-errors.js';
 
 export type RecipeFile = { fieldname: string; mimetype: string; buffer: Buffer };
+export type RecipeImageExtension = 'jpg' | 'png' | 'webp';
+/** An accepted upload as storage receives it: the bytes to store, the extension of their object key and the content type they are served with. */
+export type PreparedPhoto = { fieldname: string; buffer: Buffer; extension: RecipeImageExtension; contentType: string };
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 type InvalidImage = (message: string) => never;
 
@@ -48,7 +51,7 @@ function validateWebp(buffer: Buffer, invalid: InvalidImage): void {
 }
 
 /** Inspects chunk boundaries, not payload substrings; never decodes pixels or trusts filenames. */
-export function validateRecipeImage({ fieldname, mimetype, buffer }: RecipeFile): 'jpg' | 'png' | 'webp' {
+export function validateRecipeImage({ fieldname, mimetype, buffer }: RecipeFile): RecipeImageExtension {
   const invalid = (message: string): never => { throw fieldError(fieldname, message); };
   if (!buffer.length) invalid('Image must not be empty.');
   if (buffer.length > RECIPE_LIMITS.imageBytes) throw fieldError(fieldname, 'Image exceeds 5 MiB.', 413, 'PAYLOAD_TOO_LARGE');
