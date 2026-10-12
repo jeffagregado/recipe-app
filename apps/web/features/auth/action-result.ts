@@ -5,6 +5,13 @@ export type AuthFailure = { ok: false } & AuthErrorResponse
 export type LogoutResult = { ok: true } | AuthFailure
 export type AuthMutation = 'signup' | 'login' | 'logout'
 
+const INVALID_LOGIN: AuthFailure = { ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid username or password' }
+
+/** Login never tells the browser why it failed; the cause stays in the web server log. */
+export function publicFailure(operation: AuthMutation, cause: AuthFailure): AuthFailure {
+	return operation === 'login' ? INVALID_LOGIN : cause
+}
+
 export function serviceFailure(operation: AuthMutation): AuthFailure {
 	return { ok: false, code: 'SERVICE_UNAVAILABLE', message: operation === 'signup'
 		? 'We could not confirm signup. Your account may have been created; try logging in with your chosen username. Do not submit signup again automatically.'
@@ -14,7 +21,7 @@ export function serviceFailure(operation: AuthMutation): AuthFailure {
 export function mapAuthError(status: number, payload: unknown, operation: AuthMutation = 'login'): AuthFailure {
 	const parsed = authErrorResponseSchema.safeParse(payload)
 	if (!parsed.success) return serviceFailure(operation)
-	if (status === 401 && parsed.data.code === 'INVALID_CREDENTIALS') return { ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid username or password' }
+	if (status === 401 && parsed.data.code === 'INVALID_CREDENTIALS') return INVALID_LOGIN
 	if (status === 409 && parsed.data.code === 'USERNAME_UNAVAILABLE') return { ok: false, code: 'USERNAME_UNAVAILABLE', message: 'Username is unavailable.', fieldErrors: { username: ['Username is unavailable.'] } }
 	if (status === 429) return { ok: false, code: 'RATE_LIMITED', message: 'Too many attempts. Please wait and try again.' }
 	if (status === 403) return { ok: false, code: 'ORIGIN_REJECTED', message: 'This request could not be verified. Refresh the page and try again.' }

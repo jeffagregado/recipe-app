@@ -1,7 +1,7 @@
 'use client'
 
 import { unstable_rethrow } from 'next/navigation'
-import { serviceFailure, type AuthFailure } from './action-result'
+import { publicFailure, serviceFailure, type AuthFailure } from './action-result'
 
 /** A Next action redirect rejects its promise; preserve that framework control flow. */
 export async function submitAuth(action: () => Promise<AuthFailure>, mode: 'login' | 'signup', complete: () => void): Promise<AuthFailure> {
@@ -9,6 +9,6 @@ export async function submitAuth(action: () => Promise<AuthFailure>, mode: 'logi
 	catch (error) {
 		try { unstable_rethrow(error) }
 		catch (controlFlow) { complete(); throw controlFlow }
-		return serviceFailure(mode)
+		return publicFailure(mode, serviceFailure(mode))
 	}
 }

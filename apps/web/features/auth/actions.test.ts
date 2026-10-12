@@ -11,13 +11,16 @@ import { login, logout, signup } from './actions'
 
 const credentials = { username: 'test_owner', password: 'x'.repeat(16) }
 const user = { user: { id: 'user-1', displayName: 'Test Owner', username: 'test_owner' } }
+const invalidLogin = { ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid username or password' }
 const fetchMock = vi.fn<typeof fetch>()
+const warn = vi.spyOn(console, 'warn')
 
 beforeEach(() => {
 	next.headers = new Headers({ origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9' })
 	next.cookies.clear()
 	next.set.mockReset()
 	fetchMock.mockReset()
+	warn.mockReset().mockImplementation(() => {})
 	vi.stubEnv('RECIPE_API_URL', 'http://api.example')
 	vi.stubGlobal('fetch', fetchMock)
 })
@@ -35,12 +38,40 @@ it('rejects invalid input before any upstream call', async () => {
 	expect(fetchMock).not.toHaveBeenCalled()
 })
 
-it('refuses a missing or null Origin without contacting the API', async () => {
-	for (const origin of [undefined, 'null']) {
-		next.headers = new Headers(origin ? { origin } : {})
-		expect(await login(credentials)).toMatchObject({ ok: false, code: 'ORIGIN_REJECTED' })
-	}
+it.each([undefined, 'null'])('refuses the Origin %s without contacting the API', async (origin) => {
+	next.headers = new Headers(origin ? { origin } : {})
+	expect(await login(credentials)).toEqual(invalidLogin)
+	expect(warn).toHaveBeenCalledExactlyOnceWith('Auth: login failed with ORIGIN_REJECTED.')
+	expect(await signup({ displayName: 'Owner', ...credentials })).toEqual({ ok: false, code: 'ORIGIN_REJECTED', message: 'This request could not be verified. Refresh the page and try again.' })
 	expect(fetchMock).not.toHaveBeenCalled()
+})
+
+it.each([
+	['wrong credentials', () => json({ code: 'INVALID_CREDENTIALS', message: 'raw upstream text' }, 401), 'Auth: login failed with INVALID_CREDENTIALS (upstream 401).'],
+	['an unavailable service', () => json({ code: 'SERVICE_UNAVAILABLE', message: 'raw upstream text' }, 503), 'Auth: login failed with SERVICE_UNAVAILABLE (upstream 503).'],
+	['a failed or timed out request', () => Promise.reject(new TypeError('Test transport failed')), 'Auth: login failed with SERVICE_UNAVAILABLE.'],
+	['an origin the API rejects', () => json({ code: 'ORIGIN_REJECTED', message: 'raw upstream text' }, 403), 'Auth: login failed with ORIGIN_REJECTED (upstream 403).'],
+	['rate limiting', () => json({ code: 'RATE_LIMITED', message: 'raw upstream text' }, 429), 'Auth: login failed with RATE_LIMITED (upstream 429).'],
+	['a payload that is too large', () => json({ code: 'PAYLOAD_TOO_LARGE', message: 'raw upstream text' }, 413), 'Auth: login failed with PAYLOAD_TOO_LARGE (upstream 413).'],
+	['an unparseable response', () => new Response('<html>raw upstream text</html>', { status: 502 }), 'Auth: login failed with SERVICE_UNAVAILABLE (upstream 502).'],
+	['an unexpected response', () => json({ token: 'test-only', message: 'raw upstream text' }, 500), 'Auth: login failed with SERVICE_UNAVAILABLE (upstream 500).'],
+	['a success without a session cookie', () => json(user, 200), 'Auth: login failed with SERVICE_UNAVAILABLE (upstream 200).'],
+])('answers login with the one message after %s and logs the cause once', async (_cause, respond, line) => {
+	fetchMock.mockImplementation(async () => respond())
+	expect(await login(credentials)).toEqual(invalidLogin)
+	expect(warn).toHaveBeenCalledExactlyOnceWith(line)
+	expect(next.set).not.toHaveBeenCalled()
+})
+
+it('logs signup and logout failures without the credentials, the session cookie or the upstream body', async () => {
+	fetchMock.mockResolvedValueOnce(json({ code: 'RATE_LIMITED', message: 'raw upstream text' }, 429))
+	expect(await signup({ displayName: 'Owner', ...credentials })).toEqual({ ok: false, code: 'RATE_LIMITED', message: 'Too many attempts. Please wait and try again.' })
+	next.cookies.set('better-auth.session_token', 'abc')
+	fetchMock.mockResolvedValueOnce(json({ code: 'SERVICE_UNAVAILABLE', message: 'raw upstream text' }, 503))
+	await logout()
+	expect(warn.mock.calls).toEqual([['Auth: signup failed with RATE_LIMITED (upstream 429).'], ['Auth: logout failed with SERVICE_UNAVAILABLE (upstream 503).']])
+	const logged = JSON.stringify(warn.mock.calls)
+	for (const secret of [credentials.username, credentials.password, 'Owner', 'abc', 'raw upstream text']) expect(logged).not.toContain(secret)
 })
 
 it('forwards only origin and client address, applies the session cookie and redirects to /recipes', async () => {
@@ -52,9 +83,7 @@ it('forwards only origin and client address, applies the session cookie and redi
 	expect(next.set).toHaveBeenCalledExactlyOnceWith('better-auth.session_token', 'abc', { httpOnly: true, sameSite: 'lax', path: '/', secure: false, maxAge: 604800 })
 })
 
-it('maps generic credential and conflict errors to the exact messages', async () => {
-	fetchMock.mockResolvedValueOnce(json({ code: 'INVALID_CREDENTIALS', message: 'raw upstream text' }, 401))
-	expect(await login(credentials)).toEqual({ ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid username or password' })
+it('maps a username conflict to the exact message', async () => {
 	fetchMock.mockResolvedValueOnce(json({ code: 'USERNAME_UNAVAILABLE', message: 'raw upstream text' }, 409))
 	expect(await signup({ displayName: 'Owner', ...credentials })).toMatchObject({ ok: false, message: 'Username is unavailable.' })
 })
