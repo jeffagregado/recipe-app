@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { jpeg } from './recipe-photos.js';
 
 describe('Recipe photo fixture', () => {
-  it.each([[0, 1, 1], [1, 2, 1], [17, 2, 2], [255, 16, 16]])('jpeg(%i) is a decodable %i by %i JPEG', async (marker, width, height) => {
+  it.each([[0, 1, 1], [1, 2, 1], [17, 2, 2], [255, 16, 16]])('jpeg(%i) is a decodable %i by %i JPEG with the marker at byte 6', async (marker, width, height) => {
     const bytes = jpeg(marker);
-    expect([bytes[0], bytes[1], bytes[2]]).toEqual([255, 216, 255]);
+    expect([bytes[0], bytes[1], bytes[2], bytes[6]]).toEqual([255, 216, 255, marker]);
     expect(bytes.length).toBeLessThan(2048);
     const { format, width: decodedWidth, height: decodedHeight } = await sharp(bytes).metadata();
     expect({ format, width: decodedWidth, height: decodedHeight }).toEqual({ format: 'jpeg', width, height });
