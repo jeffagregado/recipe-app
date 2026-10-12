@@ -5,7 +5,7 @@ import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import type { ZodError } from 'zod'
 import { authFetch } from './api'
-import { mapAuthError, serviceFailure, type AuthFailure, type AuthMutation, type LogoutResult } from './action-result'
+import { mapAuthError, publicFailure, serviceFailure, type AuthFailure, type AuthMutation, type LogoutResult } from './action-result'
 import { applySessionCookies, clearSessionCookies, sessionCookieHeader } from './session-cookie'
 
 function validationFailure(error: ZodError): AuthFailure {
@@ -28,30 +28,36 @@ function upstreamHeaders(origin: string, address: string | null, cookie: string)
 	return outgoing
 }
 
+/** The one server record of why a mutation failed: operation, code and upstream status only. */
+function fail(operation: AuthMutation, cause: AuthFailure, status?: number): AuthFailure {
+	console.warn(`Auth: ${operation} failed with ${cause.code}${status === undefined ? '' : ` (upstream ${status})`}.`)
+	return publicFailure(operation, cause)
+}
+
 async function applySuccess(operation: AuthMutation, response: Response, store: Awaited<ReturnType<typeof cookies>>): Promise<AuthFailure | undefined> {
 	if (operation === 'logout') {
 		applySessionCookies(response.headers, store)
 		clearSessionCookies(store)
 		return
 	}
-	const parsed = authUserResponseSchema.safeParse(await response.json())
-	if (!parsed.success || applySessionCookies(response.headers, store) === 0) return serviceFailure(operation)
+	const parsed = authUserResponseSchema.safeParse(await response.json().catch(() => undefined))
+	if (!parsed.success || applySessionCookies(response.headers, store) === 0) return fail(operation, serviceFailure(operation), response.status)
 }
 
 async function mutate(operation: AuthMutation, body: unknown): Promise<AuthFailure | undefined> {
 	const incoming = await headers()
 	const origin = incoming.get('origin')
-	if (!origin || origin === 'null') return ORIGIN_REJECTED
+	if (!origin || origin === 'null') return fail(operation, ORIGIN_REJECTED)
 	const store = await cookies()
 	const cookie = operation === 'logout' ? sessionCookieHeader(store) : ''
 	if (operation === 'logout' && !cookie) { clearSessionCookies(store); return }
 	try {
 		const response = await authFetch(`/auth/${operation}`, { method: 'POST', headers: upstreamHeaders(origin, incoming.get('x-forwarded-for'), cookie), body: JSON.stringify(body) })
-		if (response.status !== EXPECTED_STATUS[operation]) return mapAuthError(response.status, await response.json(), operation)
+		if (response.status !== EXPECTED_STATUS[operation]) return fail(operation, mapAuthError(response.status, await response.json().catch(() => undefined), operation), response.status)
 		return await applySuccess(operation, response, store)
 	} catch {
 		// Never replay a mutation with an unknown outcome or leak upstream bodies.
-		return serviceFailure(operation)
+		return fail(operation, serviceFailure(operation))
 	}
 }
 

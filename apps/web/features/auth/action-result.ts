@@ -5,6 +5,13 @@ export type AuthFailure = { ok: false } & AuthErrorResponse
 export type LogoutResult = { ok: true } | AuthFailure
 export type AuthMutation = 'signup' | 'login' | 'logout'
 
+const INVALID_LOGIN: AuthFailure = { ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid username or password' }
+
+/** Login never tells the browser why it failed; the cause stays in the web server log. */
+export function publicFailure(operation: AuthMutation, cause: AuthFailure): AuthFailure {
+	return operation === 'login' ? INVALID_LOGIN : cause
+}
+
 export function serviceFailure(operation: AuthMutation): AuthFailure {
 	return { ok: false, code: 'SERVICE_UNAVAILABLE', message: operation === 'signup'
 		? 'We could not confirm signup. Your account may have been created; try logging in with your chosen username. Do not submit signup again automatically.'
