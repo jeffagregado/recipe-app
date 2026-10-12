@@ -293,6 +293,17 @@
 
   --sidebar-border: oklch(0.9 0.01 90);
   --sidebar-ring: oklch(0.49 0.09 145);
+
+  /*
+  |--------------------------------------------------------------------------
+  | Mobile layout
+  |--------------------------------------------------------------------------
+  | The mobile header is 69px tall (36px brand mark, 12px padding each side, 1px border). Toasts below lg stack from
+  | `--toast-top`; a page with its own sticky header raises it while mounted (see `useToastTop`).
+  */
+
+  --mobile-header-height: 69px;
+  --toast-top: calc(var(--mobile-header-height) + 1rem);
 }
 
 /*

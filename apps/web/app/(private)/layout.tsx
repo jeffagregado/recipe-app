@@ -1,6 +1,8 @@
 import Sidebar from '@/components/layout/sidebar'
 import { Suspense, type ReactNode } from 'react'
 import { AppToaster } from '@/components/layout/app-toaster'
+import { MobileHeader } from '@/components/layout/mobile-header'
+import { MobileNav, MobileNavPlaceholder } from '@/components/layout/mobile-nav'
 import { NoticeToast } from '@/components/layout/notice-toast'
 import { SessionErrorBoundary } from '@/features/auth/session-error'
 import { ShellSession } from '@/features/auth/shell-session'
@@ -18,12 +20,15 @@ export default function PrivateLayout({ children }: PrivateLayoutProps) {
 				</Suspense>
 
 				<div className="min-w-0 flex-1">
-					<header className="border-b border-border bg-sidebar px-4 py-3 lg:hidden">
-						<SessionErrorBoundary><Suspense fallback={<p role="status">Checking session...</p>}><ShellSession mobile /></Suspense></SessionErrorBoundary>
-					</header>
+					<MobileHeader session={<SessionErrorBoundary><Suspense fallback={<p role="status">Checking session...</p>}><ShellSession mobile /></Suspense></SessionErrorBoundary>} />
+					{/* The bottom padding keeps content clear of the fixed tab bar below lg. */}
 					<main className="min-w-0 pb-20 lg:pb-0">{children}</main>
 				</div>
 			</div>
+			{/* Reads the pathname, so like the sidebar it streams in behind a same-size placeholder. */}
+			<Suspense fallback={<MobileNavPlaceholder />}>
+				<MobileNav />
+			</Suspense>
 			{/* Reads the search params, so it suspends on its own and never delays the shell. */}
 			<Suspense fallback={null}>
 				<NoticeToast />
