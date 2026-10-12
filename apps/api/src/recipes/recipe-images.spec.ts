@@ -1,4 +1,4 @@
-import { crc32 } from 'node:zlib';
+import { crc32, deflateSync } from 'node:zlib';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import { prepareRecipePhoto } from './recipe-images.js';
@@ -8,6 +8,14 @@ const pngChunk = (name: string, bytes = Buffer.alloc(0)) => {
   const header = Buffer.alloc(8); header.writeUInt32BE(bytes.length); header.write(name, 4);
   const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(Buffer.concat([header.subarray(4), bytes])));
   return Buffer.concat([header, bytes, crc]);
+};
+/** A valid all-black 1-bit greyscale PNG. Its rows are zero bytes that deflate to a few kilobytes, so a 50-megapixel one is built in tens of
+ * milliseconds; encoding one with sharp took 0.7 to 1.4 s on CI (#29).
+ */
+const blankPng = (width: number, height: number) => {
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width); ihdr.writeUInt32BE(height, 4); ihdr[8] = 1;
+  const rows = Buffer.alloc(height * (1 + Math.ceil(width / 8)));
+  return Buffer.concat([pngSignature, pngChunk('IHDR', ihdr), pngChunk('IDAT', deflateSync(rows)), pngChunk('IEND')]);
 };
 const webpChunk = (name: string, bytes = Buffer.alloc(0)) => {
   const header = Buffer.alloc(8); header.write(name); header.writeUInt32LE(bytes.length, 4);
@@ -64,8 +72,8 @@ describe('Recipe photo preparation', () => {
   });
 
   it('accepts a valid PNG declaring exactly 50,000,000 pixels and refuses one declaring a row more', async () => {
-    expect(await described((await prepare(await image('png', 8000, 6250), 'image/png')).buffer)).toEqual({ ...bare, format: 'webp', width: 2048, height: 1600 });
-    await expect(prepare(await image('png', 8000, 6251), 'image/png')).rejects.toEqual(rejection('Photo could not be decoded.'));
+    expect(await described((await prepare(blankPng(8000, 6250), 'image/png')).buffer)).toEqual({ ...bare, format: 'webp', width: 2048, height: 1600 });
+    await expect(prepare(blankPng(8000, 6251), 'image/png')).rejects.toEqual(rejection('Photo could not be decoded.'));
   });
 
   it('rejects a truncated JPEG on its own field', async () => {
