@@ -14,13 +14,16 @@ import type {
   RecipeIngredient,
 } from "./ingredient.js";
 
+const MAX_RECIPE_STEPS = 50;
+
 export const RECIPE_LIMITS = {
   title: 200, description: 2000, notes: 5000, videoUrl: 2048,
-  categories: 3, categoriesPerUser: 10, categoryName: 10, ingredients: 100, instructions: 100,
+  categories: 3, categoriesPerUser: 10, categoryName: 10, ingredients: 100, instructions: MAX_RECIPE_STEPS,
   ingredientName: 100, instructionDescription: 5000,
   maxInteger: 2147483647, maxQuantity: 999999999.999, quantityDecimals: 3,
   imageBytes: 5 * 1024 * 1024, metadataBytes: 1024 * 1024,
-  maxFiles: 101, requestBytes: 128 * 1024 * 1024,
+  // The cover plus one photo per step.
+  maxFiles: MAX_RECIPE_STEPS + 1, requestBytes: 128 * 1024 * 1024,
 } as const;
 
 export const RECIPE_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;

@@ -55,12 +55,20 @@ describe("recipe creation metadata", () => {
     expect(createRecipeMetadataSchema.safeParse({ ...metadata, title: " " }).success).toBe(false);
   });
 
-  it("requires 1–100 ingredients and instructions", () => {
-    for (const [field, row] of [["ingredients", ingredient], ["instructions", instruction]] as const) {
-      expect(createRecipeMetadataSchema.safeParse({ ...metadata, [field]: Array.from({ length: 100 }, () => row) }).success).toBe(true);
-      for (const length of [0, 101]) {
-        expect(createRecipeMetadataSchema.safeParse({ ...metadata, [field]: Array.from({ length }, () => row) }).success).toBe(false);
-      }
+  it("requires 1–100 ingredients", () => {
+    expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: Array.from({ length: 100 }, () => ingredient) }).success).toBe(true);
+    for (const length of [0, 101]) {
+      expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: Array.from({ length }, () => ingredient) }).success).toBe(false);
+    }
+  });
+
+  it.each([
+    ["create", createRecipeMetadataSchema, metadata, instruction],
+    ["update", updateRecipeMetadataSchema, { ...metadata, cover: "keep" }, { id: null, description: "New", image: "remove" }],
+  ] as const)("requires 1–50 steps on %s", (_request, schema, base, step) => {
+    expect(schema.safeParse({ ...base, instructions: Array.from({ length: 50 }, () => step) }).success).toBe(true);
+    for (const length of [0, 51]) {
+      expect(schema.safeParse({ ...base, instructions: Array.from({ length }, () => step) }).success, String(length)).toBe(false);
     }
   });
 
@@ -135,9 +143,9 @@ describe("recipe files and responses", () => {
     expect(expectedRecipeFileFields(parsed, true)).toEqual(["cover", "step-1", "step-3"]);
     expect(expectedRecipeFileFields(parsed, false)).toEqual(["step-1", "step-3"]);
     expect(expectedRecipeFileFields(createRecipeMetadataSchema.parse(metadata), false)).toEqual([]);
-    const all = createRecipeMetadataSchema.parse({ ...metadata, instructions: Array.from({ length: 100 }, () => ({ ...instruction, hasImage: true })) });
-    expect(expectedRecipeFileFields(all, true)).toHaveLength(101);
-    expect(expectedRecipeFileFields(all, true).at(-1)).toBe("step-99");
+    const all = createRecipeMetadataSchema.parse({ ...metadata, instructions: Array.from({ length: 50 }, () => ({ ...instruction, hasImage: true })) });
+    expect(expectedRecipeFileFields(all, true)).toHaveLength(51);
+    expect(expectedRecipeFileFields(all, true).at(-1)).toBe("step-49");
   });
 
   it("validates creation IDs and general API errors", () => {
