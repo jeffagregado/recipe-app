@@ -85,26 +85,30 @@ test.describe('toasts', () => {
     await expect(page.getByText('Recipe deleted')).toHaveCount(0);
   });
 
-  test('toasts sit bottom-right on desktop and across the bottom on mobile', async ({ page, creator, workerData }) => {
+  test('toasts sit bottom-right from lg and below the header on mobile', async ({ page, creator, workerData }) => {
     const id = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Toast position'));
     for (const [width, height] of [[1280, 720], [390, 844]] as const) {
       await page.setViewportSize({ width, height });
       await page.goto(`/recipes/${id}?notice=recipe-saved`);
       const saved = toast.success(page, 'Recipe saved');
       await expect(saved).toBeVisible();
-      // The toast slides in; measure once it has settled.
-      await expect.poll(async () => Math.round((await box(saved)).y + (await box(saved)).height), { timeout: 3_000 }).toBeGreaterThan(height - 40);
+      // #31: the mobile header and bottom tab bar switch at lg (1024px); toasts switch with them, not at sm.
+      const desktop = width >= 1024;
+      // The toast slides in (up from the corner, down from the header); measure once it has settled.
+      const settled = (b: { y: number; height: number }) => (desktop ? b.y + b.height > height - 40 : b.y < 100);
+      await expect.poll(async () => settled((await saved.boundingBox()) ?? { y: -1, height: 0 }), { timeout: 3_000 }).toBe(true);
       await page.waitForTimeout(300);
       const toastBox = await box(saved);
-      if (width >= 640) {
+      if (desktop) {
         expect(Math.abs(toastBox.x + toastBox.width - (width - 24))).toBeLessThan(2);
         expect(Math.abs(toastBox.y + toastBox.height - (height - 24))).toBeLessThan(2);
         expect(toastBox.width).toBeLessThanOrEqual(384.5);
         expect(toastBox.x).toBeGreaterThan(width / 2);
       } else {
+        // 69px mobile header plus the 16px gap, with the 16px side gutters.
         expect(Math.abs(toastBox.x - 16)).toBeLessThan(2);
         expect(Math.abs(toastBox.x + toastBox.width - (width - 16))).toBeLessThan(2);
-        expect(Math.abs(toastBox.y + toastBox.height - (height - 16))).toBeLessThan(2);
+        expect(Math.abs(toastBox.y - 85)).toBeLessThan(2);
       }
       await saved.getByRole('button', { name: 'Dismiss' }).click();
     }

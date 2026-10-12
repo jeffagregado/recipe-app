@@ -10,13 +10,16 @@ function ToastProvider({ ...props }: ToastPrimitive.Provider.Props) {
   return <ToastPrimitive.Provider {...props} />
 }
 
-/** Bottom of the screen with gutters on mobile, bottom-right corner from `sm`. */
+/**
+ * Below `lg`: the top of the screen under the mobile header (`--toast-top`, raised by pages with their own sticky header),
+ * 16px gutters, newest first. From `lg`: the bottom-right corner, newest at the bottom.
+ */
 function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
   return (
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       className={cn(
-        "fixed inset-x-4 bottom-4 z-100 flex flex-col-reverse gap-2 outline-none sm:inset-x-auto sm:right-6 sm:bottom-6 sm:w-96",
+        "fixed inset-x-4 top-(--toast-top) z-100 flex flex-col gap-2 outline-none lg:inset-x-auto lg:top-auto lg:right-6 lg:bottom-6 lg:w-96 lg:flex-col-reverse",
         className
       )}
       {...props}
@@ -25,6 +28,7 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
 }
 
 /**
+ * Slides down into place below `lg` and up from `lg`.
  * Base UI marks toasts as dialogs. Success toasts are exposed as `status` (polite) and error toasts as
  * `alert`; error toasts also get the primitive's urgent announcement (priority "high").
  */
@@ -39,7 +43,7 @@ function Toast({
       toast={toast}
       role={toast.type === "error" ? "alert" : "status"}
       className={cn(
-        "flex w-full items-center gap-3 rounded-xl bg-popover p-3 text-sm text-popover-foreground shadow-floating ring-1 ring-foreground/10 transition-[opacity,translate] duration-200 outline-none select-none focus-visible:ring-3 focus-visible:ring-ring/50 data-ending-style:translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:translate-y-2 data-starting-style:opacity-0 motion-reduce:transition-none",
+        "flex w-full items-center gap-3 rounded-xl bg-popover p-3 text-sm text-popover-foreground shadow-floating ring-1 ring-foreground/10 transition-[opacity,translate] duration-200 outline-none select-none focus-visible:ring-3 focus-visible:ring-ring/50 data-ending-style:-translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-2 data-starting-style:opacity-0 lg:data-ending-style:translate-y-2 lg:data-starting-style:translate-y-2 motion-reduce:transition-none",
         className
       )}
       {...props}
