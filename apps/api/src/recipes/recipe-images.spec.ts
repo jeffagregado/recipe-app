@@ -63,9 +63,9 @@ describe('Recipe photo preparation', () => {
     expect([...data]).toEqual(Array.from({ length: 4 * 4 * 3 }, () => 255));
   });
 
-  it('refuses a valid PNG declaring more than 50,000,000 pixels', async () => {
-    const huge = await image('png', 8000, 6500);
-    await expect(prepare(huge, 'image/png')).rejects.toEqual(rejection('Photo could not be decoded.'));
+  it('accepts a valid PNG declaring exactly 50,000,000 pixels and refuses one declaring a row more', async () => {
+    expect(await described((await prepare(await image('png', 8000, 6250), 'image/png')).buffer)).toEqual({ ...bare, format: 'webp', width: 2048, height: 1600 });
+    await expect(prepare(await image('png', 8000, 6251), 'image/png')).rejects.toEqual(rejection('Photo could not be decoded.'));
   });
 
   it('rejects a truncated JPEG on its own field', async () => {
