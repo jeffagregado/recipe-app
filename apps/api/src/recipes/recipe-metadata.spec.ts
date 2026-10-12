@@ -27,7 +27,8 @@ describe('Recipe file matching', () => {
     ['an unexpected field', ['cover'], [file('cover', 'image/jpeg', jpeg), file('step-0', 'image/jpeg', jpeg)], 'step-0'],
     ['a repeated field', ['cover'], [file('cover', 'image/jpeg', jpeg), file('cover', 'image/jpeg', jpeg)], 'cover'],
     ['a missing declared field', ['cover', 'step-0'], [file('cover', 'image/jpeg', jpeg)], 'step-0'],
-    ['bytes that do not match the declared type', ['cover'], [file('cover', 'image/png', jpeg)], 'cover'],
+    // The signature rules themselves are asserted in recipe-images.spec.ts; this proves the matcher surfaces their field error.
+    ['a file the image validator refuses', ['cover'], [file('cover', 'image/png', jpeg)], 'cover'],
   ])('rejects %s with a field error on that field', (_, fields, files, field) => {
     expect(() => matchRecipeFiles(fields, files)).toThrowError(expect.objectContaining({ response: expect.objectContaining({ fieldErrors: { [field]: [expect.any(String)] } }) }));
   });
