@@ -59,3 +59,11 @@ it('links username conflict to its input and announces pending submission', asyn
 	expect(screen.getByLabelText('Username')).toHaveAccessibleDescription('Username is unavailable.')
 })
 
+// A native submit before hydration must send the fields in the body, never in the URL.
+it.each(['Login', 'Sign up'])('declares the post method in %s mode', async (mode) => {
+	const user = userEvent.setup()
+	render(<AuthForm />)
+	await user.click(screen.getByRole('button', { name: mode }))
+	expect(screen.getByLabelText('Password').closest('form')).toHaveAttribute('method', 'post')
+})
+
