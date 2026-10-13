@@ -21,22 +21,30 @@ export class AuthRateLimiter {
   async consume(key: string, { limit, windowMs }: { limit: number; windowMs: number }): Promise<void> {
     const now = Date.now();
     let row: { count: number; lastRequest: number };
-    try {
-      // Phase 1 reuses Better Auth's table with isolated wrapper: keys; last_request is the fixed window start.
-      const expired = sql`${authRateLimits.lastRequest} <= ${now - windowMs}`;
-      [row] = await this.db.insert(authRateLimits).values({ id: randomUUID(), key, count: 1, lastRequest: now })
-        .onConflictDoUpdate({ target: authRateLimits.key, set: {
-          count: sql`case when ${expired} then 1 else ${authRateLimits.count} + 1 end`,
-          lastRequest: sql`case when ${expired} then ${now} else ${authRateLimits.lastRequest} end`,
-        } }).returning({ count: authRateLimits.count, lastRequest: authRateLimits.lastRequest });
-      if (now >= this.nextCleanup) {
-        this.nextCleanup = now + 60_000;
-        // One hour is the longest wrapper window. Cleanup never touches native limiter rows.
-        await this.db.delete(authRateLimits).where(and(like(authRateLimits.key, 'wrapper:%'), lt(authRateLimits.lastRequest, now - 3_600_000)));
-      }
-    } catch (cause) { throw unavailable('rate-limit', cause); }
+    try { row = await this.count(key, windowMs, now); } catch (cause) { throw unavailable('rate-limit', cause); }
     if (row.count > limit) throw new AuthError(429, 'RATE_LIMITED', 'Too many attempts. Try again later.', {
       retryAfter: Math.max(1, Math.ceil((row.lastRequest + windowMs - now) / 1000)),
     });
+  }
+
+  /** Counts the attempt and says whether it is within the limit, for a caller whose answer must stay the same past it. A storage error is raised as it is. */
+  async allows(key: string, { limit, windowMs }: { limit: number; windowMs: number }): Promise<boolean> {
+    return (await this.count(key, windowMs, Date.now())).count <= limit;
+  }
+
+  private async count(key: string, windowMs: number, now: number): Promise<{ count: number; lastRequest: number }> {
+    // Phase 1 reuses Better Auth's table with isolated wrapper: keys; last_request is the fixed window start.
+    const expired = sql`${authRateLimits.lastRequest} <= ${now - windowMs}`;
+    const [row] = await this.db.insert(authRateLimits).values({ id: randomUUID(), key, count: 1, lastRequest: now })
+      .onConflictDoUpdate({ target: authRateLimits.key, set: {
+        count: sql`case when ${expired} then 1 else ${authRateLimits.count} + 1 end`,
+        lastRequest: sql`case when ${expired} then ${now} else ${authRateLimits.lastRequest} end`,
+      } }).returning({ count: authRateLimits.count, lastRequest: authRateLimits.lastRequest });
+    if (now >= this.nextCleanup) {
+      this.nextCleanup = now + 60_000;
+      // One hour is the longest wrapper window. Cleanup never touches native limiter rows.
+      await this.db.delete(authRateLimits).where(and(like(authRateLimits.key, 'wrapper:%'), lt(authRateLimits.lastRequest, now - 3_600_000)));
+    }
+    return row;
   }
 }

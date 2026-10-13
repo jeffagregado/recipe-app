@@ -22,11 +22,13 @@ function harness() {
   const db = {
     query: { authSessions: { findFirst: findSession }, users: { findFirst: findUser } },
     delete: () => ({ where: () => Promise.resolve() }), insert: () => ({ values: () => Promise.resolve() }),
+    select: () => ({ from: () => ({ innerJoin: () => ({ where: () => Promise.resolve([{ providerId: 'credential' }]) }) }) }),
   } as unknown as DrizzleDb;
   const resilience = { preset: () => ({ execute: (fn: () => unknown) => fn() }) } as unknown as ResilienceService;
-  const service = new AuthService(auth, db, resilience, { send });
+  const allows = vi.fn().mockResolvedValue(true);
+  const service = new AuthService(auth, db, resilience, { send }, { allows } as unknown as AuthRateLimiter);
   const request = { headers: {}, ip: '127.0.0.1' } as IncomingMessage & { ip: string };
-  return { service, request, getSession, signOut, signUpEmail, findSession, findUser, send };
+  return { service, request, getSession, signOut, signUpEmail, findSession, findUser, send, allows };
 }
 
 describe('Auth dependency failure boundaries', () => {
@@ -112,6 +114,20 @@ describe('Auth failure logging', () => {
       else await expect(service.resendVerification(email, 'http://localhost:3000')).resolves.toBeUndefined();
       expect(send).toHaveBeenCalledTimes(1);
       expect(logs.lines).toEqual([`Auth ${operation === 'signup' ? 'signup-mail' : 'resend-verification-mail'} failed: Error.`]);
+    } finally { logs.restore(); }
+  });
+
+  it.each(['the transport refuses it', 'its limit cannot be counted'])('answers the conflict and logs only a label and class when the notice fails because %s', async (failure) => {
+    const { service, request, signUpEmail, send, allows } = harness();
+    const logs = captureLogs();
+    try {
+      signUpEmail.mockRejectedValue(new APIError('UNPROCESSABLE_ENTITY', { code: 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL', message: `Taken ${email}` }));
+      if (failure === 'the transport refuses it') send.mockImplementation((message: { html: string }) => Promise.reject(new Error(`refused ${email} ${message.html}`)));
+      else allows.mockRejectedValue(new Error(`insert ${email}`));
+      await expect(service.signup({ displayName: 'Unit User', email, password: 'unit-password-123' }, request, 'http://localhost:3000'))
+        .rejects.toMatchObject({ status: 409, response: { code: 'EMAIL_ALREADY_EXISTS', message: 'Email already exists.' } });
+      expect(send).toHaveBeenCalledTimes(failure === 'the transport refuses it' ? 1 : 0);
+      expect(logs.lines).toEqual(['Auth signup-notice-mail failed: Error.']);
     } finally { logs.restore(); }
   });
 });

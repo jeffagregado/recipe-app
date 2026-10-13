@@ -7,13 +7,16 @@ import { authUserSchema } from '@recipe-app/contracts/schemas';
 import type { AuthSessionResponse, AuthUser, LoginInput, SignupInput } from '@recipe-app/contracts/types';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
-import { authSessions, authVerifications, users } from '../database/schema.js';
+import { authAccounts, authSessions, authVerifications, users } from '../database/schema.js';
 import { MAIL_TRANSPORT } from '../mail/mail.transport.js';
 import type { MailTransport } from '../mail/mail.transport.js';
 import { AUTH } from './auth.tokens.js';
 import type { RecipeAuth } from './auth.js';
 import { AuthError, emailAlreadyExists, emailNotVerified, unauthenticated, unavailable, verificationLinkInvalid } from './auth.errors.js';
 import { logAuthFailure } from './auth.logger.js';
+import { accountExistsMessage } from './auth.notice.js';
+import { AuthRateLimiter, rateLimitKey } from './auth.rate-limit.js';
+import type { SignInMethod } from './auth.notice.js';
 import { newVerificationToken, VERIFICATION_IDENTIFIERS, VERIFICATION_LIFETIME_MS, verificationIdentifier, verificationMessage } from './auth.verification.js';
 import { authHeaders } from './auth.request.js';
 import type { AuthRequest } from './auth.request.js';
@@ -31,6 +34,7 @@ export class AuthService {
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
     resilience: ResilienceService,
     @Inject(MAIL_TRANSPORT) private readonly mail: MailTransport,
+    private readonly limiter: AuthRateLimiter,
   ) {
     this.credentialPolicy = resilience.preset('authCredential');
   }
@@ -44,14 +48,14 @@ export class AuthService {
       }));
       userId = user.id;
     } catch (cause) {
-      return this.rejectSignup(cause, input.email);
+      return this.rejectSignup(cause, input.email, origin);
     }
     // With verification required, Better Auth answers a taken email like a new one, under an id that was never stored.
     let created: { id: string } | undefined;
     try {
       created = await this.db.query.users.findFirst({ where: eq(users.id, userId), columns: { id: true } });
     } catch (cause) { throw unavailable('signup', cause); }
-    if (!created) throw emailAlreadyExists();
+    if (!created) return this.rejectTaken(input.email, origin);
     await this.sendVerification({ id: userId, email: input.email }, origin, 'signup-mail');
   }
 
@@ -141,24 +145,40 @@ export class AuthService {
     } catch (cause) { logAuthFailure(operation, cause); }
   }
 
-  private async rejectSignup(cause: unknown, email: string): Promise<never> {
+  private async rejectSignup(cause: unknown, email: string, origin: string): Promise<never> {
     if (!(cause instanceof APIError)) throw unavailable('signup', cause);
     const code = cause.body?.code;
-    if (code === 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL') throw emailAlreadyExists();
-    if (code === 'FAILED_TO_CREATE_USER') return this.rejectCreation(cause, email);
+    if (code === 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL') return this.rejectTaken(email, origin);
+    if (code === 'FAILED_TO_CREATE_USER') return this.rejectCreation(cause, email, origin);
     if (cause.statusCode < 500 && code && /PASSWORD|EMAIL/.test(code)) {
       throw new AuthError(400, 'VALIDATION_FAILED', 'Invalid signup details.', { cause });
     }
     throw unavailable('signup', cause);
   }
 
-  private async rejectCreation(cause: unknown, email: string): Promise<never> {
+  private async rejectCreation(cause: unknown, email: string, origin: string): Promise<never> {
     let conflict: { id: string } | undefined;
     try {
       conflict = await this.db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
     } catch (confirmationCause) { throw unavailable('signup', confirmationCause); }
-    if (conflict) throw emailAlreadyExists();
+    if (conflict) return this.rejectTaken(email, origin);
     throw unavailable('signup', cause);
+  }
+
+  /**
+   * Answers the conflict after telling the Account's own address about the attempt, at most 3 times an hour so sign-up
+   * cannot flood an inbox. A failure is logged and not raised: the answer is the same whether or not the notice went out.
+   */
+  private async rejectTaken(email: string, origin: string): Promise<never> {
+    try {
+      if (await this.limiter.allows(rateLimitKey('notice:email', email), { limit: 3, windowMs: 3_600_000 })) {
+        const accounts = await this.db.select({ providerId: authAccounts.providerId }).from(authAccounts)
+          .innerJoin(users, eq(users.id, authAccounts.userId)).where(eq(users.email, email));
+        const methods: SignInMethod[] = accounts.some(({ providerId }) => providerId === 'credential') ? ['password'] : [];
+        await this.mail.send(accountExistsMessage(email, origin, methods));
+      }
+    } catch (cause) { logAuthFailure('signup-notice-mail', cause); }
+    throw emailAlreadyExists();
   }
 
   private async sessionCookie(headers: Headers): Promise<string> {
