@@ -12,7 +12,6 @@ import { authRateLimits, categories, recipeCategories, recipes, users } from '..
 import type { SeedRecipe } from '../src/recipes/fixtures/fixture.js';
 import { seedRecipes } from '../src/recipes/seed-recipes.js';
 import { getDevDatabaseUrl } from './neon-dev.js';
-import { createAppWithRecordedMail } from './recording-mail.js';
 import type { RecordingMailTransport } from './recording-mail.js';
 
 export const TEST_ORIGIN = 'http://localhost:3000';
@@ -38,6 +37,8 @@ export async function startApi(): Promise<{ app: NestExpressApplication; baseUrl
   // Process environment overrides the env file, so the suite never depends on the developer's list.
   process.env.AUTH_TRUSTED_ORIGINS = TEST_ORIGIN;
   const { AppModule } = await import('../src/app.module.js');
+  // Imported here, not at the top: the e2e loader compiles this file alone and resolves no other test module.
+  const { createAppWithRecordedMail } = await import('./recording-mail.js');
   const { app, mail } = await createAppWithRecordedMail(AppModule, { logger: false, bodyParser: false, abortOnError: false });
   mountAuth(app);
   await app.listen(0, '127.0.0.1');
