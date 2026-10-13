@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { changePasswordSchema, requestSetPasswordSchema, updateDisplayNameSchema } from "./account.schema.js";
+import { changePasswordSchema, disconnectGoogleSchema, requestSetPasswordSchema, updateDisplayNameSchema } from "./account.schema.js";
 
 describe("update display name", () => {
   it("accepts exactly a display name and trims it", () => {
@@ -85,6 +85,15 @@ describe("request set password", () => {
     expect(requestSetPasswordSchema.parse({})).toEqual({});
     for (const body of [{ email: "ana@example.invalid" }, { userId: "user-1" }, undefined, null, []]) {
       expect(requestSetPasswordSchema.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
+  });
+});
+
+describe("disconnect Google", () => {
+  it("takes no input: the API removes the signed-in Account's own Google identity", () => {
+    expect(disconnectGoogleSchema.parse({})).toEqual({});
+    for (const body of [{ accountId: "1" }, { userId: "user-1" }, undefined, null, []]) {
+      expect(disconnectGoogleSchema.safeParse(body).success, JSON.stringify(body)).toBe(false);
     }
   });
 });

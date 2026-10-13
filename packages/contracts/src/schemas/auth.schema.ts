@@ -15,6 +15,7 @@ import {
   type AuthUserResponse,
   type ForgotPasswordInput,
   type GoogleCallbackInput,
+  type GoogleCallbackResponse,
   type GoogleStartResponse,
   type LoginInput,
   type ResendVerificationInput,
@@ -88,6 +89,10 @@ export const googleStartResponseSchema: z.ZodType<GoogleStartResponse> = z.stric
   url: z.url({ protocol: /^https?$/, hostname: /\S+/ }),
 });
 
+export const googleCallbackResponseSchema: z.ZodType<GoogleCallbackResponse> = z.strictObject({
+  connected: z.literal(true),
+});
+
 export const signupResponseSchema: z.ZodType<SignupResponse> = z.strictObject({
   verificationRequired: z.literal(true),
 });
@@ -96,6 +101,7 @@ export const authUserSchema: z.ZodType<AuthUser> = z.strictObject({
   id: entityIdSchema,
   displayName: z.string().min(1).max(DISPLAY_NAME_MAX_LENGTH),
   hasPassword: z.boolean(),
+  google: z.strictObject({ email: emailSchema.nullable() }).nullable(),
 });
 
 export const authUserResponseSchema: z.ZodType<AuthUserResponse> = z.strictObject({

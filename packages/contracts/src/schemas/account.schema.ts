@@ -17,3 +17,6 @@ export const changePasswordSchema: z.ZodType<ChangePasswordInput, ChangePassword
 
 // Asking takes no input: the API mails the link to the signed-in Account's own address.
 export const requestSetPasswordSchema = z.strictObject({});
+
+// Disconnecting takes no input: the API removes the signed-in Account's own Google identity.
+export const disconnectGoogleSchema = z.strictObject({});

@@ -7,6 +7,7 @@ import {
   emailSchema,
   forgotPasswordSchema,
   googleCallbackSchema,
+  googleCallbackResponseSchema,
   googleStartResponseSchema,
   loginSchema,
   logoutSchema,
@@ -173,9 +174,9 @@ describe("Google sign-in", () => {
 });
 
 describe("public auth responses", () => {
-  const user = { id: "user-1", displayName: "Ana", hasPassword: true };
+  const user = { id: "user-1", displayName: "Ana", hasPassword: true, google: null };
 
-  it("exposes only id, display name and whether a password is set", () => {
+  it("exposes only id, display name, whether a password is set and the connected Google identity", () => {
     expect(authUserSchema.parse(user)).toEqual(user);
     expect(authUserSchema.parse({ ...user, hasPassword: false })).toEqual({ ...user, hasPassword: false });
     for (const extra of ["username", "email", "emailVerified", "token", "password"]) {
@@ -186,13 +187,29 @@ describe("public auth responses", () => {
   });
 
   it.each([undefined, null, "true", 1])("rejects a user whose password flag is %j", (hasPassword) => {
-    expect(authUserSchema.safeParse({ id: "user-1", displayName: "Ana", hasPassword }).success).toBe(false);
+    expect(authUserSchema.safeParse({ ...user, hasPassword }).success).toBe(false);
+  });
+
+  it("reports a connected Google identity by its address, or without one when it was attached before the address was kept", () => {
+    expect(authUserSchema.parse({ ...user, google: { email: "ana@gmail.com" } })).toEqual({ ...user, google: { email: "ana@gmail.com" } });
+    expect(authUserSchema.parse({ ...user, google: { email: null } })).toEqual({ ...user, google: { email: null } });
+  });
+
+  it.each([undefined, "ana@gmail.com", true, {}, { email: "" }, { email: "not-an-address" }, { email: "ana@gmail.com", sub: "1" }])("rejects a user whose Google identity is %j", (google) => {
+    expect(authUserSchema.safeParse({ ...user, google }).success).toBe(false);
+  });
+
+  it("answers a completed connect with nothing but the fact", () => {
+    expect(googleCallbackResponseSchema.parse({ connected: true })).toEqual({ connected: true });
+    for (const value of [{ connected: false }, { connected: true, email: "ana@gmail.com" }, {}]) {
+      expect(googleCallbackResponseSchema.safeParse(value).success, JSON.stringify(value)).toBe(false);
+    }
   });
 
   it("describes errors by code, message and optional field errors", () => {
     expect(authErrorResponseSchema.safeParse({ code: "EMAIL_ALREADY_EXISTS", message: "Email already exists." }).success).toBe(true);
     expect(authErrorResponseSchema.safeParse({ code: "VALIDATION_FAILED", message: "Invalid", fieldErrors: { email: ["Too long"] } }).success).toBe(true);
-    for (const code of ["EMAIL_NOT_VERIFIED", "VERIFICATION_LINK_INVALID", "RESET_LINK_INVALID", "GOOGLE_EMAIL_NOT_VERIFIED", "GOOGLE_SIGN_IN_FAILED", "INVALID_CURRENT_PASSWORD", "PASSWORD_ALREADY_SET"]) {
+    for (const code of ["EMAIL_NOT_VERIFIED", "VERIFICATION_LINK_INVALID", "RESET_LINK_INVALID", "GOOGLE_EMAIL_NOT_VERIFIED", "GOOGLE_SIGN_IN_FAILED", "INVALID_CURRENT_PASSWORD", "PASSWORD_ALREADY_SET", "PASSWORD_REQUIRED", "GOOGLE_ALREADY_LINKED", "GOOGLE_CONNECT_FAILED", "GOOGLE_CONNECT_EMAIL_NOT_VERIFIED"]) {
       expect(authErrorResponseSchema.safeParse({ code, message: "x" }).success, code).toBe(true);
     }
     for (const code of ["USERNAME_UNAVAILABLE", "FAILED_TO_CREATE_USER"]) {
