@@ -4,6 +4,7 @@ export const EMAIL_MAX_LENGTH = 254;
 export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 128;
 export const DISPLAY_NAME_MAX_LENGTH = 100;
+export const VERIFICATION_TOKEN_MAX_LENGTH = 128;
 
 /** Public identity. Email, account records and session tokens never appear here. */
 export type AuthUser = {
@@ -22,6 +23,19 @@ export type LoginInput = {
   password: string;
 };
 
+export type ResendVerificationInput = {
+  email: string;
+};
+
+export type VerifyEmailInput = {
+  token: string;
+};
+
+/** Signup creates no session: the Account signs in only after its email is verified. */
+export type SignupResponse = {
+  verificationRequired: true;
+};
+
 export type AuthUserResponse = {
   user: AuthUser;
 };
@@ -37,6 +51,8 @@ export const AUTH_ERROR_CODES = [
   "UNAUTHENTICATED",
   "ORIGIN_REJECTED",
   "EMAIL_ALREADY_EXISTS",
+  "EMAIL_NOT_VERIFIED",
+  "VERIFICATION_LINK_INVALID",
   "PAYLOAD_TOO_LARGE",
   "RATE_LIMITED",
   "SERVICE_UNAVAILABLE",
