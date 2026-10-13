@@ -84,3 +84,32 @@ describe('trusted origin resolution', () => {
     expect('NODE_ENV' in validateEnvironment({ ...base, NODE_ENV: 'production', AUTH_TRUSTED_ORIGINS: 'https://a.example' })).toBe(false);
   });
 });
+
+describe('mail configuration', () => {
+  it.each([{}, { RESEND_API_KEY: '', MAIL_FROM: '' }, { RESEND_API_KEY: '  ', MAIL_FROM: '  ' }])('runs without a key and with the onboarding sender by default (%j)', (input) => {
+    const config = validateEnvironment({ ...base, ...input });
+    expect(config.RESEND_API_KEY).toBeUndefined();
+    expect(config.MAIL_FROM).toBe('Recipe App <onboarding@resend.dev>');
+  });
+
+  it.each([
+    ['Kitchen <mail@send.example.com>', 'Kitchen <mail@send.example.com>'],
+    ['  mail@send.example.com ', 'mail@send.example.com'],
+  ])('accepts the configured sender %j', (value, expected) => {
+    const config = validateEnvironment({ ...base, RESEND_API_KEY: ' re_unit_placeholder ', MAIL_FROM: value });
+    expect(config.MAIL_FROM).toBe(expected);
+    expect(config.RESEND_API_KEY).toBe('re_unit_placeholder');
+  });
+
+  it.each([
+    ['a sender without an address', 'MAIL_FROM', 'Kitchen marker-value'],
+    ['a sender with two addresses', 'MAIL_FROM', 'a@marker-value.example, b@marker-value.example'],
+    ['a sender with a line break', 'MAIL_FROM', 'Kitchen <mail@marker-value.example>\nBcc: x@marker-value.example'],
+    ['a key with inner whitespace', 'RESEND_API_KEY', 're_marker-value other'],
+  ])('rejects %s with a key-only error that never echoes values', (_name, key, value) => {
+    const message = messageOf({ [key]: value });
+    expect(message.startsWith('Invalid API configuration:')).toBe(true);
+    expect(message.includes(key)).toBe(true);
+    expect(message.includes('marker-value')).toBe(false);
+  });
+});

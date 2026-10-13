@@ -39,6 +39,14 @@ const authTrustedOriginsSchema = z.string().optional().transform((value, context
   return [...origins];
 });
 
+/** Resend's shared sender; it delivers only to the account owner until a verified domain replaces it. */
+const defaultMailSender = 'Recipe App <onboarding@resend.dev>';
+const mailAddress = String.raw`[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+`;
+/** One address, bare or as `Name <address>`; separators and line breaks would add recipients or headers. */
+const mailSender = new RegExp(String.raw`^(?:${mailAddress}|[^<>,;\r\n]+ <${mailAddress}>)$`);
+/** An env example line left empty means "not set". */
+const blankAsUnset = (value: unknown) => (typeof value === 'string' && !value.trim() ? undefined : value);
+
 const environmentSchema = z.object({
   NODE_ENV: z.string().optional(),
   AUTH_TRUSTED_ORIGINS: authTrustedOriginsSchema,
@@ -56,6 +64,8 @@ const environmentSchema = z.object({
   }, 'must be an HTTP(S) endpoint without credentials, query, or fragment')),
   AWS_REGION: z.string().trim().min(1),
   S3_BUCKET: z.string().trim().min(1),
+  RESEND_API_KEY: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S+$/).optional()),
+  MAIL_FROM: z.preprocess(blankAsUnset, z.string().trim().regex(mailSender).default(defaultMailSender)),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
 }).transform(({ NODE_ENV, AUTH_TRUSTED_ORIGINS, ...config }, context) => {
   if (AUTH_TRUSTED_ORIGINS.length > 0) return { ...config, AUTH_TRUSTED_ORIGINS };
@@ -77,7 +87,7 @@ export function validateEnvironment(input: Record<string, unknown>): Environment
   const result = environmentSchema.safeParse(input);
   if (!result.success) {
     const keys = [...new Set(result.error.issues.map((issue) => issue.path[0]))];
-    throw new ConfigurationError(`Invalid API configuration: ${keys.join(', ')}. Check required values and URL formats; PORT must be an integer between 1 and 65535; AUTH_TRUSTED_ORIGINS must list exact http(s) origins and is required in production.`);
+    throw new ConfigurationError(`Invalid API configuration: ${keys.join(', ')}. Check required values and URL formats; PORT must be an integer between 1 and 65535; AUTH_TRUSTED_ORIGINS must list exact http(s) origins and is required in production; MAIL_FROM must be one address, bare or as Name <address>.`);
   }
   return result.data;
 }
