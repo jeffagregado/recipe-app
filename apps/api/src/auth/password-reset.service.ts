@@ -5,6 +5,7 @@ import type { DrizzleDb } from '../database/database.service.js';
 import { authAccounts, authSessions, authVerifications, users } from '../database/schema.js';
 import { MAIL_TRANSPORT } from '../mail/mail.transport.js';
 import type { MailTransport } from '../mail/mail.transport.js';
+import { clearEmailChange } from './auth.email-change.js';
 import { AuthError, unavailable } from './auth.errors.js';
 import type { RecipeAuth } from './auth.js';
 import { logAuthFailure } from './auth.logger.js';
@@ -66,8 +67,8 @@ export class PasswordResetService {
   }
 
   /**
-   * Consumes the link: sets the password, signs every session of the Account out, marks its email verified and retires
-   * its other links. Creates no session. An Account that has no password yet gets its first one.
+   * Consumes the link: sets the password, signs every session of the Account out, marks its email verified, drops a
+   * pending email change and retires its other links. Creates no session. An Account that has no password yet gets its first one.
    */
   async resetPassword(token: string, password: string): Promise<void> {
     const live = and(eq(authVerifications.identifier, resetIdentifier(token)), gt(authVerifications.expiresAt, new Date()));
@@ -95,6 +96,7 @@ export class PasswordResetService {
         // Written directly, not through Better Auth: its account hook belongs to sign-up and would add the default categories again.
         if (updated.length === 0) await tx.insert(authAccounts).values({ accountId: userId, providerId: CREDENTIAL_PROVIDER, userId, password: hash });
         await tx.delete(authSessions).where(eq(authSessions.userId, userId));
+        await clearEmailChange(tx, userId);
         await tx.delete(authVerifications).where(and(
           eq(authVerifications.value, userId),
           or(like(authVerifications.identifier, RESET_IDENTIFIERS), like(authVerifications.identifier, VERIFICATION_IDENTIFIERS)),

@@ -19,7 +19,7 @@ export const hasPassword = sql<boolean>`${authAccounts.password} is not null`;
  * Settings field is added here and in the contract, nowhere else.
  */
 export async function readPublicUser(db: DrizzleDb, userId: string): Promise<AuthUser | undefined> {
-  const [user] = await db.select({ id: users.id, displayName: users.name, hasPassword })
+  const [user] = await db.select({ id: users.id, displayName: users.name, email: users.email, pendingEmail: users.pendingEmail, hasPassword })
     .from(users).leftJoin(authAccounts, ownCredential).where(eq(users.id, userId)).limit(1);
   return user;
 }

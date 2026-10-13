@@ -1,16 +1,22 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, like, ne } from 'drizzle-orm';
-import type { AuthUser, ChangePasswordInput, UpdateDisplayNameInput } from '@recipe-app/contracts/types';
-import { AuthError, invalidCurrentPassword, passwordAlreadySet, unauthenticated, unavailable } from '../auth/auth.errors.js';
+import { and, eq, gt, like, ne } from 'drizzle-orm';
+import type { AuthUser, ChangeEmailInput, ChangePasswordInput, ConfirmEmailChangeResponse, UpdateDisplayNameInput } from '@recipe-app/contracts/types';
+import { clearEmailChange, EMAIL_CHANGE_LIFETIME_MS, EMAIL_CHANGE_LINKS_PER_EMAIL, emailChangeIdentifier, emailChangeLinkInvalid, emailChangeMessage, emailChangeNoticeMessage, emailChangeNotPending, emailUnchanged } from '../auth/auth.email-change.js';
+import { AuthError, emailAlreadyExists, invalidCurrentPassword, passwordAlreadySet, passwordRequired, unauthenticated, unavailable } from '../auth/auth.errors.js';
+import { logAuthFailure } from '../auth/auth.logger.js';
 import type { RecipeAuth } from '../auth/auth.js';
 import { AuthRateLimiter, rateLimitKey } from '../auth/auth.rate-limit.js';
 import { RESET_IDENTIFIERS, RESET_LINKS_PER_EMAIL } from '../auth/auth.reset.js';
 import { AUTH } from '../auth/auth.tokens.js';
 import { CREDENTIAL_PROVIDER, hasPassword, ownCredential, readPublicUser } from '../auth/auth.user.js';
+import { newVerificationToken } from '../auth/auth.verification.js';
 import { PasswordResetService } from '../auth/password-reset.service.js';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { authAccounts, authSessions, authVerifications, users } from '../database/schema.js';
+import { isUniqueViolation } from '../database/unique-violation.js';
+import { MAIL_TRANSPORT } from '../mail/mail.transport.js';
+import type { MailTransport } from '../mail/mail.transport.js';
 
 @Injectable()
 export class AccountService {
@@ -19,6 +25,7 @@ export class AccountService {
     @Inject(AUTH) private readonly auth: RecipeAuth,
     private readonly reset: PasswordResetService,
     private readonly limiter: AuthRateLimiter,
+    @Inject(MAIL_TRANSPORT) private readonly mail: MailTransport,
   ) {}
 
   /**
@@ -37,8 +44,8 @@ export class AccountService {
   }
 
   /**
-   * Replaces the password once the current one is proven, signs every other session of the Account out and retires its
-   * reset links. The calling session is kept as it is. Better Auth's own change would end that session too and issue a
+   * Replaces the password once the current one is proven, signs every other session of the Account out, retires its
+   * reset links and drops a pending email change. The calling session is kept as it is. Better Auth's own change would end that session too and issue a
    * new cookie, which a wrapper called by a server action cannot hand to the browser; it still hashes and verifies here.
    */
   async changePassword(userId: string, sessionId: string, input: ChangePasswordInput): Promise<void> {
@@ -64,6 +71,7 @@ export class AccountService {
         if (updated.length === 0) return false;
         await tx.delete(authSessions).where(and(eq(authSessions.userId, userId), ne(authSessions.id, sessionId)));
         await tx.delete(authVerifications).where(and(eq(authVerifications.value, userId), like(authVerifications.identifier, RESET_IDENTIFIERS)));
+        await clearEmailChange(tx, userId);
         return true;
       });
     } catch (cause) { throw unavailable('change-password', cause); }
@@ -86,5 +94,126 @@ export class AccountService {
     const { scope, ...limit } = RESET_LINKS_PER_EMAIL;
     await this.limiter.consume(rateLimitKey(scope, account.email), limit);
     try { await this.reset.sendLink(account, origin); } catch (cause) { throw unavailable('request-set-password', cause); }
+  }
+
+  /**
+   * Starts moving the Account to a new address once the current password is proven: records the address as pending,
+   * mails it a 24-hour link in place of any older one, and tells the current address. The Account's email changes only
+   * when that link is confirmed. A change to a different address replaces the pending one.
+   */
+  async requestEmailChange(userId: string, input: ChangeEmailInput, origin: string): Promise<AuthUser> {
+    let email: string;
+    try {
+      const [stored] = await this.db.select({ email: users.email, password: authAccounts.password })
+        .from(users).leftJoin(authAccounts, ownCredential).where(eq(users.id, userId)).limit(1);
+      if (!stored) throw unauthenticated();
+      if (!stored.password) throw passwordRequired();
+      if (input.newEmail === stored.email) throw emailUnchanged();
+      const { password } = await this.auth.$context;
+      if (!await password.verify({ hash: stored.password, password: input.currentPassword })) throw invalidCurrentPassword();
+      // Answered only past the password check, so only the Account's owner learns that an address is registered.
+      if (await this.db.$count(users, eq(users.email, input.newEmail)) > 0) throw emailAlreadyExists();
+      email = stored.email;
+    } catch (cause) {
+      if (cause instanceof AuthError) throw cause;
+      throw unavailable('change-email', cause);
+    }
+    await this.countEmailChangeLink(input.newEmail);
+    let token: string;
+    try { token = await this.storeEmailChange(userId, input.newEmail); } catch (cause) { throw unavailable('change-email', cause); }
+    try { await this.mail.send(emailChangeMessage(input.newEmail, origin, token)); } catch (cause) {
+      // Nothing is left waiting on a link that never went out, so the card does not say one was sent.
+      try { await this.db.transaction((tx) => clearEmailChange(tx, userId)); } catch (undo) { logAuthFailure('change-email-undo', undo); }
+      throw unavailable('change-email-mail', cause);
+    }
+    // The notice is a courtesy to the current address: a failure is logged and the change still waits on its link.
+    try { await this.mail.send(emailChangeNoticeMessage(email, origin, input.newEmail)); } catch (cause) { logAuthFailure('change-email-notice-mail', cause); }
+    return this.readOwnUser(userId, 'change-email');
+  }
+
+  /**
+   * Mails a fresh link to the address the Account is already waiting on and retires the older one. The current address
+   * was told when the change started and is not told again.
+   */
+  async resendEmailChange(userId: string, origin: string): Promise<void> {
+    let account: { pendingEmail: string | null } | undefined;
+    try {
+      [account] = await this.db.select({ pendingEmail: users.pendingEmail }).from(users).where(eq(users.id, userId)).limit(1);
+    } catch (cause) { throw unavailable('resend-email-change', cause); }
+    if (!account) throw unauthenticated();
+    if (!account.pendingEmail) throw emailChangeNotPending();
+    await this.countEmailChangeLink(account.pendingEmail);
+    try {
+      await this.mail.send(emailChangeMessage(account.pendingEmail, origin, await this.storeEmailChange(userId, account.pendingEmail)));
+    } catch (cause) { throw unavailable('resend-email-change', cause); }
+  }
+
+  /** Clears the pending address and retires its links. With nothing pending it answers the same. */
+  async cancelEmailChange(userId: string): Promise<AuthUser> {
+    try { await this.db.transaction((tx) => clearEmailChange(tx, userId)); } catch (cause) { throw unavailable('cancel-email-change', cause); }
+    return this.readOwnUser(userId, 'cancel-email-change');
+  }
+
+  /**
+   * Consumes the link: the pending address becomes the Account's Verified email, every session of the Account but the
+   * caller's own ends, and its reset links, mailed to the old address, are retired. Sign-in methods are untouched: a
+   * Google identity is tied to the Google account, not to the email. Creates no session.
+   */
+  async confirmEmailChange(token: string, caller: { userId: string; sessionId: string } | undefined): Promise<ConfirmEmailChangeResponse> {
+    let outcome: ConfirmEmailChangeResponse | undefined;
+    try {
+      outcome = await this.db.transaction(async (tx) => {
+        // Deleting the row is the single use: of two requests with one token, only one gets it back.
+        const [link] = await tx.delete(authVerifications)
+          .where(and(eq(authVerifications.identifier, emailChangeIdentifier(token)), gt(authVerifications.expiresAt, new Date())))
+          .returning({ userId: authVerifications.value });
+        if (!link) return undefined;
+        const { userId } = link;
+        const [account] = await tx.select({ pendingEmail: users.pendingEmail }).from(users).where(eq(users.id, userId)).for('update');
+        if (!account?.pendingEmail) return undefined;
+        await clearEmailChange(tx, userId);
+        // Another Account may have taken the address since the change started. The change is dropped, and committed as dropped.
+        if (await tx.$count(users, eq(users.email, account.pendingEmail)) > 0) return undefined;
+        // The owner of the new inbox opened the link, so the address is Verified the way a sign-up address is.
+        await tx.update(users).set({ email: account.pendingEmail, emailVerified: true }).where(eq(users.id, userId));
+        const signedIn = caller?.userId === userId;
+        await tx.delete(authSessions).where(and(eq(authSessions.userId, userId), caller && signedIn ? ne(authSessions.id, caller.sessionId) : undefined));
+        await tx.delete(authVerifications).where(and(eq(authVerifications.value, userId), like(authVerifications.identifier, RESET_IDENTIFIERS)));
+        return { signedIn };
+      });
+    } catch (cause) {
+      // Two Accounts confirmed the same address at once: the unique email decided, and this one lost.
+      if (isUniqueViolation(cause, 'users_email_key')) throw emailChangeLinkInvalid();
+      throw unavailable('confirm-email-change', cause);
+    }
+    if (!outcome) throw emailChangeLinkInvalid();
+    return outcome;
+  }
+
+  /** Three links an hour per target address, whichever of starting and resending asks. */
+  private async countEmailChangeLink(newEmail: string): Promise<void> {
+    const { scope, ...limit } = EMAIL_CHANGE_LINKS_PER_EMAIL;
+    await this.limiter.consume(rateLimitKey(scope, newEmail), limit);
+  }
+
+  /** Records the pending address with a new 24-hour link in place of the Account's older ones, and returns the link's token. */
+  private async storeEmailChange(userId: string, newEmail: string): Promise<string> {
+    const token = newVerificationToken();
+    await this.db.transaction(async (tx) => {
+      // The row lock makes two requests for one Account take turns, so the pending address and the one live link agree.
+      await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
+      await clearEmailChange(tx, userId);
+      await tx.update(users).set({ pendingEmail: newEmail }).where(eq(users.id, userId));
+      await tx.insert(authVerifications).values({ identifier: emailChangeIdentifier(token), value: userId, expiresAt: new Date(Date.now() + EMAIL_CHANGE_LIFETIME_MS) });
+    });
+    return token;
+  }
+
+  private async readOwnUser(userId: string, operation: string): Promise<AuthUser> {
+    let user: AuthUser | undefined;
+    try { user = await readPublicUser(this.db, userId); } catch (cause) { throw unavailable(operation, cause); }
+    // The Account was deleted since the guard read it.
+    if (!user) throw unauthenticated();
+    return user;
   }
 }

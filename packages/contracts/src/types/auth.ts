@@ -9,11 +9,16 @@ export const GOOGLE_CODE_MAX_LENGTH = 2048;
 export const GOOGLE_STATE_MAX_LENGTH = 256;
 
 /**
- * Public identity, and what the Settings page renders from. Email, account records and session tokens never appear here.
+ * Public identity, and what the Settings page renders from. It is returned only to the Account itself. Account records
+ * and session tokens never appear here.
  */
 export type AuthUser = {
   id: EntityId;
   displayName: string;
+  /** The Account's Verified email. */
+  email: string;
+  /** The address an email change is waiting on, until its link is confirmed or the change is cancelled. */
+  pendingEmail: string | null;
   /** Whether a password is one of the Account's Sign-in methods. */
   hasPassword: boolean;
 };
@@ -83,6 +88,9 @@ export const AUTH_ERROR_CODES = [
   "RESET_LINK_INVALID",
   "INVALID_CURRENT_PASSWORD",
   "PASSWORD_ALREADY_SET",
+  "PASSWORD_REQUIRED",
+  "EMAIL_CHANGE_LINK_INVALID",
+  "EMAIL_CHANGE_NOT_PENDING",
   "GOOGLE_EMAIL_NOT_VERIFIED",
   "GOOGLE_SIGN_IN_FAILED",
   "PAYLOAD_TOO_LARGE",

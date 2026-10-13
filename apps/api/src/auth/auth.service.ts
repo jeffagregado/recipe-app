@@ -90,8 +90,10 @@ export class AuthService {
       const { response, headers } = await this.credentialPolicy.execute(() => this.auth.api.signInEmail({
         body: { email: input.email, password: input.password }, headers: authHeaders(request), returnHeaders: true,
       }));
-      // Signed in with a password, so the Account has one.
-      return { user: { id: response.user.id, displayName: response.user.name, hasPassword: true }, cookie: await this.sessionCookie(headers) };
+      // The same read as the session answer, so the two never state different shapes.
+      const user = await readPublicUser(this.db, response.user.id);
+      if (!user) throw new Error('Signed-in Account missing.');
+      return { user, cookie: await this.sessionCookie(headers) };
     } catch (cause) {
       // Better Auth checks the password first, so this code is only ever given to someone who knows it.
       if (cause instanceof APIError && cause.body?.code === 'EMAIL_NOT_VERIFIED') throw emailNotVerified(cause);

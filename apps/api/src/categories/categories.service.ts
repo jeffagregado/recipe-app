@@ -4,6 +4,7 @@ import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { categoryListSchema } from '@recipe-app/contracts/schemas';
 import { RECIPE_LIMITS } from '@recipe-app/contracts/types';
 import type { CategoryWithUsage, SaveCategoryInput } from '@recipe-app/contracts/types';
+import { isUniqueViolation } from '../database/unique-violation.js';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { categories, recipeCategories, users } from '../database/schema.js';
@@ -19,15 +20,8 @@ export function readCategories(db: Pick<DrizzleDb, 'select'>, userId: string): P
 
 const sameName = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
 
-/** A unique violation on the per-owner name index, wherever the driver error sits in the cause chain. */
-function isDuplicateName(error: unknown): boolean {
-  const seen = new Set<Error>();
-  for (let cause = error; cause instanceof Error && !seen.has(cause); cause = cause.cause) {
-    seen.add(cause);
-    if ('code' in cause && cause.code === '23505' && 'constraint' in cause && cause.constraint === 'categories_user_name_key') return true;
-  }
-  return false;
-}
+/** A unique violation on the per-owner name index. */
+const isDuplicateName = (error: unknown) => isUniqueViolation(error, 'categories_user_name_key');
 
 @Injectable()
 export class CategoriesService {
