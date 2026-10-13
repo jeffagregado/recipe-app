@@ -2,16 +2,16 @@
 
 import { changePasswordSchema } from '@recipe-app/contracts/schemas'
 import { readErrorEnvelope, readWriteContext, sendWrite } from '@/features/recipes/api/write-request'
-import { PASSWORD_MESSAGES, type ChangePasswordResult, type PasswordField } from './results'
+import { PASSWORD_MESSAGES, type ChangePasswordResult, type PasswordFieldName } from './results'
 
-const SAVE_TIMEOUT_MS = 20_000
-const FIELDS: readonly PasswordField[] = ['currentPassword', 'newPassword']
+const CHANGE_TIMEOUT_MS = 20_000
+const FIELDS: readonly PasswordFieldName[] = ['currentPassword', 'newPassword']
 
 const failed = (message: string = PASSWORD_MESSAGES.failed): ChangePasswordResult => ({ status: 'failed', message })
 const sessionExpired: ChangePasswordResult = { status: 'session-expired', message: PASSWORD_MESSAGES.sessionExpired }
 
 /** The first message about one of the two fields; a malformed request has none and gets the general wording. */
-function invalid(message: (field: PasswordField) => string | undefined): ChangePasswordResult {
+function invalid(message: (field: PasswordFieldName) => string | undefined): ChangePasswordResult {
 	for (const field of FIELDS) {
 		const found = message(field)
 		if (found) return { status: 'invalid', field, message: found }
@@ -31,7 +31,7 @@ export async function changePassword(input: unknown): Promise<ChangePasswordResu
 
 	const outcome = await sendWrite({
 		context: read.context,
-		request: { method: 'PUT', path: '/account/password', body: JSON.stringify(parsed.data), contentType: 'application/json', timeoutMs: SAVE_TIMEOUT_MS },
+		request: { method: 'PUT', path: '/account/password', body: JSON.stringify(parsed.data), contentType: 'application/json', timeoutMs: CHANGE_TIMEOUT_MS },
 	})
 	if ('problem' in outcome) return failed(outcome.problem === 'unknown' ? PASSWORD_MESSAGES.unknown : PASSWORD_MESSAGES.failed)
 	const { response } = outcome

@@ -15,6 +15,8 @@ export const DISPLAY_NAME_WRITE_LIMIT = 20;
 const DISPLAY_NAME_WRITE_WINDOW_MS = 10 * 60_000;
 /** The login limit per email, here per Account: the current-password check must not become a way to guess it. */
 const CHANGE_PASSWORD_LIMIT = { limit: 10, windowMs: 900_000 };
+/** Per client address, beside the three an hour per target address that the service shares with forgot-password. */
+const SET_PASSWORD_ADDRESS_LIMIT = { limit: 10, windowMs: 3_600_000 };
 
 /** Settings wrappers for the signed-in Account. Native Better Auth routes stay closed (`mountAuth`). */
 @Controller('account')
@@ -46,7 +48,7 @@ export class AccountController {
   @HttpCode(204)
   async requestSetPassword(@Body() body: unknown, @Req() request: AuthRequest): Promise<void> {
     if (!request.user) throw unauthenticated();
-    await this.limiter.consume(rateLimitKey('set-password:address', clientAddress(request)), { limit: 10, windowMs: 3_600_000 });
+    await this.limiter.consume(rateLimitKey('set-password:address', clientAddress(request)), SET_PASSWORD_ADDRESS_LIMIT);
     validateAuth(requestSetPasswordSchema, body);
     await this.account.requestSetPassword(request.user.id, trustedOrigin(request));
   }

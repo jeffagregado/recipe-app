@@ -23,7 +23,7 @@ export const DISPLAY_NAME_MESSAGES = {
 	rateLimited: 'Too many saves. Try again in a moment.',
 } as const
 
-export type PasswordField = 'currentPassword' | 'newPassword'
+export type PasswordFieldName = 'currentPassword' | 'newPassword'
 
 /**
  * - `changed`: the new password is stored, other devices are signed out and this one stays signed in.
@@ -33,7 +33,7 @@ export type PasswordField = 'currentPassword' | 'newPassword'
  */
 export type ChangePasswordResult =
 	| { status: 'changed' }
-	| { status: 'invalid'; field: PasswordField; message: string }
+	| { status: 'invalid'; field: PasswordFieldName; message: string }
 	| { status: 'session-expired'; message: string }
 	| { status: 'failed'; message: string }
 

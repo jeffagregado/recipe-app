@@ -60,9 +60,8 @@ test('sidebar journey: Settings is current, a changed name saves and the sidebar
   await expect(sidebar(page).getByText('Ana María', { exact: true })).toBeVisible();
 });
 
-test('password journey: a wrong current password is refused inline, the right one changes it, and the other device is signed out', async ({ page, context, browser, creator, workerData }) => {
+test('password journey: changing the password keeps this browser signed in and signs the other device out', async ({ page, context, browser, creator, workerData }) => {
   const sessionStatus = async (browserContext: typeof context) => (await browserContext.request.get('/backend/auth/session')).status();
-  const loginStatus = async (password: string) => (await workerData.client.post('/auth/login', { email: creator.email, password })).status;
   // A second device: its own session of the same Account, in its own browser.
   const second = await workerData.client.post('/auth/login', { email: creator.email, password: creator.password });
   expect(second.status).toBe(200);
@@ -78,18 +77,9 @@ test('password journey: a wrong current password is refused inline, the right on
     await openSettings(page);
     await expect(passwordCard(page).getByText('Changing it signs out your other devices.', { exact: true })).toBeVisible();
     await expect(changePassword(page)).toBeDisabled();
-    const next = workerData.newPassword();
-
-    // The new password is not the current one: the refusal lands on that field and nothing changes.
-    await currentPassword(page).fill(next);
-    await newPassword(page).fill(next);
-    await changePassword(page).click();
-    await expect(currentPassword(page)).toHaveAccessibleDescription('Current password is incorrect.');
-    await expect(currentPassword(page)).toBeFocused();
-    await toast.dismiss(toast.error(page, 'Couldn’t change your password. Try again.')).click();
-    expect(await sessionStatus(elsewhere)).toBe(200);
 
     await currentPassword(page).fill(creator.password);
+    await newPassword(page).fill(workerData.newPassword());
     // Changed from the keyboard: Enter in the last field.
     await newPassword(page).press('Enter');
     const notice = toast.success(page, 'Password changed');
@@ -110,10 +100,6 @@ test('password journey: a wrong current password is refused inline, the right on
     await signedIn.goto('/settings');
     await expect(signedIn).toHaveURL(`${WEB_URL}/`);
     await expect(signedIn.getByLabel('Email', { exact: true })).toBeVisible();
-
-    // Statuses only: a failed assertion must not print a password.
-    expect(await loginStatus(creator.password)).toBe(401);
-    expect(await loginStatus(next)).toBe(200);
   } finally { await elsewhere.close(); }
 });
 

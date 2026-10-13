@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { authErrorResponseSchema, authSessionResponseSchema, authUserResponseSchema, googleStartResponseSchema } from '@recipe-app/contracts/schemas';
 import { GOOGLE_ENDPOINTS } from '../../src/auth/auth.google.js';
@@ -95,9 +95,7 @@ describe('Account password HTTP', () => {
     const googleOnly = await signupWithGoogle(client);
     expect(await sessionOf(client, googleOnly.cookie)).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', hasPassword: false });
     // A rename answers with the same shape, so the page never loses the field between reads.
-    const renamed = await fetch(`${baseUrl}/account/display-name`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': addresses[0], Origin: TEST_ORIGIN, Cookie: googleOnly.cookie }, body: JSON.stringify({ displayName: 'Ana Google' }),
-    });
+    const renamed = await send('PUT', '/account/display-name', { displayName: 'Ana Google' }, { cookie: googleOnly.cookie });
     expect(renamed.status).toBe(200);
     expect(authUserResponseSchema.parse(await renamed.json())).toEqual({ user: { id: googleOnly.id, displayName: 'Ana Google', hasPassword: false } });
   }, 60_000);
@@ -222,6 +220,20 @@ describe('Account password HTTP', () => {
     const login = await client.post('/auth/login', { email: googleOnly.email, password });
     expect(login.status).toBe(200);
     expect(await sessionOf(client, cookiePair(login))).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', hasPassword: true });
+  }, 60_000);
+
+  it('says so when the mail cannot be sent, and the next request sends', async () => {
+    const client = newClient();
+    const googleOnly = await signupWithGoogle(client);
+    const failing = vi.spyOn(mail, 'send').mockRejectedValueOnce(new Error('Test transport failed'));
+    try {
+      // The Account knows its own address, so nothing is hidden by answering the failure.
+      await expectError(await requestSetPassword({ cookie: googleOnly.cookie }), 503, 'SERVICE_UNAVAILABLE');
+      expect(failing).toHaveBeenCalledOnce();
+    } finally { failing.mockRestore(); }
+    expect(resetsSentTo(googleOnly.email).length).toBe(0);
+    expect((await requestSetPassword({ cookie: googleOnly.cookie })).status).toBe(204);
+    expect(resetsSentTo(googleOnly.email).length).toBe(1);
   }, 60_000);
 
   it('refuses the link to an Account that has a password, and mails nothing', async () => {
