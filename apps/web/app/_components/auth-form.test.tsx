@@ -7,6 +7,8 @@ import { AuthForm } from './auth-form'
 
 const actions = vi.hoisted(() => ({ login: vi.fn(), signup: vi.fn(), resendVerification: vi.fn() }))
 vi.mock('@/features/auth/actions', () => actions)
+const google = vi.hoisted(() => ({ startGoogleSignIn: vi.fn() }))
+vi.mock('@/features/auth/google-actions', () => google)
 const testSecret = () => 'x'.repeat(16)
 beforeEach(() => { vi.resetAllMocks() })
 afterEach(() => { vi.unstubAllGlobals() })
@@ -158,3 +160,38 @@ it.each(['Login', 'Sign up'])('declares the post method in %s mode', async (mode
 	expect(screen.getByLabelText('Password').closest('form')).toHaveAttribute('method', 'post')
 })
 
+it.each(['Login', 'Sign up'])('offers Continue with Google after the %s form and starts it from the keyboard', async (mode) => {
+	const user = userEvent.setup()
+	let finish!: (value: unknown) => void
+	google.startGoogleSignIn.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+	render(<AuthForm />)
+	await user.click(screen.getByRole('button', { name: mode }))
+	const form = screen.getByLabelText('Password').closest('form')!
+	const button = screen.getByRole('button', { name: 'Continue with Google' })
+	expect(button).toHaveAttribute('type', 'button')
+	// It is its own control outside the form, so Enter in a field still submits the password form.
+	expect(form).not.toContainElement(button)
+	within(form).getByRole('button', { name: mode === 'Login' ? 'Log in' : 'Sign up' }).focus()
+	await user.tab()
+	expect(button).toHaveFocus()
+	await user.keyboard('{Enter}')
+	await waitFor(() => expect(button).toBeDisabled())
+	expect(google.startGoogleSignIn).toHaveBeenCalledExactlyOnceWith()
+	expect(actions.login).not.toHaveBeenCalled()
+	expect(actions.signup).not.toHaveBeenCalled()
+	finish({ ok: false, code: 'GOOGLE_SIGN_IN_FAILED', message: 'Google sign-in is unavailable. Please try again.' })
+	expect(await screen.findByRole('alert')).toHaveTextContent('Google sign-in is unavailable. Please try again.')
+	// The message is set inside the transition; the button comes back when the transition ends.
+	await waitFor(() => expect(button).toBeEnabled())
+})
+
+it('shows one message when the Google start cannot be reached and clears it on the next attempt', async () => {
+	const user = userEvent.setup()
+	google.startGoogleSignIn.mockRejectedValueOnce(new Error('Test transport failed'))
+	render(<AuthForm />)
+	await user.click(screen.getByRole('button', { name: 'Continue with Google' }))
+	expect(await screen.findByRole('alert')).toHaveTextContent('Google sign-in is unavailable. Please try again.')
+	google.startGoogleSignIn.mockImplementation(() => new Promise(() => {}))
+	await user.click(screen.getByRole('button', { name: 'Continue with Google' }))
+	await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+})

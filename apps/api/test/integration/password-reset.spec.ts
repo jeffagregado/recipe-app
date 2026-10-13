@@ -1,12 +1,14 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq, like } from 'drizzle-orm';
-import { authErrorResponseSchema } from '@recipe-app/contracts/schemas';
+import { authErrorResponseSchema, googleStartResponseSchema } from '@recipe-app/contracts/schemas';
+import { GOOGLE_ENDPOINTS } from '../../src/auth/auth.google.js';
 import { resetIdentifier } from '../../src/auth/auth.reset.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
-import { authAccounts, authRateLimits, authSessions, authVerifications, users } from '../../src/database/schema.js';
+import { authAccounts, authRateLimits, authSessions, authVerifications, categories, users } from '../../src/database/schema.js';
 import { apiClient, cookiePair, latestResetToken, removeTestData, resetTokens, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword, verificationTokens } from '../auth-harness.js';
+import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -17,6 +19,7 @@ describe('Forgot and reset password HTTP', () => {
   let baseUrl: string;
   let db: DrizzleDb;
   let mail: RecordingMailTransport;
+  let google: Awaited<ReturnType<typeof startGoogleStandIn>>;
   const addresses: string[] = [];
   const emails: string[] = [];
 
@@ -41,12 +44,28 @@ describe('Forgot and reset password HTTP', () => {
   const issuedAgo = (token: string, ms: number) => db.update(authVerifications).set({ expiresAt: new Date(Date.now() - ms + HOUR_MS) })
     .where(eq(authVerifications.identifier, resetIdentifier(token)));
 
+  /** Signs a new person in with Google through the stand-in, as the web does: start, consent, then the forwarded callback. */
+  const signInWithGoogle = async (client: ReturnType<typeof apiClient>, person: { sub: string; email: string }) => {
+    const started = await client.post('/auth/google/start', {});
+    if (started.status !== 200) throw new Error(`Temporary Google start failed with HTTP ${started.status}.`);
+    const state = new URL(googleStartResponseSchema.parse(await started.json()).url).searchParams.get('state') ?? '';
+    const code = google.consent({ ...person, email_verified: true, name: 'Temporary Google-only' });
+    return client.post('/auth/google/callback', { code, state }, { origin: null, cookie: cookiePair(started) });
+  };
+
   beforeAll(async () => {
-    ({ app, baseUrl, db, mail } = await startApi());
+    google = await startGoogleStandIn();
+    // Process environment overrides the env file: the suite never uses the developer's Google client.
+    process.env.GOOGLE_CLIENT_ID = STAND_IN_CLIENT.id;
+    process.env.GOOGLE_CLIENT_SECRET = STAND_IN_CLIENT.secret;
+    process.env.GOOGLE_REDIRECT_URI = `${TEST_ORIGIN}/api/auth/callback/google`;
+    ({ app, baseUrl, db, mail } = await startApi((builder) => builder.overrideProvider(GOOGLE_ENDPOINTS).useValue(google.endpoints)));
   }, 60_000);
   afterAll(async () => {
-    if (!app) return;
-    try { await removeTestData(db, { emails, addresses }); } finally { await app.close(); }
+    try {
+      if (!app) return;
+      try { await removeTestData(db, { emails, addresses }); } finally { await app.close(); }
+    } finally { await google?.close(); }
   });
 
   it('answers a known and an unknown address alike and mails one one-hour link to the web origin only to the known one', async () => {
@@ -176,25 +195,41 @@ describe('Forgot and reset password HTTP', () => {
     // Two sign-ups and ten more requests: measured at 43 s over the local link to Neon, so the usual 60 s leaves too little room.
   }, 90_000);
 
-  it('gives an Account that has no password its first one and keeps its other Sign-in method', async () => {
+  it('gives a Google-created Account its first password, with account linking off, and keeps its Google sign-in', async () => {
     const client = newClient();
-    const email = track();
-    // An Account that has only ever signed in with Google: a verified email, a Google identity and no credential record.
-    const [owner] = await db.insert(users).values({ name: 'Temporary Google-only', email, emailVerified: true }).returning({ id: users.id });
-    await db.insert(authAccounts).values({ accountId: `test-${randomUUID()}`, providerId: 'google', userId: owner.id });
+    const person = { sub: randomBytes(10).toString('hex'), email: track() };
+    // A real Google-created Account: a Verified email, the Google identity, the Default categories and no credential record.
+    const created = await signInWithGoogle(client, person);
+    expect(created.status).toBe(204);
+    const owner = await account(person.email);
+    const methods = () => db.select({ providerId: authAccounts.providerId, accountId: authAccounts.accountId, password: authAccounts.password })
+      .from(authAccounts).where(eq(authAccounts.userId, owner!.id));
+    expect((await methods()).map(({ providerId, password }) => ({ providerId, password }))).toEqual([{ providerId: 'google', password: null }]);
     const password = testPassword();
-    expect((await errorOf(await client.post('/auth/login', { email, password }))).code).toBe('INVALID_CREDENTIALS');
+    expect((await errorOf(await client.post('/auth/login', { email: person.email, password }))).code).toBe('INVALID_CREDENTIALS');
 
-    const token = await requestLink(client, email);
-    expect(resetsSentTo(email).length).toBe(1);
+    // Forgot-password treats it like any Account: the same answer and one link.
+    const token = await requestLink(client, person.email);
+    expect(resetsSentTo(person.email).length).toBe(1);
     expect((await client.post('/auth/reset-password', { token, password })).status).toBe(204);
-    const methods = await db.select({ providerId: authAccounts.providerId, password: authAccounts.password }).from(authAccounts).where(eq(authAccounts.userId, owner.id));
-    expect(methods.map(({ providerId }) => providerId).sort()).toEqual(['credential', 'google']);
+    expect((await client.get('/auth/session', { cookie: cookiePair(created) })).status).toBe(401);
+
+    const after = await methods();
+    expect(after.map(({ providerId, accountId }) => ({ providerId, accountId })).sort((a, b) => a.providerId.localeCompare(b.providerId)))
+      .toEqual([{ providerId: 'credential', accountId: owner!.id }, { providerId: 'google', accountId: person.sub }]);
     // Better Auth owns hashing; the stored credential is never the submitted password.
-    expect(methods.some((method) => method.password?.includes(password))).toBe(false);
-    const login = await client.post('/auth/login', { email, password });
+    expect(after.some((method) => method.password?.includes(password))).toBe(false);
+    // The credential record was written beside sign-up's hook, so the Account still has its five categories and no more.
+    expect(await db.$count(categories, eq(categories.userId, owner!.id))).toBe(5);
+
+    const login = await client.post('/auth/login', { email: person.email, password });
     expect(login.status).toBe(200);
-    expect(await login.json()).toEqual({ user: { id: owner.id, displayName: 'Temporary Google-only' } });
+    expect(await login.json()).toEqual({ user: { id: owner!.id, displayName: 'Temporary Google-only' } });
+    // Google still opens the same Account, and no second one was made for the address.
+    const again = await signInWithGoogle(client, person);
+    expect(again.status).toBe(204);
+    expect(await (await client.get('/auth/session', { cookie: cookiePair(again) })).json()).toMatchObject({ user: { id: owner!.id } });
+    expect(await db.$count(users, eq(users.email, person.email))).toBe(1);
   }, 60_000);
 
   it('limits requests to 3 an hour per address without a different answer or another mail, and to 10 an hour per client', async () => {

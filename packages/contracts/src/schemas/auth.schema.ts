@@ -4,6 +4,8 @@ import {
   AUTH_ERROR_CODES,
   DISPLAY_NAME_MAX_LENGTH,
   EMAIL_MAX_LENGTH,
+  GOOGLE_CODE_MAX_LENGTH,
+  GOOGLE_STATE_MAX_LENGTH,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   VERIFICATION_TOKEN_MAX_LENGTH,
@@ -12,6 +14,8 @@ import {
   type AuthUser,
   type AuthUserResponse,
   type ForgotPasswordInput,
+  type GoogleCallbackInput,
+  type GoogleStartResponse,
   type LoginInput,
   type ResendVerificationInput,
   type ResetPasswordInput,
@@ -69,6 +73,19 @@ export const forgotPasswordSchema: z.ZodType<ForgotPasswordInput, ForgotPassword
 export const resetPasswordSchema: z.ZodType<ResetPasswordInput> = z.strictObject({
   token: z.string().min(1).max(VERIFICATION_TOKEN_MAX_LENGTH),
   password: passwordSchema,
+});
+
+// Starting takes no input: the API decides the provider, the callback and the scopes.
+export const googleStartSchema = z.strictObject({});
+
+// Both values are opaque here: only the API decides whether they complete a sign-in it started.
+export const googleCallbackSchema: z.ZodType<GoogleCallbackInput> = z.strictObject({
+  code: z.string().min(1).max(GOOGLE_CODE_MAX_LENGTH),
+  state: z.string().min(1).max(GOOGLE_STATE_MAX_LENGTH),
+});
+
+export const googleStartResponseSchema: z.ZodType<GoogleStartResponse> = z.strictObject({
+  url: z.url({ protocol: /^https?$/, hostname: /\S+/ }),
 });
 
 export const signupResponseSchema: z.ZodType<SignupResponse> = z.strictObject({

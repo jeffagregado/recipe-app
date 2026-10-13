@@ -5,6 +5,8 @@ export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 128;
 export const DISPLAY_NAME_MAX_LENGTH = 100;
 export const VERIFICATION_TOKEN_MAX_LENGTH = 128;
+export const GOOGLE_CODE_MAX_LENGTH = 2048;
+export const GOOGLE_STATE_MAX_LENGTH = 256;
 
 /** Public identity. Email, account records and session tokens never appear here. */
 export type AuthUser = {
@@ -41,6 +43,17 @@ export type ResetPasswordInput = {
   password: string;
 };
 
+/** What Google appends to the callback after consent. A cancelled consent carries no code and is never forwarded. */
+export type GoogleCallbackInput = {
+  code: string;
+  state: string;
+};
+
+/** The provider URL the browser follows to reach Google's consent screen. */
+export type GoogleStartResponse = {
+  url: string;
+};
+
 /** Signup creates no session: the Account signs in only after its email is verified. */
 export type SignupResponse = {
   verificationRequired: true;
@@ -64,6 +77,8 @@ export const AUTH_ERROR_CODES = [
   "EMAIL_NOT_VERIFIED",
   "VERIFICATION_LINK_INVALID",
   "RESET_LINK_INVALID",
+  "GOOGLE_EMAIL_NOT_VERIFIED",
+  "GOOGLE_SIGN_IN_FAILED",
   "PAYLOAD_TOO_LARGE",
   "RATE_LIMITED",
   "SERVICE_UNAVAILABLE",

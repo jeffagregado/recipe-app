@@ -6,6 +6,8 @@ import { insertDefaultCategories } from '../categories/default-categories.js';
 import type { Environment } from '../config/environment.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import * as schema from '../database/schema.js';
+import { GOOGLE_PROVIDER_ID, googleEndpoints, googleSignIn } from './auth.google.js';
+import type { GoogleEndpoints } from './auth.google.js';
 import { logAuthEvent } from './auth.logger.js';
 
 const SESSION_LIFETIME_SECONDS = 60 * 60 * 24 * 7;
@@ -23,7 +25,11 @@ function trackTransactions(db: DrizzleDb): DrizzleDb {
   return tracked;
 }
 
-export function createAuth(db: DrizzleDb, config: Pick<Environment, 'BETTER_AUTH_SECRET' | 'BETTER_AUTH_URL' | 'AUTH_TRUSTED_ORIGINS'>) {
+type AuthConfig = Pick<Environment, 'BETTER_AUTH_SECRET' | 'BETTER_AUTH_URL' | 'AUTH_TRUSTED_ORIGINS'>
+  & Partial<Pick<Environment, 'GOOGLE_CLIENT_ID' | 'GOOGLE_CLIENT_SECRET' | 'GOOGLE_REDIRECT_URI'>>;
+
+export function createAuth(db: DrizzleDb, config: AuthConfig, endpoints: GoogleEndpoints = googleEndpoints) {
+  const { GOOGLE_CLIENT_ID: clientId, GOOGLE_CLIENT_SECRET: clientSecret, GOOGLE_REDIRECT_URI: redirectUri } = config;
   return betterAuth({
     appName: 'Recipe App',
     baseURL: config.BETTER_AUTH_URL,
@@ -33,13 +39,18 @@ export function createAuth(db: DrizzleDb, config: Pick<Environment, 'BETTER_AUTH
     databaseHooks: {
       account: {
         create: {
-          // Sign-up creates the user and then its credential account in one transaction. Writing the default categories here,
-          // in that transaction, means an account never exists without them and a failure rolls the whole sign-up back.
+          // Sign-up creates the user and then its first account, credential or Google, in one transaction. Writing the default
+          // categories here, in that transaction, means an account never exists without them and a failure rolls the whole
+          // sign-up back. Account linking is off, so a Google account row is only ever written for a brand-new user.
           before: async (account) => {
-            if (account.providerId !== 'credential') return;
+            if (account.providerId !== 'credential' && account.providerId !== GOOGLE_PROVIDER_ID) return;
             const tx = activeTransaction.getStore();
             if (!tx) throw new Error('Sign-up is not running in a transaction; default categories were not created.');
             await insertDefaultCategories(tx, account.userId);
+            // Google's tokens are spent once the profile is read; only the identity is kept.
+            if (account.providerId === GOOGLE_PROVIDER_ID) {
+              return { data: { ...account, accessToken: null, refreshToken: null, idToken: null, accessTokenExpiresAt: null, refreshTokenExpiresAt: null, scope: null } };
+            }
           },
         },
       },
@@ -56,7 +67,10 @@ export function createAuth(db: DrizzleDb, config: Pick<Environment, 'BETTER_AUTH
       disableSessionRefresh: true,
       cookieCache: { enabled: false },
     },
-    account: { modelName: 'authAccounts' },
+    // A Google identity never joins an existing Account here: a matching email is refused until linking rules exist (#48).
+    account: { modelName: 'authAccounts', accountLinking: { enabled: false }, updateAccountOnSignIn: false },
+    // Without a client the provider is absent, and starting the flow fails like any other refused sign-in.
+    plugins: clientId && clientSecret && redirectUri ? [googleSignIn({ clientId, clientSecret, redirectUri }, endpoints)] : [],
     verification: { modelName: 'authVerifications' },
     rateLimit: { enabled: true, storage: 'database', modelName: 'authRateLimits' },
     advanced: {

@@ -7,13 +7,23 @@ export const NOTICE_MESSAGES = {
 	'recipe-deleted': 'Recipe deleted',
 	'email-verified': 'Email verified. Log in to continue.',
 	'password-reset': 'Password updated. Log in with your new password.',
+	'google-sign-in-failed': 'Google sign-in did not complete. Try again.',
+	'google-email-not-verified': 'Google has not verified this email address. Verify it with Google, or sign up with a password.',
 } as const
+
+/** The notices that report a failure: they are announced urgently and stay until dismissed. */
+const ERROR_NOTICES: ReadonlySet<string> = new Set<NoticeCode>(['google-sign-in-failed', 'google-email-not-verified'])
 
 export type NoticeCode = keyof typeof NOTICE_MESSAGES
 
 /** Message for a known code; unknown codes (including prototype keys) return null. */
 export function noticeMessage(code: string | null): string | null {
 	return code !== null && Object.hasOwn(NOTICE_MESSAGES, code) ? NOTICE_MESSAGES[code as NoticeCode] : null
+}
+
+/** Whether a known code reports a failure rather than a success. */
+export function noticeIsError(code: string | null): boolean {
+	return code !== null && ERROR_NOTICES.has(code)
 }
 
 /** Builds a redirect target that shows the notice once on arrival. */

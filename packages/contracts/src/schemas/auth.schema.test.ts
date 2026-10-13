@@ -6,6 +6,8 @@ import {
   authUserSchema,
   emailSchema,
   forgotPasswordSchema,
+  googleCallbackSchema,
+  googleStartResponseSchema,
   loginSchema,
   logoutSchema,
   resendVerificationSchema,
@@ -140,6 +142,36 @@ describe("password reset", () => {
   });
 });
 
+describe("Google sign-in", () => {
+  it("forwards only a code and a state from the callback", () => {
+    expect(googleCallbackSchema.parse({ code: "4/0Ab", state: "s1" })).toEqual({ code: "4/0Ab", state: "s1" });
+    expect(googleCallbackSchema.safeParse({ code: "4/0Ab", state: "s1", error: "access_denied" }).success).toBe(false);
+  });
+
+  it.each([
+    ["no code, as after a cancelled consent", { state: "s1" }],
+    ["no state", { code: "4/0Ab" }],
+    ["an empty code", { code: "", state: "s1" }],
+    ["an empty state", { code: "4/0Ab", state: "" }],
+    ["a code longer than 2048 characters", { code: "a".repeat(2049), state: "s1" }],
+    ["a state longer than 256 characters", { code: "4/0Ab", state: "a".repeat(257) }],
+  ])("rejects a callback with %s", (_case, value) => {
+    expect(googleCallbackSchema.safeParse(value).success).toBe(false);
+  });
+
+  it("accepts the longest code and state", () => {
+    expect(googleCallbackSchema.safeParse({ code: "a".repeat(2048), state: "a".repeat(256) }).success).toBe(true);
+  });
+
+  it("starts with an http(s) provider URL and nothing else", () => {
+    const url = "https://accounts.google.com/o/oauth2/v2/auth?state=s1";
+    expect(googleStartResponseSchema.parse({ url })).toEqual({ url });
+    for (const value of [{ url: "javascript:alert(1)" }, { url: "/relative" }, { url: "ftp://accounts.google.com/" }, { url, token: "x" }, {}]) {
+      expect(googleStartResponseSchema.safeParse(value).success, JSON.stringify(value)).toBe(false);
+    }
+  });
+});
+
 describe("public auth responses", () => {
   const user = { id: "user-1", displayName: "Ana" };
 
@@ -155,7 +187,7 @@ describe("public auth responses", () => {
   it("describes errors by code, message and optional field errors", () => {
     expect(authErrorResponseSchema.safeParse({ code: "EMAIL_ALREADY_EXISTS", message: "Email already exists." }).success).toBe(true);
     expect(authErrorResponseSchema.safeParse({ code: "VALIDATION_FAILED", message: "Invalid", fieldErrors: { email: ["Too long"] } }).success).toBe(true);
-    for (const code of ["EMAIL_NOT_VERIFIED", "VERIFICATION_LINK_INVALID", "RESET_LINK_INVALID"]) {
+    for (const code of ["EMAIL_NOT_VERIFIED", "VERIFICATION_LINK_INVALID", "RESET_LINK_INVALID", "GOOGLE_EMAIL_NOT_VERIFIED", "GOOGLE_SIGN_IN_FAILED"]) {
       expect(authErrorResponseSchema.safeParse({ code, message: "x" }).success, code).toBe(true);
     }
     for (const code of ["USERNAME_UNAVAILABLE", "FAILED_TO_CREATE_USER"]) {

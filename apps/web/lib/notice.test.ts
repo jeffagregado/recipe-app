@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { NOTICE_MESSAGES, noticeMessage, urlWithoutNotice, withNotice } from './notice'
+import { NOTICE_MESSAGES, noticeIsError, noticeMessage, urlWithoutNotice, withNotice } from './notice'
 
 describe('noticeMessage', () => {
 	it('maps every known code to its toast text', () => {
-		expect(NOTICE_MESSAGES).toEqual({ 'recipe-saved': 'Recipe saved', 'recipe-updated': 'Recipe updated', 'recipe-deleted': 'Recipe deleted', 'email-verified': 'Email verified. Log in to continue.', 'password-reset': 'Password updated. Log in with your new password.' })
+		expect(NOTICE_MESSAGES).toEqual({ 'recipe-saved': 'Recipe saved', 'recipe-updated': 'Recipe updated', 'recipe-deleted': 'Recipe deleted', 'email-verified': 'Email verified. Log in to continue.', 'password-reset': 'Password updated. Log in with your new password.', 'google-sign-in-failed': 'Google sign-in did not complete. Try again.', 'google-email-not-verified': 'Google has not verified this email address. Verify it with Google, or sign up with a password.' })
 		expect(noticeMessage('recipe-saved')).toBe('Recipe saved')
 	})
 
 	it.each([null, '', 'unknown', 'toString', '__proto__'])('ignores %j', (code) => {
 		expect(noticeMessage(code)).toBeNull()
+	})
+})
+
+describe('noticeIsError', () => {
+	it.each([['google-sign-in-failed', true], ['google-email-not-verified', true], ['email-verified', false], ['recipe-saved', false], ['unknown', false], [null, false]])('answers %j with %j', (code, expected) => {
+		expect(noticeIsError(code)).toBe(expected)
 	})
 })
 
