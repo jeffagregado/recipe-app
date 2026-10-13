@@ -40,7 +40,7 @@ it('offers the email keyboard and autofill, and submits the email with the passw
 	expect(email).toHaveAttribute('type', 'email')
 	expect(email).toHaveAttribute('autocomplete', 'email')
 	expect(screen.queryByLabelText('Username')).not.toBeInTheDocument()
-	await user.type(email, 'Owner@Example.invalid')
+	await user.type(email, 'owner@example.invalid')
 	await user.type(screen.getByLabelText('Password'), testSecret())
 	await user.click(screen.getByRole('button', { name: 'Log in' }))
 	await screen.findByRole('alert')

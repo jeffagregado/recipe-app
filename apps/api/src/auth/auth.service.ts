@@ -82,7 +82,7 @@ export class AuthService {
   private async rejectSignup(cause: unknown, email: string): Promise<never> {
     if (!(cause instanceof APIError)) throw unavailable('signup', cause);
     const code = cause.body?.code;
-    if (code === 'USER_ALREADY_EXISTS' || code === 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL') throw emailAlreadyExists();
+    if (code === 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL') throw emailAlreadyExists();
     if (code === 'FAILED_TO_CREATE_USER') return this.rejectCreation(cause, email);
     if (cause.statusCode < 500 && code && /PASSWORD|EMAIL/.test(code)) {
       throw new AuthError(400, 'VALIDATION_FAILED', 'Invalid signup details.', { cause });

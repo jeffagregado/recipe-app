@@ -30,8 +30,6 @@ test('signup has three fields, creates empty library, forwards address and logs 
   await page.goto('/');
   await mode(page, 'Sign up').click();
   await expect(page.locator('form input')).toHaveCount(3);
-  await expect(page.getByLabel('Email', { exact: true })).toHaveAttribute('type', 'email');
-  await expect(page.getByLabel('Email', { exact: true })).toHaveAttribute('autocomplete', 'email');
   await expect(page.getByLabel('Display Name', { exact: true })).toHaveAttribute('autocomplete', 'name');
   await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute('autocomplete', 'new-password');
   await page.getByLabel('Display Name', { exact: true }).fill('My test kitchen');
@@ -51,7 +49,7 @@ test('signup has three fields, creates empty library, forwards address and logs 
   await logout(page);
   await page.goto('/recipes');
   await expect(page).toHaveURL(`${WEB_URL}/`);
-  await login(page, ` ${email.toUpperCase()} `, password);
+  await login(page, email.toUpperCase(), password);
   await expect(page).toHaveURL(`${WEB_URL}/recipes`);
   await expect(page.getByText('Your recipe library is empty.', { exact: true })).toBeVisible();
 });

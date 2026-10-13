@@ -24,7 +24,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
   const password = `  ${testPassword()}  `;
   let cookie = '';
 
-  const track = (address = testEmail()) => { emails.push(address); return address; };
+  const track = (tracked = testEmail()) => { emails.push(tracked); return tracked; };
   const errorOf = async (response: Response) => authErrorResponseSchema.parse(await response.json());
 
   beforeAll(async () => {
@@ -50,16 +50,16 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
       const other = await fetch(`${baseUrl}/api/auth/ok`, { headers: { Origin: origin } });
       expect(other.headers.get('access-control-allow-origin'), origin).toBeNull();
     }
-    const native = `verify-${randomUUID()}@example.invalid`;
+    const nativeEmail = `verify-${randomUUID()}@example.invalid`;
     for (const [path, body] of [
-      ['sign-up/email', { name: 'Temporary verification', email: native, password }],
-      ['sign-in/email', { email: native, password }],
+      ['sign-up/email', { name: 'Temporary verification', email: nativeEmail, password }],
+      ['sign-in/email', { email: nativeEmail, password }],
       // The username plugin is gone; its routes stay closed like any unknown path.
       ['sign-in/username', { username: 'removed', password }],
       ['is-username-available', { username: 'removed' }],
-      ['send-verification-email', { email: native }],
+      ['send-verification-email', { email: nativeEmail }],
       ['update-user', { name: 'Changed' }],
-      ['change-email', { newEmail: native }],
+      ['change-email', { newEmail: nativeEmail }],
       ['sign-out', {}],
     ] as const) {
       const response = await fetch(`${baseUrl}/api/auth/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN }, body: JSON.stringify(body) });
@@ -67,7 +67,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
       expect(response.headers.getSetCookie(), path).toEqual([]);
     }
     expect((await fetch(`${baseUrl}/api/auth/get-session`)).status).toBe(404);
-    expect(await db.$count(users, eq(users.email, native))).toBe(0);
+    expect(await db.$count(users, eq(users.email, nativeEmail))).toBe(0);
   });
 
   it('signs up by email as a verified Account with a safe DTO and cookie, persisted session, then logs out', async () => {
@@ -134,7 +134,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
 
   it('gives wrong and unknown credentials one response, logs in case-insensitively and never trims passwords', async () => {
     const wrong = await client.post('/auth/login', { email, password: testPassword() });
-    const unknown = await client.post('/auth/login', { email: testEmail(), password: testPassword() });
+    const unknown = await client.post('/auth/login', { email: track(), password: testPassword() });
     const trimmed = await client.post('/auth/login', { email, password: password.trim() });
     for (const response of [wrong, unknown, trimmed]) {
       expect(response.status).toBe(401);
