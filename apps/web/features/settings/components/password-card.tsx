@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { changePasswordSchema } from '@recipe-app/contracts/schemas'
 import type { ChangePasswordInput } from '@recipe-app/contracts/types'
 import { Loader2 } from 'lucide-react'
-import { useId, useRef, useState, useTransition, type BaseSyntheticEvent } from 'react'
+import { useId, useState, type BaseSyntheticEvent } from 'react'
 import { useForm, useFormState, useWatch } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -12,6 +12,8 @@ import { useAppToast } from '@/lib/use-app-toast'
 import { changePassword } from '../actions/change-password'
 import { requestSetPassword } from '../actions/request-set-password'
 import { PASSWORD_MESSAGES, SET_PASSWORD_MESSAGES, type ChangePasswordResult, type RequestSetPasswordResult } from '../actions/results'
+import { showRefusal } from '../lib/show-refusal'
+import { useSingleFlight } from '../lib/use-single-flight'
 import { PasswordField } from './password-field'
 
 type PasswordCardProps = {
@@ -47,8 +49,6 @@ function ChangePasswordForm({ onChange }: { onChange: NonNullable<PasswordCardPr
 	const toast = useAppToast()
 	const currentId = useId()
 	const newId = useId()
-	const [pending, startTransition] = useTransition()
-	const inFlight = useRef(false)
 	const [alert, setAlert] = useState<string>()
 	const form = useForm<ChangePasswordInput>({ resolver: zodResolver(changePasswordSchema), defaultValues: { currentPassword: '', newPassword: '' } })
 	// Subscribed state: the form object keeps one identity, so reading form.formState here could be cached by the compiler.
@@ -63,21 +63,13 @@ function ChangePasswordForm({ onChange }: { onChange: NonNullable<PasswordCardPr
 			form.reset()
 			return
 		}
-		toast.error(result.status === 'invalid' ? PASSWORD_MESSAGES.failed : result.message)
-		if (result.status === 'invalid') form.setError(result.field, { type: 'server', message: result.message }, { shouldFocus: true })
-		else setAlert(result.message)
+		showRefusal(result, { form, toast, setAlert, failed: PASSWORD_MESSAGES.failed })
 	}
+	const { pending, run } = useSingleFlight(onChange, (): ChangePasswordResult => ({ status: 'failed', message: PASSWORD_MESSAGES.failed }), showResult)
 
 	function send(values: ChangePasswordInput) {
-		if (inFlight.current) return
-		inFlight.current = true
 		setAlert(undefined)
-		startTransition(async () => {
-			let result: ChangePasswordResult
-			try { result = await onChange(values) } catch { result = { status: 'failed', message: PASSWORD_MESSAGES.failed } }
-			inFlight.current = false
-			showResult(result)
-		})
+		run(values)
 	}
 
 	function submit(event?: BaseSyntheticEvent) {
@@ -118,22 +110,16 @@ function ChangePasswordForm({ onChange }: { onChange: NonNullable<PasswordCardPr
 
 function SetPasswordLink({ onRequestLink }: { onRequestLink: NonNullable<PasswordCardProps['onRequestLink']> }) {
 	const toast = useAppToast()
-	const [pending, startTransition] = useTransition()
-	const inFlight = useRef(false)
 	const [result, setResult] = useState<RequestSetPasswordResult>()
+	const { pending, run } = useSingleFlight(onRequestLink, (): RequestSetPasswordResult => ({ status: 'failed', message: SET_PASSWORD_MESSAGES.failed }), (outcome) => {
+		setResult(outcome)
+		if (outcome.status === 'sent') toast.success(SET_PASSWORD_MESSAGES.sentToast)
+		else toast.error(outcome.message)
+	})
 
 	function send() {
-		if (inFlight.current) return
-		inFlight.current = true
 		setResult(undefined)
-		startTransition(async () => {
-			let outcome: RequestSetPasswordResult
-			try { outcome = await onRequestLink() } catch { outcome = { status: 'failed', message: SET_PASSWORD_MESSAGES.failed } }
-			inFlight.current = false
-			setResult(outcome)
-			if (outcome.status === 'sent') toast.success(SET_PASSWORD_MESSAGES.sentToast)
-			else toast.error(outcome.message)
-		})
+		run()
 	}
 
 	return (

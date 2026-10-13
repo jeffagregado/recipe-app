@@ -10,6 +10,8 @@ const FIELDS: readonly EmailFieldName[] = ['newEmail', 'currentPassword']
 
 const failed = (message: string = EMAIL_MESSAGES.failed): ChangeEmailResult => ({ status: 'failed', message })
 const sessionExpired: ChangeEmailResult = { status: 'session-expired', message: EMAIL_MESSAGES.sessionExpired }
+/** The statuses that mean the same whatever their body says. */
+const STATUS_RESULTS: Partial<Record<number, ChangeEmailResult>> = { 401: sessionExpired, 403: failed(EMAIL_MESSAGES.unverified), 429: failed(EMAIL_MESSAGES.rateLimited) }
 
 /** The first message about one of the two fields; a malformed request has none and gets the general wording. */
 function invalid(message: (field: EmailFieldName) => string | undefined): ChangeEmailResult {
@@ -18,6 +20,21 @@ function invalid(message: (field: EmailFieldName) => string | undefined): Change
 		if (found) return { status: 'invalid', field, message: found }
 	}
 	return failed(EMAIL_MESSAGES.invalid)
+}
+
+/** Reads a 400 or 409 by its code. The wording is always this module's own; the API's messages are dropped. */
+async function refusal(response: Response): Promise<ChangeEmailResult> {
+	const envelope = await readErrorEnvelope(response)
+	if (envelope?.code === 'INVALID_CURRENT_PASSWORD') return { status: 'invalid', field: 'currentPassword', message: EMAIL_MESSAGES.wrongCurrent }
+	if (envelope?.code === 'EMAIL_ALREADY_EXISTS') return { status: 'invalid', field: 'newEmail', message: EMAIL_MESSAGES.taken }
+	if (envelope?.code === 'PASSWORD_REQUIRED') {
+		// The page is out of date: the Account has no password. The refreshed card shows the reason in place of the form.
+		refresh()
+		return failed(EMAIL_MESSAGES.passwordRequired)
+	}
+	if (response.status === 409) return failed()
+	// The messages come from the shared schema, never from a database error; every other field is dropped.
+	return invalid((field) => envelope?.fieldErrors?.[field]?.[0])
 }
 
 /**
@@ -45,20 +62,6 @@ export async function changeEmail(input: unknown): Promise<ChangeEmailResult> {
 		refresh()
 		return { status: 'sent' }
 	}
-	if (response.status === 401) return sessionExpired
-	if (response.status === 403) return failed(EMAIL_MESSAGES.unverified)
-	if (response.status === 429) return failed(EMAIL_MESSAGES.rateLimited)
-	if (response.status !== 400 && response.status !== 409) return failed()
-
-	const envelope = await readErrorEnvelope(response)
-	if (envelope?.code === 'INVALID_CURRENT_PASSWORD') return { status: 'invalid', field: 'currentPassword', message: EMAIL_MESSAGES.wrongCurrent }
-	if (envelope?.code === 'EMAIL_ALREADY_EXISTS') return { status: 'invalid', field: 'newEmail', message: EMAIL_MESSAGES.taken }
-	if (envelope?.code === 'PASSWORD_REQUIRED') {
-		// The page is out of date: the Account has no password. The refreshed card shows the reason in place of the form.
-		refresh()
-		return failed(EMAIL_MESSAGES.passwordRequired)
-	}
-	if (response.status === 409) return failed()
-	// The messages come from the shared schema, never from a database error; every other field is dropped.
-	return invalid((field) => envelope?.fieldErrors?.[field]?.[0])
+	if (response.status === 400 || response.status === 409) return refusal(response)
+	return STATUS_RESULTS[response.status] ?? failed()
 }
