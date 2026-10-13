@@ -120,7 +120,7 @@ export async function removeTestData(db: DrizzleDb, data: { emails: string[]; ad
     await db.delete(users).where(inArray(users.email, data.emails));
   }
   const keys = [
-    ...data.emails.flatMap((email) => ['login:email', 'resend:email'].map((scope) => rateLimitKey(scope, email))),
+    ...data.emails.flatMap((email) => ['login:email', 'resend:email', 'notice:email'].map((scope) => rateLimitKey(scope, email))),
     ...data.addresses.flatMap((address) => ['login:address', 'signup:address', 'resend:address', 'verify:address', 'google-start:address', 'google-callback:address'].map((scope) => rateLimitKey(scope, address))),
   ];
   await db.delete(authRateLimits).where(or(inArray(authRateLimits.key, keys), ...data.addresses.map((address) => like(authRateLimits.key, `${address}%`))));

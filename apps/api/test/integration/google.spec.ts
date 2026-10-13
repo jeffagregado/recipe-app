@@ -157,6 +157,21 @@ describe('Sign in with Google for a new person', () => {
     expect(await categoryNames(row!.id)).toEqual([...DEFAULT_CATEGORY_NAMES]);
   }, 60_000);
 
+  it('answers a manual sign-up over a Google-created Account with the email conflict and leaves the Account alone', async () => {
+    const person = identity();
+    expect((await finish({ code: google.consent(person), ...(await start()) })).status).toBe(204);
+    const response = await client.post('/auth/signup', { displayName: 'Password Person', email: person.email.toUpperCase(), password: randomBytes(24).toString('base64url') });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ code: 'EMAIL_ALREADY_EXISTS', message: 'Email already exists.' });
+    expect(response.headers.getSetCookie()).toEqual([]);
+    expect(await db.$count(users, eq(users.email, person.email))).toBe(1);
+    const row = await userOf(person.email);
+    expect(row?.name).toBe('Ana Google');
+    // No password joins the Google identity, and no verification link is stored for an address Google already vouched for.
+    expect(row?.accounts.map(({ providerId }) => providerId)).toEqual(['google']);
+    expect(await db.$count(authVerifications, eq(authVerifications.value, row!.id))).toBe(0);
+  }, 60_000);
+
   it('refuses an identity whose email Google reports as unverified and creates nothing', async () => {
     const person = identity({ email_verified: false });
     await expectRefused(await finish({ code: google.consent(person), ...(await start()) }), 403, { code: 'GOOGLE_EMAIL_NOT_VERIFIED', message: 'Google has not verified this email address.' });
