@@ -296,10 +296,10 @@ export const waitHydrated = (locator: Locator) => expect.poll(() => locator.eval
 export const recipeCards = (page: Page) => page.getByRole('list', { name: 'Recipes' }).locator(':scope > li');
 
 /** Signs in through the form as the given temporary account. */
-export async function logIn(page: Page, { username, password }: { username: string; password: string }) {
+export async function logIn(page: Page, { email, password }: { email: string; password: string }) {
   // Values typed before hydration are reset when React takes over the inputs.
   await waitHydrated(page.getByRole('button', { name: 'Log in', exact: true }));
-  await page.getByLabel('Username', { exact: true }).fill(username);
+  await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page).toHaveURL(`${WEB_URL}/recipes`);
@@ -312,5 +312,5 @@ export async function logOut(page: Page) {
   const reloaded = page.waitForEvent('load');
   await page.getByRole('button', { name: 'Log out', exact: true }).filter({ visible: true }).click();
   await reloaded;
-  await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
 }
