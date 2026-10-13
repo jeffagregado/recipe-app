@@ -61,3 +61,24 @@ export const SET_PASSWORD_MESSAGES = {
 	...SHARED_MESSAGES,
 	rateLimited: 'You asked for too many emails. Try again in an hour.',
 } as const
+
+/** A connect that starts leaves the page for Google, so only the ways it did not start are answered. */
+export type ConnectGoogleResult =
+	| { status: 'session-expired'; message: string }
+	| { status: 'failed'; message: string }
+
+/** `disconnected`: Google is no longer a Sign-in method and this device stays signed in. Every other status removed nothing. */
+export type DisconnectGoogleResult =
+	| { status: 'disconnected' }
+	| { status: 'session-expired'; message: string }
+	| { status: 'failed'; message: string }
+
+export const SIGN_IN_METHODS_MESSAGES = {
+	disconnected: 'Google disconnected',
+	connectFailed: 'Couldn’t reach Google. Try again.',
+	disconnectFailed: 'Couldn’t disconnect Google. Try again.',
+	passwordRequired: 'Set a password first.',
+	alreadyConnected: 'Google is already connected.',
+	...SHARED_MESSAGES,
+	rateLimited: 'Too many attempts. Try again in a few minutes.',
+} as const

@@ -43,8 +43,33 @@ it('forwards the code, the state and only the state cookie, copies the session c
 	expect(url).toBe('http://api.example/auth/google/callback')
 	expect(init?.method).toBe('POST')
 	expect(init?.body).toBe(`{"code":"${CODE}","state":"${STATE}"}`)
-	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', cookie: `better-auth.state=${encodeURIComponent(STATE_VALUE)}`, 'x-forwarded-for': '203.0.113.9' })
+	// The state cookie and the session cookie travel, and no other: the API attaches a connect only for the session that started it.
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', cookie: `better-auth.state=${encodeURIComponent(STATE_VALUE)}; better-auth.session_token=stale`, 'x-forwarded-for': '203.0.113.9' })
 	expect(warn).not.toHaveBeenCalled()
+})
+
+it('returns to Settings with a notice after a connect, and leaves the session cookie in the browser as it is', async () => {
+	fetchMock.mockResolvedValue(new Response(JSON.stringify({ connected: true }), { status: 200, headers: { 'Content-Type': 'application/json', 'Set-Cookie': SESSION } }))
+	const response = await arrive(`?code=${CODE}&state=${STATE}`)
+	expect(response.status).toBe(307)
+	expect(response.headers.get('location')).toBe('/settings?notice=google-connected')
+	expect(response.headers.get('cache-control')).toBe('private, no-store')
+	expect(response.headers.get('referrer-policy')).toBe('no-referrer')
+	expect(cookiesOf(response)).toEqual(CLEARED_STATE)
+	expect(warn).not.toHaveBeenCalled()
+})
+
+it.each([
+	['a refused connect', () => error('GOOGLE_CONNECT_FAILED', 400), '/settings?notice=google-connect-failed', 'Auth: google-callback failed with GOOGLE_CONNECT_FAILED (upstream 400).'],
+	['an identity another Account holds', () => error('GOOGLE_ALREADY_LINKED', 409), '/settings?notice=google-already-linked', 'Auth: google-callback failed with GOOGLE_ALREADY_LINKED (upstream 409).'],
+	['a connect of an unverified Google email', () => error('GOOGLE_CONNECT_EMAIL_NOT_VERIFIED', 403), '/settings?notice=google-connect-email-not-verified', 'Auth: google-callback failed with GOOGLE_CONNECT_EMAIL_NOT_VERIFIED (upstream 403).'],
+])('returns to Settings with a notice after %s, sets no session and logs the cause once', async (_cause, respond, location, line) => {
+	fetchMock.mockImplementation(async () => respond())
+	const response = await arrive(`?code=${CODE}&state=${STATE}`)
+	expect(response.status).toBe(307)
+	expect(response.headers.get('location')).toBe(location)
+	expect(cookiesOf(response)).toEqual(CLEARED_STATE)
+	expect(warn).toHaveBeenCalledExactlyOnceWith(line)
 })
 
 it.each([
@@ -57,6 +82,8 @@ it.each([
 	['a failed or timed out request', () => Promise.reject(new TypeError('Test transport failed')), FAILED, 'Auth: google-callback failed with SERVICE_UNAVAILABLE.'],
 	['a success without a session cookie', () => signedIn(), FAILED, 'Auth: google-callback failed with SERVICE_UNAVAILABLE (upstream 204).'],
 	['a success with two session cookies', () => signedIn(SESSION, SESSION), FAILED, 'Auth: google-callback failed with SERVICE_UNAVAILABLE (upstream 204).'],
+	['a 200 that does not say a connect happened', () => new Response(JSON.stringify({ connected: false }), { status: 200, headers: { 'Set-Cookie': SESSION } }), FAILED, 'Auth: google-callback failed with SERVICE_UNAVAILABLE (upstream 200).'],
+	['a code that names an inherited property', () => error('toString', 400), FAILED, 'Auth: google-callback failed with SERVICE_UNAVAILABLE (upstream 400).'],
 ])('returns to login with a notice after %s, sets no session and logs the cause once without the code', async (_cause, respond, location, line) => {
 	fetchMock.mockImplementation(async () => respond())
 	const response = await arrive(`?code=${CODE}&state=${STATE}`)

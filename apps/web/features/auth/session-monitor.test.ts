@@ -6,7 +6,7 @@ vi.mock('./session-client', () => ({ AUTH_CHANNEL: 'test-auth', ...client }))
 import { observeSession } from './session-monitor'
 
 const fetchMock = vi.fn<typeof fetch>()
-const session = (id: string) => new Response(JSON.stringify({ user: { id, displayName: 'Test Owner', hasPassword: true }, expiresAt: '2030-01-01T00:00:00.000Z' }), { status: 200 })
+const session = (id: string) => new Response(JSON.stringify({ user: { id, displayName: 'Test Owner', hasPassword: true, google: null }, expiresAt: '2030-01-01T00:00:00.000Z' }), { status: 200 })
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 let stop: (() => void) | undefined
 

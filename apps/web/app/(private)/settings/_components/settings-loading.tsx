@@ -7,6 +7,7 @@ export function SettingsLoading() {
 			<span className="sr-only">Loading your settings…</span>
 			<Skeleton className="h-44 max-w-xl rounded-xl" />
 			<Skeleton className="h-72 max-w-xl rounded-xl" />
+			<Skeleton className="h-44 max-w-xl rounded-xl" />
 		</div>
 	)
 }

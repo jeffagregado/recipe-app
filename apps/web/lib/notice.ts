@@ -12,10 +12,16 @@ export const NOTICE_MESSAGES = {
 	// Points at the reset, never at a verification link already in the inbox: whoever signed up with the address chose that
 	// Account's password, and only a reset replaces it before a Google identity joins the Account.
 	'google-account-not-verified': 'This email has an account that is not verified yet. Use "Forgot password?" to set a new password, which verifies it, then sign in with Google again.',
+	'google-connected': 'Google connected',
+	'google-connect-failed': 'Google was not connected. Try again.',
+	'google-already-linked': 'That Google account is already connected to another account.',
+	'google-connect-email-not-verified': 'Google has not verified that email address. Verify it with Google, then connect again.',
 } as const
 
 /** The notices that report a failure: they are announced urgently and stay until dismissed. */
-const ERROR_NOTICES: ReadonlySet<string> = new Set<NoticeCode>(['google-sign-in-failed', 'google-email-not-verified', 'google-account-not-verified'])
+const ERROR_NOTICES: ReadonlySet<string> = new Set<NoticeCode>([
+	'google-sign-in-failed', 'google-email-not-verified', 'google-account-not-verified', 'google-connect-failed', 'google-already-linked', 'google-connect-email-not-verified',
+])
 
 export type NoticeCode = keyof typeof NOTICE_MESSAGES
 
