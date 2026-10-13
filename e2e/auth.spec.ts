@@ -93,12 +93,13 @@ test('the right password before verifying shows the verify message with a resend
   await expect(page.getByText('Verify your email before logging in.', { exact: true })).toBeVisible();
   await expect(page).toHaveURL(`${WEB_URL}/`);
   expect(await fits(page)).toBe(true);
-  expect(await workerData.verificationTokens(email)).toHaveLength(1);
+  // Counts only: a failed assertion must not print a link.
+  expect((await workerData.verificationTokens(email)).length).toBe(1);
   await page.getByRole('button', { name: 'Resend verification email', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: /sent/i })).toBeVisible();
+  await expect(page.getByText('If that address needs verifying, we sent a new link.', { exact: true })).toBeVisible();
   expect(await fits(page)).toBe(true);
   const tokens = await workerData.verificationTokens(email);
-  expect(tokens).toHaveLength(2);
+  expect(tokens.length).toBe(2);
   await page.goto(`/verify-email?token=${tokens[0]}`);
   await expect(page.getByText('Email verified. Log in to continue.', { exact: true })).toBeVisible();
   await login(page, email, password);

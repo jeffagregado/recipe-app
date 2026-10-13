@@ -113,8 +113,9 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(wrong.status).toBe(401);
     expect(await wrong.json()).toEqual({ code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' });
     // Only sign-up and resend send: a refused login leaves the one message and the one link.
-    expect(sentTo(email)).toHaveLength(1);
-    expect(await verificationTokens(db, email)).toHaveLength(1);
+    // Counts only, here and below: a failed assertion must not print a link, an address or a mail body.
+    expect(sentTo(email).length).toBe(1);
+    expect((await verificationTokens(db, email)).length).toBe(1);
     const owner = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
     expect(await db.$count(authSessions, eq(authSessions.userId, owner!.id))).toBe(0);
   }, 30_000);
@@ -136,7 +137,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     const owner = await verified();
     expect(owner?.emailVerified).toBe(true);
     expect(await db.$count(authSessions, eq(authSessions.userId, owner!.id))).toBe(0);
-    expect(await verificationTokens(db, email)).toEqual([]);
+    expect((await verificationTokens(db, email)).length).toBe(0);
 
     const again = await client.post('/auth/verify-email', { token }, { origin: null });
     expect(again.status).toBe(400);
@@ -148,7 +149,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     }
   }, 30_000);
 
-  it('expires a link 24 hours after it was issued', async () => {
+  it('expires a link 24 hours after it was issued and lets two simultaneous openings verify once', async () => {
     const aged = track();
     const agedClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
     expect((await agedClient.post('/auth/signup', { displayName: 'Aged link', email: aged, password: testPassword() })).status).toBe(201);
@@ -163,8 +164,10 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect((await db.query.users.findFirst({ where: eq(users.email, aged), columns: { emailVerified: true } }))?.emailVerified).toBe(false);
 
     // The same link an hour younger still works: the refusal above was its age, not the token.
+    // Opened twice at once it still verifies once.
     await issuedAgo(DAY_MS - 3_600_000);
-    expect((await agedClient.post('/auth/verify-email', { token })).status).toBe(204);
+    const opened = await Promise.all([1, 2].map(() => agedClient.post('/auth/verify-email', { token })));
+    expect(opened.map(({ status }) => status).sort()).toEqual([204, 400]);
     expect((await db.query.users.findFirst({ where: eq(users.email, aged), columns: { emailVerified: true } }))?.emailVerified).toBe(true);
   }, 30_000);
 
@@ -174,7 +177,6 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     const resendClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
     expect((await resendClient.post('/auth/signup', { displayName: 'Pending', email: pending, password: testPassword() })).status).toBe(201);
     const first = await latestVerificationToken(db, pending);
-    const verifiedMail = sentTo(email).length;
 
     // `email` was verified above; `unknown` has no Account.
     for (const target of [pending, email, unknown]) {
@@ -184,19 +186,20 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
       expect(response.headers.getSetCookie()).toEqual([]);
     }
     expect(sentTo(pending).map(({ kind }) => kind)).toEqual(['verification', 'verification']);
-    expect(sentTo(email)).toHaveLength(verifiedMail);
-    expect(sentTo(unknown)).toEqual([]);
+    // The verified Account still has only the message from its own sign-up.
+    expect(sentTo(email).length).toBe(1);
+    expect(sentTo(unknown).length).toBe(0);
     expect(await db.$count(users, eq(users.email, unknown))).toBe(0);
 
     const tokens = await verificationTokens(db, pending);
-    expect(tokens).toHaveLength(2);
+    expect(tokens.length).toBe(2);
     expect(tokens[1] === first).toBe(true);
     expect(sentTo(pending)[1].html.includes(`<a href="${TEST_ORIGIN}/verify-email?token=${tokens[0]}">`)).toBe(true);
     // Either link verifies, and verifying retires the other one.
     expect((await resendClient.post('/auth/verify-email', { token: first })).status).toBe(204);
     expect((await resendClient.post('/auth/verify-email', { token: tokens[0] })).status).toBe(400);
     expect((await resendClient.post('/auth/resend-verification', { email: pending })).status).toBe(204);
-    expect(sentTo(pending)).toHaveLength(2);
+    expect(sentTo(pending).length).toBe(2);
   }, 60_000);
 
   it('limits resends to 3 an hour per address and 10 an hour per client, with the same answers for an unknown address', async () => {
@@ -216,7 +219,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
       expect(retryAfter).toBeLessThanOrEqual(60 * 60);
     }
     // One message from sign-up and three resends; the refused request sent nothing.
-    expect(sentTo(known)).toHaveLength(4);
+    expect(sentTo(known).length).toBe(4);
 
     const floodClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
     for (let attempt = 1; attempt <= 10; attempt++) {
@@ -227,7 +230,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(Number(blocked.headers.get('retry-after'))).toBeLessThanOrEqual(60 * 60);
     // The counter is stored under a digest, never under the address itself.
     expect(await db.$count(authRateLimits, like(authRateLimits.key, `%${known}%`))).toBe(0);
-  }, 120_000);
+  }, 60_000);
 
   it('logs in a verified Account with a safe DTO and cookie, a persisted session, then logs out', async () => {
     const response = await client.post('/auth/login', { email, password });
