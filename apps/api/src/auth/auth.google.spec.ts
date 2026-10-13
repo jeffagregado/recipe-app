@@ -9,6 +9,7 @@ import { GoogleSignInService } from './google.service.js';
 describe('Google display name', () => {
   it.each([
     ['Ana Google', 'Ana Google'],
+    ['  Ana Google  ', 'Ana Google'],
     ['  Ana\u0000 Goo\u0007gle\n ', 'Ana Google'],
     [`${'a'.repeat(99)} bcd`, 'a'.repeat(99)],
     ['', 'ana.maria'],

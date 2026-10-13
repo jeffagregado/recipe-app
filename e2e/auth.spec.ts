@@ -213,12 +213,19 @@ for (const width of [320, 390, 768, 1440]) {
     page.on('pageerror', (error) => errors.push(error.message));
     const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
     await page.setViewportSize({ width, height: 900 });
+    // The Google button is a touch target on both forms at every width: at least 44px tall and inside the viewport.
+    const googleFits = async () => {
+      const box = await page.getByRole('button', { name: 'Continue with Google', exact: true }).boundingBox();
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+      expect(box?.x).toBeGreaterThanOrEqual(0);
+      expect((box?.x ?? width) + (box?.width ?? width)).toBeLessThanOrEqual(width);
+    };
     await page.goto('/');
+    await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
+    await googleFits();
     await mode(page, 'Sign up').click();
     await expect(page.getByLabel('Display Name', { exact: true })).toBeVisible();
-    // The Google button is a touch target on every width: at least 44px tall and inside the viewport.
-    const google = await page.getByRole('button', { name: 'Continue with Google', exact: true }).boundingBox();
-    expect(google !== null && google.height >= 44 && google.x >= 0 && google.x + google.width <= width).toBe(true);
+    await googleFits();
     expect(await fits()).toBe(true);
     await login(page, workerData.owner.email, workerData.owner.password);
     await expect(cards(page)).toHaveCount(20);

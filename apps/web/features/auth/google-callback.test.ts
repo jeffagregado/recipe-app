@@ -69,9 +69,6 @@ it.each([
 
 it.each([
 	['a cancelled consent', `?error=access_denied&state=${STATE}`, undefined],
-	['no state', `?code=${CODE}`, undefined],
-	['an empty code', `?code=&state=${STATE}`, undefined],
-	['a code longer than 2048 characters', `?code=${'a'.repeat(2049)}&state=${STATE}`, undefined],
 	['no query at all', '', undefined],
 	['no state cookie on the web origin', `?code=${CODE}&state=${STATE}`, ''],
 ])('returns to login with a notice after %s without contacting the API or setting a session', async (_case, query, cookie) => {

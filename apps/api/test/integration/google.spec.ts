@@ -26,9 +26,6 @@ describe('Sign in with Google for a new person', () => {
   let google: Awaited<ReturnType<typeof startGoogleStandIn>>;
   const addresses = [testAddress()];
   const emails: string[] = [];
-  /** The flow of the first sign-in, kept to replay it. */
-  let spent: { code: string; state: string; cookie: string };
-
   const identity = (overrides: Partial<GoogleIdentity> = {}): GoogleIdentity => {
     const email = testEmail();
     emails.push(overrides.email ?? email);
@@ -90,11 +87,10 @@ describe('Sign in with Google for a new person', () => {
   }, 30_000);
 
   it('creates a Verified Account with the Google display name, Default categories and a seven-day session', async () => {
-    const person = identity({ name: '  Ana Google  ' });
+    const person = identity();
     const flow = await start();
     const code = google.consent(person);
     const response = await finish({ code, ...flow });
-    spent = { code, state: flow.state, cookie: flow.cookie };
     expect(response.status).toBe(204);
     expect(await response.text()).toBe('');
     expect(response.headers.get('cache-control')).toBe('private, no-store');
@@ -119,6 +115,7 @@ describe('Sign in with Google for a new person', () => {
     expect(session.status).toBe(200);
     expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: row!.id, displayName: 'Ana Google' });
 
+    // Compared without printing either side: a failure must not put the verifier in the log.
     // The exchange named the web callback and proved possession of the verifier behind the challenge Google was shown.
     const exchange = google.exchanges.find((entry) => entry.code === code);
     expect(exchange?.redirectUri).toBe(WEB_CALLBACK);
@@ -126,7 +123,9 @@ describe('Sign in with Google for a new person', () => {
   }, 60_000);
 
   it('refuses a replayed, forged, unaccompanied or mismatched state and sets no cookie', async () => {
-    // Replayed: the first sign-in consumed this state, and a fresh code does not revive it.
+    // Replayed: a completed sign-in consumed its state, and a fresh code does not revive it.
+    const spent = await start();
+    expect((await finish({ code: google.consent(identity()), ...spent })).status).toBe(204);
     await expectRefused(await finish({ ...spent, code: google.consent(identity()) }), 400, FAILED);
     const flow = await start();
     const other = await start();
@@ -180,15 +179,15 @@ describe('Sign in with Google for a new person', () => {
       expect((await client.post('/auth/signup', { displayName: 'Password Person', email, password: randomBytes(24).toString('base64url') })).status).toBe(201);
     }
     emails.push(email);
-    const before = await userOf(email);
     const person = identity({ email: email.toUpperCase() });
     await expectRefused(await finish({ code: google.consent(person), ...(await start()) }), 400, FAILED);
     const after = await userOf(email);
     expect(await db.$count(users, eq(users.email, email))).toBe(1);
     expect(after?.accounts.map(({ providerId }) => providerId)).toEqual(['credential']);
     expect(after?.emailVerified).toBe(verified);
-    expect(after?.name).toBe(before?.name);
-    expect(after?.sessions.length).toBe(before?.sessions.length);
+    expect(after?.name).toBe(verified ? 'Temporary verification' : 'Password Person');
+    // The harness logged the Verified Account in once; the refused Google sign-in added no session to either.
+    expect(after?.sessions.length).toBe(verified ? 1 : 0);
     expect(await db.$count(authAccounts, eq(authAccounts.accountId, person.sub))).toBe(0);
     expect(await categoryNames(after!.id)).toEqual([...DEFAULT_CATEGORY_NAMES]);
   }, 60_000);
@@ -218,12 +217,11 @@ describe('Sign in with Google for a new person', () => {
       await expectRefused(await client.post('/auth/google/start', {}, { origin }), 403, { code: 'ORIGIN_REJECTED', message: 'Request origin is not allowed.' });
     }
     expect(authErrorResponseSchema.parse(await (await client.post('/auth/google/start', { callbackURL: 'https://evil.example.invalid' })).json()).code).toBe('VALIDATION_FAILED');
-    for (const body of [{ state: 'only-state' }, { code: 'only-code' }, { code: 'c', state: 's', error: 'access_denied' }, { code: 'a'.repeat(2049), state: 's' }]) {
-      const response = await client.post('/auth/google/callback', body, { origin: null });
-      expect(response.status).toBe(400);
-      expect(authErrorResponseSchema.parse(await response.json()).code).toBe('VALIDATION_FAILED');
-      expect(response.headers.getSetCookie()).toEqual([]);
-    }
+    // The schema tests own the limits; one body proves the wrapper applies the schema, here to a cancelled consent.
+    const response = await client.post('/auth/google/callback', { state: 's', error: 'access_denied' }, { origin: null });
+    expect(response.status).toBe(400);
+    expect(authErrorResponseSchema.parse(await response.json()).code).toBe('VALIDATION_FAILED');
+    expect(response.headers.getSetCookie()).toEqual([]);
   }, 30_000);
 
   it.each([
