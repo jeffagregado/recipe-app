@@ -10,7 +10,7 @@ vi.mock('next/navigation', () => ({ redirect: (path: string) => { throw new Erro
 import { forgotPassword, login, logout, resendVerification, resetPassword, signup } from './actions'
 
 const credentials = { email: 'owner@example.invalid', password: 'x'.repeat(16) }
-const user = { user: { id: 'user-1', displayName: 'Test Owner' } }
+const user = { user: { id: 'user-1', displayName: 'Test Owner', hasPassword: true } }
 const invalidLogin = { ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' }
 const fetchMock = vi.fn<typeof fetch>()
 const warn = vi.spyOn(console, 'warn')

@@ -173,21 +173,26 @@ describe("Google sign-in", () => {
 });
 
 describe("public auth responses", () => {
-  const user = { id: "user-1", displayName: "Ana" };
+  const user = { id: "user-1", displayName: "Ana", hasPassword: true };
 
-  it("exposes only id and display name", () => {
+  it("exposes only id, display name and whether a password is set", () => {
     expect(authUserSchema.parse(user)).toEqual(user);
-    for (const extra of ["username", "email", "emailVerified", "token"]) {
+    expect(authUserSchema.parse({ ...user, hasPassword: false })).toEqual({ ...user, hasPassword: false });
+    for (const extra of ["username", "email", "emailVerified", "token", "password"]) {
       expect(authUserSchema.safeParse({ ...user, [extra]: "x" }).success, extra).toBe(false);
     }
     expect(authSessionResponseSchema.safeParse({ user, expiresAt: "2026-10-16T00:00:00.000Z" }).success).toBe(true);
     expect(authSessionResponseSchema.safeParse({ user, expiresAt: "2026-10-16T00:00:00.000Z", token: "x" }).success).toBe(false);
   });
 
+  it.each([undefined, null, "true", 1])("rejects a user whose password flag is %j", (hasPassword) => {
+    expect(authUserSchema.safeParse({ id: "user-1", displayName: "Ana", hasPassword }).success).toBe(false);
+  });
+
   it("describes errors by code, message and optional field errors", () => {
     expect(authErrorResponseSchema.safeParse({ code: "EMAIL_ALREADY_EXISTS", message: "Email already exists." }).success).toBe(true);
     expect(authErrorResponseSchema.safeParse({ code: "VALIDATION_FAILED", message: "Invalid", fieldErrors: { email: ["Too long"] } }).success).toBe(true);
-    for (const code of ["EMAIL_NOT_VERIFIED", "VERIFICATION_LINK_INVALID", "RESET_LINK_INVALID", "GOOGLE_EMAIL_NOT_VERIFIED", "GOOGLE_SIGN_IN_FAILED"]) {
+    for (const code of ["EMAIL_NOT_VERIFIED", "VERIFICATION_LINK_INVALID", "RESET_LINK_INVALID", "GOOGLE_EMAIL_NOT_VERIFIED", "GOOGLE_SIGN_IN_FAILED", "INVALID_CURRENT_PASSWORD", "PASSWORD_ALREADY_SET"]) {
       expect(authErrorResponseSchema.safeParse({ code, message: "x" }).success, code).toBe(true);
     }
     for (const code of ["USERNAME_UNAVAILABLE", "FAILED_TO_CREATE_USER"]) {

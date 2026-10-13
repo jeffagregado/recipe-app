@@ -7,7 +7,7 @@ vi.mock('next/navigation', () => ({ redirect: (path: string) => { throw new Erro
 import { getSession, requireSession } from './queries'
 
 const fetchMock = vi.fn<typeof fetch>()
-const body = { user: { id: 'user-1', displayName: 'Test Owner' }, expiresAt: '2030-01-01T00:00:00.000Z' }
+const body = { user: { id: 'user-1', displayName: 'Test Owner', hasPassword: true }, expiresAt: '2030-01-01T00:00:00.000Z' }
 
 beforeEach(() => {
 	next.cookies.clear()

@@ -1,9 +1,10 @@
-import { Body, Controller, Put, Req, UseFilters, UseGuards } from '@nestjs/common';
-import { updateDisplayNameSchema } from '@recipe-app/contracts/schemas';
+import { Body, Controller, HttpCode, Post, Put, Req, UseFilters, UseGuards } from '@nestjs/common';
+import { changePasswordSchema, requestSetPasswordSchema, updateDisplayNameSchema } from '@recipe-app/contracts/schemas';
 import type { AuthUserResponse } from '@recipe-app/contracts/types';
 import { unauthenticated } from '../auth/auth.errors.js';
 import { AuthFilter } from '../auth/auth.filter.js';
 import { AuthRateLimiter, rateLimitKey } from '../auth/auth.rate-limit.js';
+import { clientAddress, trustedOrigin } from '../auth/auth.request.js';
 import type { AuthRequest } from '../auth/auth.request.js';
 import { validateAuth } from '../auth/auth.validation.js';
 import { OriginGuard } from '../auth/origin.guard.js';
@@ -12,6 +13,10 @@ import { AccountService } from './account.service.js';
 
 export const DISPLAY_NAME_WRITE_LIMIT = 20;
 const DISPLAY_NAME_WRITE_WINDOW_MS = 10 * 60_000;
+/** The login limit per email, here per Account: the current-password check must not become a way to guess it. */
+const CHANGE_PASSWORD_LIMIT = { limit: 10, windowMs: 900_000 };
+/** Per client address, beside the three an hour per target address that the service shares with forgot-password. */
+const SET_PASSWORD_ADDRESS_LIMIT = { limit: 10, windowMs: 3_600_000 };
 
 /** Settings wrappers for the signed-in Account. Native Better Auth routes stay closed (`mountAuth`). */
 @Controller('account')
@@ -27,5 +32,24 @@ export class AccountController {
     await this.limiter.consume(rateLimitKey('display-name:user', request.user.id), { limit: DISPLAY_NAME_WRITE_LIMIT, windowMs: DISPLAY_NAME_WRITE_WINDOW_MS });
     const input = validateAuth(updateDisplayNameSchema, body);
     return { user: await this.account.updateDisplayName(request.user.id, input) };
+  }
+
+  @Put('password')
+  @HttpCode(204)
+  async changePassword(@Body() body: unknown, @Req() request: AuthRequest): Promise<void> {
+    if (!request.user || !request.sessionId) throw unauthenticated();
+    // Counted before the body is read, so a malformed guess is still a guess.
+    await this.limiter.consume(rateLimitKey('change-password:user', request.user.id), CHANGE_PASSWORD_LIMIT);
+    const input = validateAuth(changePasswordSchema, body);
+    await this.account.changePassword(request.user.id, request.sessionId, input);
+  }
+
+  @Post('password/set-link')
+  @HttpCode(204)
+  async requestSetPassword(@Body() body: unknown, @Req() request: AuthRequest): Promise<void> {
+    if (!request.user) throw unauthenticated();
+    await this.limiter.consume(rateLimitKey('set-password:address', clientAddress(request)), SET_PASSWORD_ADDRESS_LIMIT);
+    validateAuth(requestSetPasswordSchema, body);
+    await this.account.requestSetPassword(request.user.id, trustedOrigin(request));
   }
 }

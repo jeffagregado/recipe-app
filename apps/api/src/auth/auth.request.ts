@@ -1,7 +1,8 @@
 import type { IncomingMessage } from 'node:http';
-import type { AuthUser } from '@recipe-app/contracts/types';
+import type { SessionUser } from './auth.user.js';
 
-export type AuthRequest = IncomingMessage & { ip?: string; user?: AuthUser };
+/** `user` and `sessionId` are set by SessionGuard. */
+export type AuthRequest = IncomingMessage & { ip?: string; user?: SessionUser; sessionId?: string };
 
 export function clientAddress(request: AuthRequest): string {
   const address = request.ip ?? request.socket?.remoteAddress;

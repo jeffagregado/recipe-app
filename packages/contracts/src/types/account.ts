@@ -2,3 +2,9 @@
 export type UpdateDisplayNameInput = {
   displayName: string;
 };
+
+/** The password that proves who is asking, and the one that replaces it. */
+export type ChangePasswordInput = {
+  currentPassword: string;
+  newPassword: string;
+};

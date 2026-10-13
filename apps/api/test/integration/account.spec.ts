@@ -69,7 +69,7 @@ describe('Account settings HTTP', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     // The session stays the one the browser already holds: no cookie is issued or replaced.
     expect(response.headers.getSetCookie()).toEqual([]);
-    expect(authUserResponseSchema.parse(await response.json())).toEqual({ user: { id: owner.user.id, displayName: 'Ana María 🍜' } });
+    expect(authUserResponseSchema.parse(await response.json())).toEqual({ user: { id: owner.user.id, displayName: 'Ana María 🍜', hasPassword: true } });
     expect(await sessionName()).toBe('Ana María 🍜');
     expect(await sessionName(other.cookie)).toBe(original);
     const [row] = await db.select({ name: users.name, email: users.email, emailVerified: users.emailVerified }).from(users).where(eq(users.id, owner.user.id));
@@ -79,7 +79,7 @@ describe('Account settings HTTP', () => {
   it('answers a save of the stored name the same way', async () => {
     const response = await put({ displayName: original });
     expect(response.status).toBe(200);
-    expect(authUserResponseSchema.parse(await response.json())).toEqual({ user: { id: owner.user.id, displayName: original } });
+    expect(authUserResponseSchema.parse(await response.json())).toEqual({ user: { id: owner.user.id, displayName: original, hasPassword: true } });
     expect(await sessionName()).toBe(original);
   }, 60_000);
 

@@ -10,10 +10,8 @@ import type { RecipeAuth } from './auth.js';
 import { logAuthFailure } from './auth.logger.js';
 import { RESET_IDENTIFIERS, RESET_LIFETIME_MS, resetIdentifier, resetLinkInvalid, resetMessage } from './auth.reset.js';
 import { AUTH } from './auth.tokens.js';
+import { CREDENTIAL_PROVIDER } from './auth.user.js';
 import { newVerificationToken, VERIFICATION_IDENTIFIERS } from './auth.verification.js';
-
-/** Better Auth's provider id for an email-and-password Sign-in method; its account id is the Account's own id. */
-const CREDENTIAL_PROVIDER = 'credential';
 
 /**
  * The reset link is stored and consumed here, like the verification link, and not through Better Auth's own reset API:
@@ -38,21 +36,33 @@ export class PasswordResetService {
       user = await this.db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true, email: true } });
     } catch (cause) { throw unavailable('forgot-password', cause); }
     if (!user) return;
-    const { id } = user;
-    const token = newVerificationToken();
-    try {
-      await this.db.transaction(async (tx) => {
-        // The row lock makes two requests for one Account take turns, so only the later link is left.
-        await tx.select({ id: users.id }).from(users).where(eq(users.id, id)).for('update');
-        await tx.delete(authVerifications).where(and(eq(authVerifications.value, id), like(authVerifications.identifier, RESET_IDENTIFIERS)));
-        await tx.insert(authVerifications).values({ identifier: resetIdentifier(token), value: id, expiresAt: new Date(Date.now() + RESET_LIFETIME_MS) });
-      });
-    } catch (cause) {
+    let token: string;
+    try { token = await this.storeLink(user.id); } catch (cause) {
       logAuthFailure('forgot-password-link', cause);
       return;
     }
     // Not awaited: waiting for the mail provider would make the answer for a known address measurably slower.
     void this.mail.send(resetMessage(user.email, origin, token)).catch((cause: unknown) => logAuthFailure('forgot-password-mail', cause));
+  }
+
+  /**
+   * Mails the same one-hour link to an Account that asked for it while signed in, and retires its older ones. Nothing
+   * about the address is hidden from its own Account, so a failure to store or to send is raised for the caller to answer.
+   */
+  async sendLink(user: { id: string; email: string }, origin: string): Promise<void> {
+    await this.mail.send(resetMessage(user.email, origin, await this.storeLink(user.id)));
+  }
+
+  /** Stores a new link for the Account in place of its older ones and returns its token. */
+  private async storeLink(userId: string): Promise<string> {
+    const token = newVerificationToken();
+    await this.db.transaction(async (tx) => {
+      // The row lock makes two requests for one Account take turns, so only the later link is left.
+      await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
+      await tx.delete(authVerifications).where(and(eq(authVerifications.value, userId), like(authVerifications.identifier, RESET_IDENTIFIERS)));
+      await tx.insert(authVerifications).values({ identifier: resetIdentifier(token), value: userId, expiresAt: new Date(Date.now() + RESET_LIFETIME_MS) });
+    });
+    return token;
   }
 
   /**
