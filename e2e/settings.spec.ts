@@ -127,16 +127,13 @@ test('sign-in methods journey: a connected Google account is disconnected after 
   expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(methodsBox.x + methodsBox.width);
   expect(await noOverflow(page)).toBe(true);
 
-  // Declined from the keyboard: Escape keeps Google and hands focus back.
-  await disconnectGoogle(page).focus();
-  await page.keyboard.press('Enter');
-  const dialog = page.getByRole('alertdialog', { name: 'Disconnect Google?', exact: true });
-  await expect(dialog.getByText('You’ll sign in with your email and password from now on.', { exact: true })).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(dialog).toBeHidden();
-  await expect(disconnectGoogle(page)).toBeFocused();
-
+  // The component test owns the dialog's keyboard path; here it only has to fit the narrow screen and confirm.
   await disconnectGoogle(page).click();
+  const dialog = page.getByRole('alertdialog', { name: 'Disconnect Google?', exact: true });
+  await expect(dialog).toBeVisible();
+  const dialogBox = await box(dialog);
+  expect(dialogBox.x).toBeGreaterThanOrEqual(0);
+  expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(320);
   await dialog.getByRole('button', { name: 'Disconnect', exact: true }).click();
   const notice = toast.success(page, 'Google disconnected');
   await expect(notice).toBeVisible();

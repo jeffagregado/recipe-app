@@ -17,6 +17,7 @@ export const DISPLAY_NAME_WRITE_LIMIT = 20;
 const DISPLAY_NAME_WRITE_WINDOW_MS = 10 * 60_000;
 /** Connect starts and disconnects share one window per Account, sized like the Display name card's. */
 export const SIGN_IN_METHOD_WRITE_LIMIT = { limit: DISPLAY_NAME_WRITE_LIMIT, windowMs: DISPLAY_NAME_WRITE_WINDOW_MS };
+const signInMethodWrites = (userId: string) => rateLimitKey('sign-in-methods:user', userId);
 /** The login limit per email, here per Account: the current-password check must not become a way to guess it. */
 const CHANGE_PASSWORD_LIMIT = { limit: 10, windowMs: 900_000 };
 /** Per client address, beside the three an hour per target address that the service shares with forgot-password. */
@@ -65,7 +66,7 @@ export class AccountController {
   @HttpCode(200)
   async connectGoogle(@Body() body: unknown, @Req() request: AuthRequest, @Res({ passthrough: true }) response: ServerResponse): Promise<GoogleStartResponse> {
     if (!request.user || !request.sessionId) throw unauthenticated();
-    await this.limiter.consume(rateLimitKey('sign-in-methods:user', request.user.id), SIGN_IN_METHOD_WRITE_LIMIT);
+    await this.limiter.consume(signInMethodWrites(request.user.id), SIGN_IN_METHOD_WRITE_LIMIT);
     validateAuth(googleStartSchema, body);
     const { url, cookie } = await this.google.startConnect(request, request.user.id, request.sessionId);
     response.setHeader('Set-Cookie', cookie);
@@ -76,7 +77,7 @@ export class AccountController {
   @HttpCode(204)
   async disconnectGoogle(@Body() body: unknown, @Req() request: AuthRequest): Promise<void> {
     if (!request.user) throw unauthenticated();
-    await this.limiter.consume(rateLimitKey('sign-in-methods:user', request.user.id), SIGN_IN_METHOD_WRITE_LIMIT);
+    await this.limiter.consume(signInMethodWrites(request.user.id), SIGN_IN_METHOD_WRITE_LIMIT);
     validateAuth(disconnectGoogleSchema, body);
     await this.account.disconnectGoogle(request.user.id);
   }
