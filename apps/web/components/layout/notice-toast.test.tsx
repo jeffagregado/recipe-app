@@ -50,6 +50,18 @@ it.each([
 	expect(replaceState).toHaveBeenCalledWith(null, '', '/recipes/abc')
 })
 
+it.each([
+	['google-sign-in-failed', 'Google sign-in did not complete. Try again.'],
+	['google-email-not-verified', 'Google has not verified this email address. Verify it with Google, or sign up with a password.'],
+])('announces %s as an error that stays until dismissed', (code, message) => {
+	navigation.pathname = '/'
+	navigation.search = `notice=${code}`
+	renderNotice()
+	expect(screen.getByRole('alert')).toHaveTextContent(message)
+	expect(screen.queryByRole('status')).not.toBeInTheDocument()
+	expect(replaceState).toHaveBeenCalledWith(null, '', '/')
+})
+
 it('ignores an unknown code but still removes it from the URL', () => {
 	navigation.search = 'notice=made-up'
 	renderNotice()

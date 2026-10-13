@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import { AuthField } from '@/features/auth/auth-field'
+import { GoogleMark } from '@/features/auth/google-mark'
 import { ResendVerification } from '@/features/auth/resend-verification'
 import { useAuthForm } from './use-auth-form'
 
@@ -20,7 +21,7 @@ function submitLabel(isSignup: boolean, pending: boolean) {
 }
 
 export function AuthForm() {
-	const { isSignup, pending, showPassword, setShowPassword, message, unverifiedEmail, errors, register, switchMode, submit } = useAuthForm()
+	const { isSignup, pending, showPassword, setShowPassword, message, unverifiedEmail, errors, register, switchMode, submit, continueWithGoogle } = useAuthForm()
 	const label = submitLabel(isSignup, pending)
 	return <div className="space-y-6">
 		<ModeSwitch isSignup={isSignup} pending={pending} onSwitch={switchMode} />
@@ -34,5 +35,9 @@ export function AuthForm() {
 			{unverifiedEmail && <ResendVerification key={unverifiedEmail} email={unverifiedEmail} />}
 			<Button type="submit" className="min-h-11 w-full" disabled={pending}><span aria-live="polite">{label}</span></Button>
 		</form>
+		<div aria-hidden="true" className="flex items-center gap-3 text-xs text-muted-foreground">
+			<span className="h-px flex-1 bg-border" />or<span className="h-px flex-1 bg-border" />
+		</div>
+		<Button type="button" variant="outline" className="min-h-11 w-full gap-2" disabled={pending} onClick={continueWithGoogle}><GoogleMark />Continue with Google</Button>
 	</div>
 }

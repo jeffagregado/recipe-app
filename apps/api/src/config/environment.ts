@@ -48,12 +48,24 @@ const mailSender = new RegExp(String.raw`^(?:${mailAddress}|[^<>,;"@\p{Cc}]+ <${
 const blankAsUnset = (value: unknown) => (typeof value === 'string' && !value.trim() ? undefined : value);
 
 /** The path of the web route handler that receives Google's redirect; the origin in front of it is the web app's. */
-export const GOOGLE_CALLBACK_PATH = '/api/auth/callback/google';
+const GOOGLE_CALLBACK_PATH = '/api/auth/callback/google';
 const localGoogleRedirectUri = `http://localhost:3000${GOOGLE_CALLBACK_PATH}`;
 const googleRedirectUriSchema = z.url({ protocol: /^https?$/, hostname: /\S+/ }).pipe(z.string().refine((value) => {
   const url = new URL(value);
   return url.pathname === GOOGLE_CALLBACK_PATH && [url.username, url.password, url.search, url.hash].every((part) => !part);
 }, 'must be the web origin followed by the Google callback path'));
+
+type GoogleSettings = { GOOGLE_CLIENT_ID?: string; GOOGLE_CLIENT_SECRET?: string; GOOGLE_REDIRECT_URI?: string };
+
+/** The keys a half-configured Google client is missing, each with the reason. */
+function missingGoogleSettings(google: GoogleSettings, production: boolean): [key: keyof GoogleSettings, message: string][] {
+  const missing: [keyof GoogleSettings, string][] = [];
+  if (google.GOOGLE_CLIENT_ID && !google.GOOGLE_CLIENT_SECRET) missing.push(['GOOGLE_CLIENT_SECRET', 'is required with GOOGLE_CLIENT_ID']);
+  if (google.GOOGLE_CLIENT_SECRET && !google.GOOGLE_CLIENT_ID) missing.push(['GOOGLE_CLIENT_ID', 'is required with GOOGLE_CLIENT_SECRET']);
+  // The local callback is a development default only: a deployment that offers Google names its own web origin.
+  if (production && google.GOOGLE_CLIENT_ID && !google.GOOGLE_REDIRECT_URI) missing.push(['GOOGLE_REDIRECT_URI', 'is required in production']);
+  return missing;
+}
 
 const environmentSchema = z.object({
   NODE_ENV: z.string().optional(),
@@ -80,13 +92,10 @@ const environmentSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
 }).transform(({ NODE_ENV, AUTH_TRUSTED_ORIGINS, ...config }, context) => {
   const production = NODE_ENV === 'production';
-  const missing = (key: string, message: string) => { context.issues.push({ code: 'custom', message, input: undefined, path: [key] }); };
-  if (config.GOOGLE_CLIENT_ID && !config.GOOGLE_CLIENT_SECRET) missing('GOOGLE_CLIENT_SECRET', 'is required with GOOGLE_CLIENT_ID');
-  if (config.GOOGLE_CLIENT_SECRET && !config.GOOGLE_CLIENT_ID) missing('GOOGLE_CLIENT_ID', 'is required with GOOGLE_CLIENT_SECRET');
-  // The local callback is a development default only: a deployment that offers Google names its own web origin.
-  if (production && config.GOOGLE_CLIENT_ID && !config.GOOGLE_REDIRECT_URI) missing('GOOGLE_REDIRECT_URI', 'is required in production');
-  if (production && AUTH_TRUSTED_ORIGINS.length === 0) missing('AUTH_TRUSTED_ORIGINS', 'is required in production');
-  if (context.issues.length > 0) return z.NEVER;
+  const missing: [string, string][] = missingGoogleSettings(config, production);
+  if (production && AUTH_TRUSTED_ORIGINS.length === 0) missing.push(['AUTH_TRUSTED_ORIGINS', 'is required in production']);
+  for (const [key, message] of missing) context.issues.push({ code: 'custom', message, input: undefined, path: [key] });
+  if (missing.length > 0) return z.NEVER;
   return {
     ...config,
     GOOGLE_REDIRECT_URI: config.GOOGLE_REDIRECT_URI ?? (production ? undefined : localGoogleRedirectUri),

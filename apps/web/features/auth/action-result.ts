@@ -6,6 +6,9 @@ export type LogoutResult = { ok: true } | AuthFailure
 export type ResendVerificationResult = { ok: true } | AuthFailure
 export type AuthMutation = 'signup' | 'login' | 'logout' | 'resend-verification'
 
+/** The one answer the browser gets when a Google sign-in cannot start; the cause stays in the web server log. */
+export const GOOGLE_UNAVAILABLE: AuthFailure = { ok: false, code: 'GOOGLE_SIGN_IN_FAILED', message: 'Google sign-in is unavailable. Please try again.' }
+
 const INVALID_LOGIN: AuthFailure = { ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' }
 
 const SERVICE_MESSAGES: Record<AuthMutation, string> = {

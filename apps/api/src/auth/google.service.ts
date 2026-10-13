@@ -20,6 +20,17 @@ class GoogleCallbackRefused extends Error {
   }
 }
 
+/** Reads a callback response Better Auth answered: a refusing redirect, an error body, or nothing to object to. */
+async function refusalOf(response: Response): Promise<{ code: unknown } | undefined> {
+  // Anything but a redirect is an error body; the only one this API raises itself is the unverified Google address.
+  if (response.status !== 302) {
+    const body: unknown = await response.json().catch(() => undefined);
+    return { code: typeof body === 'object' && body !== null && 'code' in body ? body.code : undefined };
+  }
+  const reason = new URL(response.headers.get('location') ?? '', 'http://refused.invalid').searchParams.get('error');
+  return reason === null ? undefined : { code: reason };
+}
+
 /** Drives Better Auth's social sign-in and OAuth callback in process, so the native routes stay closed. */
 @Injectable()
 export class GoogleSignInService {
@@ -47,14 +58,9 @@ export class GoogleSignInService {
         method: 'GET', query: input, params: { id: GOOGLE_PROVIDER_ID }, headers: authHeaders(request, true), asResponse: true,
       });
     } catch (cause) { throw googleSignInFailed('google-callback', cause); }
-    // Anything but a redirect is an error body; the only one this API raises itself is the unverified Google address.
-    if (response.status !== 302) {
-      const body: unknown = await response.json().catch(() => undefined);
-      const code = typeof body === 'object' && body !== null && 'code' in body ? body.code : undefined;
-      throw code === GOOGLE_EMAIL_NOT_VERIFIED ? googleEmailNotVerified() : googleSignInFailed('google-callback', new GoogleCallbackRefused(code));
-    }
-    const reason = new URL(response.headers.get('location') ?? '', 'http://refused.invalid').searchParams.get('error');
-    if (reason !== null) throw googleSignInFailed('google-callback', new GoogleCallbackRefused(reason));
+    const refusal = await refusalOf(response);
+    if (refusal?.code === GOOGLE_EMAIL_NOT_VERIFIED) throw googleEmailNotVerified();
+    if (refusal) throw googleSignInFailed('google-callback', new GoogleCallbackRefused(refusal.code));
     try { return await this.onlyCookie(response.headers, 'session_token'); }
     catch (cause) { throw googleSignInFailed('google-callback', cause); }
   }
