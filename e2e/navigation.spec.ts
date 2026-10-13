@@ -33,13 +33,11 @@ test.describe('at 390×844', () => {
     const id = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Tab bar host'));
     await page.goto('/recipes');
     await expect(currentTabs(page)).toHaveText(['Recipes']);
-    for (const [name, path] of [['Create', '/recipes/create'], ['Categories', '/categories'], ['Recipes', '/recipes']] as const) {
+    for (const [name, path] of [['Create', '/recipes/create'], ['Categories', '/categories'], ['Settings', '/settings'], ['Recipes', '/recipes']] as const) {
       await tab(page, name).click();
       await expect(page).toHaveURL(`${WEB_URL}${path}`);
       await expect(currentTabs(page)).toHaveText([name]);
     }
-    // Settings is not built yet and leads to the not-found block, so its link is asserted without tapping it.
-    await expect(tab(page, 'Settings')).toHaveAttribute('href', '/settings');
     await page.goto(`/recipes/${id}`);
     await expect(page.getByRole('heading', { level: 1, name: 'Tab bar host' })).toBeVisible();
     await expect(mainNav(page)).toBeVisible();

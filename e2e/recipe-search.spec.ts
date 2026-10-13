@@ -44,9 +44,8 @@ test('searches recipes, combines filters, restores history and clears search', a
   expect(new URL(page.url()).searchParams.has('search')).toBe(false);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(errors).toEqual([]);
-  // Existing desktop sidebar links prefetch routes that are not implemented yet.
-  for (const path of missingRoutes) expect(['/settings']).toContain(path);
-  expect(consoleErrors).toHaveLength(missingRoutes.length);
+  expect(missingRoutes).toEqual([]);
+  expect(consoleErrors).toEqual([]);
 });
 
 test('rejects malformed search URLs and preserves blank search behavior', async ({ page }) => {

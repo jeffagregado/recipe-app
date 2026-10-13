@@ -47,10 +47,8 @@ test('server-renders 20, appends five disjoint pages and stops at 100', async ({
   await expect(page.getByText('Showing 100 of 100 recipes', { exact: true })).toBeVisible();
   expect(requests).toEqual([2, 3, 4, 5]);
   expect(new URL(page.url()).search).toBe('');
-  // Desktop sidebar prefetches Settings, which is still unbuilt.
-  for (const path of missingRoutes) expect(['/settings']).toContain(path);
-  expect(consoleErrors).toHaveLength(missingRoutes.length);
-  expect(consoleErrors.every((message) => message.includes('404 (Not Found)'))).toBe(true);
+  expect(missingRoutes).toEqual([]);
+  expect(consoleErrors).toEqual([]);
 });
 
 test('shows category/count and card skeletons while real filter and next-page requests wait', async ({ page, workerData }, info) => {
