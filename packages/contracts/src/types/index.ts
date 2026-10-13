@@ -4,3 +4,4 @@ export * from "./auth.js";
 export * from "./ingredient.js";
 export * from "./recipe.js";
 export * from "./category.js";
+export * from "./account.js";

@@ -82,14 +82,12 @@ export function recordRequests(page: Page) {
   };
 }
 
-/** Console errors/warnings and page errors; the desktop sidebar's Settings route answers 404 by design. */
+/** Console errors/warnings and page errors. */
 export function watchConsole(page: Page): string[] {
   const issues: string[] = [];
-  const unbuilt = /\/settings(\?|$)/;
   page.on('pageerror', (error) => issues.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
     if (message.type() !== 'error' && message.type() !== 'warning') return;
-    if (unbuilt.test(message.location().url)) return;
     // Path only: image and storage URLs carry signatures in their query strings.
     const { url } = message.location();
     issues.push(`${message.type()}: ${message.text()} (${url ? new URL(url).pathname : 'no url'})`);
