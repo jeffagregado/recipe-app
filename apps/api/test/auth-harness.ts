@@ -28,7 +28,8 @@ export function testAddress(): string {
   issuedAddresses.add(address);
   return address;
 }
-export const testUsername = () => `t_${randomBytes(10).toString('hex')}`;
+/** A non-deliverable address: the reserved .invalid domain never resolves. */
+export const testEmail = () => `t_${randomBytes(10).toString('hex')}@example.invalid`;
 export const testPassword = () => randomBytes(24).toString('base64url');
 
 export async function startApi(): Promise<{ app: NestExpressApplication; baseUrl: string; db: DrizzleDb; mail: RecordingMailTransport }> {
@@ -65,11 +66,11 @@ export function apiClient(baseUrl: string, defaultAddress: string, defaultOrigin
 /** Name=value pairs for a Cookie header; attributes stay on the response under test. */
 export const cookiePair = (response: Response) => response.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ');
 
-export async function signupUser(client: ReturnType<typeof apiClient>, username = testUsername(), password = testPassword()) {
-  const response = await client.post('/auth/signup', { displayName: 'Temporary verification', username, password });
+export async function signupUser(client: ReturnType<typeof apiClient>, email = testEmail(), password = testPassword()) {
+  const response = await client.post('/auth/signup', { displayName: 'Temporary verification', email, password });
   if (response.status !== 201) throw new Error(`Temporary signup failed with HTTP ${response.status}.`);
   const { user } = authUserResponseSchema.parse(await response.json());
-  return { user, username, password, cookie: cookiePair(response) };
+  return { user, email, password, cookie: cookiePair(response) };
 }
 
 export const ownedId = (tag: string, id: string) => `${tag}-${id}`;
@@ -90,10 +91,10 @@ export async function insertOwnedRecipes(db: DrizzleDb, user: Pick<AuthUser, 'id
 }
 
 /** Removes temporary users (cascading sessions, accounts and recipes) and their wrapper counters. */
-export async function removeTestData(db: DrizzleDb, data: { usernames: string[]; addresses: string[] }): Promise<void> {
-  if (data.usernames.length > 0) await db.delete(users).where(inArray(users.username, data.usernames));
+export async function removeTestData(db: DrizzleDb, data: { emails: string[]; addresses: string[] }): Promise<void> {
+  if (data.emails.length > 0) await db.delete(users).where(inArray(users.email, data.emails));
   const keys = [
-    ...data.usernames.map((username) => rateLimitKey('login:username', username)),
+    ...data.emails.map((email) => rateLimitKey('login:email', email)),
     ...data.addresses.flatMap((address) => [rateLimitKey('login:address', address), rateLimitKey('signup:address', address)]),
   ];
   await db.delete(authRateLimits).where(or(inArray(authRateLimits.key, keys), ...data.addresses.map((address) => like(authRateLimits.key, `${address}%`))));

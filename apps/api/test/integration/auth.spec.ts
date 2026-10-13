@@ -11,7 +11,7 @@ import { validateEnvironment } from '../../src/config/environment.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authAccounts, authRateLimits, authSessions, recipeImages, recipes, users } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
-import { apiClient, cookiePair, insertOwnedRecipes, ownedId, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testPassword, testUsername } from '../auth-harness.js';
+import { apiClient, cookiePair, insertOwnedRecipes, ownedId, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
 
 describe('Wrapper authentication and owner-only recipe HTTP', () => {
   let app: NestExpressApplication;
@@ -19,22 +19,22 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
   let db: DrizzleDb;
   let client: ReturnType<typeof apiClient>;
   const addresses = [testAddress()];
-  const usernames: string[] = [];
-  const username = testUsername();
+  const emails: string[] = [];
+  const email = testEmail();
   const password = `  ${testPassword()}  `;
   let cookie = '';
 
-  const track = (name = testUsername()) => { usernames.push(name); return name; };
+  const track = (tracked = testEmail()) => { emails.push(tracked); return tracked; };
   const errorOf = async (response: Response) => authErrorResponseSchema.parse(await response.json());
 
   beforeAll(async () => {
     ({ app, baseUrl, db } = await startApi());
     client = apiClient(baseUrl, addresses[0]);
-    usernames.push(username);
+    emails.push(email);
   }, 60_000);
   afterAll(async () => {
     if (!app) return;
-    try { await removeTestData(db, { usernames, addresses }); } finally { await app.close(); }
+    try { await removeTestData(db, { emails, addresses }); } finally { await app.close(); }
   });
 
   it('keeps auth health with exact credentialed CORS and closes every other native route', async () => {
@@ -50,38 +50,40 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
       const other = await fetch(`${baseUrl}/api/auth/ok`, { headers: { Origin: origin } });
       expect(other.headers.get('access-control-allow-origin'), origin).toBeNull();
     }
-    const email = `verify-${randomUUID()}@example.invalid`;
+    const nativeEmail = `verify-${randomUUID()}@example.invalid`;
     for (const [path, body] of [
-      ['sign-up/email', { name: 'Temporary verification', email, password }],
-      ['sign-in/email', { email, password }],
-      ['sign-in/username', { username, password }],
-      ['is-username-available', { username }],
+      ['sign-up/email', { name: 'Temporary verification', email: nativeEmail, password }],
+      ['sign-in/email', { email: nativeEmail, password }],
+      // The username plugin is gone; its routes stay closed like any unknown path.
+      ['sign-in/username', { username: 'removed', password }],
+      ['is-username-available', { username: 'removed' }],
+      ['send-verification-email', { email: nativeEmail }],
       ['update-user', { name: 'Changed' }],
-      ['change-email', { newEmail: email }],
+      ['change-email', { newEmail: nativeEmail }],
       ['sign-out', {}],
     ] as const) {
-      const native = await fetch(`${baseUrl}/api/auth/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN }, body: JSON.stringify(body) });
-      expect(native.status, path).toBe(404);
-      expect(native.headers.getSetCookie(), path).toEqual([]);
+      const response = await fetch(`${baseUrl}/api/auth/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN }, body: JSON.stringify(body) });
+      expect(response.status, path).toBe(404);
+      expect(response.headers.getSetCookie(), path).toEqual([]);
     }
     expect((await fetch(`${baseUrl}/api/auth/get-session`)).status).toBe(404);
-    expect(await db.$count(users, eq(users.email, email))).toBe(0);
+    expect(await db.$count(users, eq(users.email, nativeEmail))).toBe(0);
   });
 
-  it('signs up with a generated hidden email, safe DTO and cookie, persisted session, then logs out', async () => {
-    const response = await client.post('/auth/signup', { displayName: '  Temporary verification  ', username: `  ${username.toUpperCase()} `, password });
+  it('signs up by email as a verified Account with a safe DTO and cookie, persisted session, then logs out', async () => {
+    const response = await client.post('/auth/signup', { displayName: '  Temporary verification  ', email: `  ${email.toUpperCase()} `, password });
     expect(response.status).toBe(201);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     const body = await response.json() as { user: { id: string } };
-    expect(body).toEqual({ user: { id: expect.stringMatching(/^[0-9a-f-]{36}$/), displayName: 'Temporary verification', username } });
+    expect(body).toEqual({ user: { id: expect.stringMatching(/^[0-9a-f-]{36}$/), displayName: 'Temporary verification' } });
     const cookies = response.headers.getSetCookie();
     expect(cookies).toHaveLength(1);
     expect(cookies[0]).toMatch(/^better-auth\.session_token=[^;]+; Max-Age=604800; Path=\/; HttpOnly; SameSite=Lax$/i);
     cookie = cookiePair(response);
     const row = await db.query.users.findFirst({ where: eq(users.id, body.user.id), with: { accounts: { columns: { providerId: true, password: true } }, sessions: { columns: { id: true, expiresAt: true } } } });
-    expect(row?.email === `${username}@accounts.invalid`).toBe(true);
-    expect(row?.emailVerified).toBe(false);
-    expect(row?.username).toBe(username);
+    // Compared without printing either side: a failure must not put an address in the log.
+    expect(row?.email === email).toBe(true);
+    expect(row?.emailVerified).toBe(true);
     expect(row?.accounts.map(({ providerId }) => providerId)).toEqual(['credential']);
     // Better Auth owns hashing; the stored credential is never the submitted password.
     expect(row?.accounts[0].password?.includes(password.trim())).toBe(false);
@@ -109,41 +111,41 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect((await client.post('/auth/logout', {})).status).toBe(204);
   }, 30_000);
 
-  it('rejects caller-supplied email, unknown fields and invalid values with field errors', async () => {
-    const valid = { displayName: 'Temporary verification', username: track(), password: testPassword() };
-    for (const extra of ['email', 'userId', 'role', 'token']) {
-      const response = await client.post('/auth/signup', { ...valid, [extra]: 'value@example.invalid' });
+  it('rejects a username, unknown fields and invalid values with field errors', async () => {
+    const valid = { displayName: 'Temporary verification', email: track(), password: testPassword() };
+    for (const extra of ['username', 'userId', 'role', 'token', 'emailVerified']) {
+      const response = await client.post('/auth/signup', { ...valid, [extra]: 'value' });
       expect(response.status, extra).toBe(400);
       expect(await errorOf(response)).toMatchObject({ code: 'VALIDATION_FAILED', fieldErrors: { [extra]: [expect.any(String)] } });
     }
     for (const [field, value] of [
       ['password', 'short'], ['password', 'x'.repeat(129)],
-      ['username', 'ab'], ['username', '.abc'], ['username', 'abc.'], ['username', 'a..b'], ['username', 'no spaces'],
+      ['email', 'not-an-address'], ['email', `${'a'.repeat(250)}@example.invalid`],
       ['displayName', '   '], ['displayName', 'Ana\u0000'], ['displayName', 'x'.repeat(101)],
     ] as const) {
       const response = await client.post('/auth/signup', { ...valid, [field]: value });
       expect(response.status, `${field}=${value}`).toBe(400);
       expect((await errorOf(response)).fieldErrors?.[field]?.length).toBeGreaterThan(0);
     }
-    expect((await client.post('/auth/login', { username, password, email: 'value@example.invalid' })).status).toBe(400);
+    expect((await client.post('/auth/login', { email, password, username: 'value' })).status).toBe(400);
     expect((await client.post('/auth/logout', { token: 'x' })).status).toBe(400);
-    expect(await db.$count(users, eq(users.username, valid.username))).toBe(0);
+    expect(await db.$count(users, eq(users.email, valid.email))).toBe(0);
   }, 30_000);
 
   it('gives wrong and unknown credentials one response, logs in case-insensitively and never trims passwords', async () => {
-    const wrong = await client.post('/auth/login', { username, password: testPassword() });
-    const unknown = await client.post('/auth/login', { username: testUsername(), password: testPassword() });
-    const trimmed = await client.post('/auth/login', { username, password: password.trim() });
+    const wrong = await client.post('/auth/login', { email, password: testPassword() });
+    const unknown = await client.post('/auth/login', { email: track(), password: testPassword() });
+    const trimmed = await client.post('/auth/login', { email, password: password.trim() });
     for (const response of [wrong, unknown, trimmed]) {
       expect(response.status).toBe(401);
       expect(response.headers.getSetCookie()).toEqual([]);
-      expect(await response.json()).toEqual({ code: 'INVALID_CREDENTIALS', message: 'Invalid username or password' });
+      expect(await response.json()).toEqual({ code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' });
     }
-    const signedIn = await client.post('/auth/login', { username: ` ${username.toUpperCase()} `, password });
+    const signedIn = await client.post('/auth/login', { email: ` ${email.toUpperCase()} `, password });
     expect(signedIn.status).toBe(200);
     const body = await signedIn.json() as Record<string, unknown>;
     expect(Object.keys(body)).toEqual(['user']);
-    expect(body.user).toEqual({ id: expect.any(String), displayName: 'Temporary verification', username });
+    expect(body.user).toEqual({ id: expect.any(String), displayName: 'Temporary verification' });
     expect(signedIn.headers.getSetCookie()).toHaveLength(1);
     const fresh = cookiePair(signedIn);
     expect(fresh).not.toBe(cookie);
@@ -159,84 +161,86 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect((await client.get('/auth/session', { cookie: forged })).status).toBe(401);
     expect((await client.get('/recipes', { cookie: forged })).status).toBe(401);
     expect((await client.get('/auth/session', { cookie: `${name}=${randomUUID()}` })).status).toBe(401);
-    const owner = await db.query.users.findFirst({ where: eq(users.username, username), columns: { id: true } });
+    const owner = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
     if (!owner) throw new Error('Temporary auth verification user missing.');
     await db.update(authSessions).set({ expiresAt: new Date(Date.now() - 1_000) }).where(eq(authSessions.userId, owner.id));
     expect((await client.get('/auth/session', { cookie })).status).toBe(401);
     expect((await client.get('/recipes', { cookie })).status).toBe(401);
-    const login = await client.post('/auth/login', { username, password });
+    const login = await client.post('/auth/login', { email, password });
     cookie = cookiePair(login);
     expect((await client.get('/recipes', { cookie })).status).toBe(200);
     await db.delete(authSessions).where(eq(authSessions.userId, owner.id));
     expect((await client.get('/recipes', { cookie })).status).toBe(401);
-    cookie = cookiePair(await client.post('/auth/login', { username, password }));
+    cookie = cookiePair(await client.post('/auth/login', { email, password }));
   }, 30_000);
 
   it('never creates duplicate accounts for sequential or concurrent signups', async () => {
-    const taken = await client.post('/auth/signup', { displayName: 'Other', username: username.toUpperCase(), password: testPassword() });
+    const taken = await client.post('/auth/signup', { displayName: 'Other', email: email.toUpperCase(), password: testPassword() });
     expect(taken.status).toBe(409);
-    expect(await taken.json()).toEqual({ code: 'USERNAME_UNAVAILABLE', message: 'Username is unavailable.' });
+    expect(await taken.json()).toEqual({ code: 'EMAIL_ALREADY_EXISTS', message: 'Email already exists.' });
     expect(taken.headers.getSetCookie()).toEqual([]);
     // The original password still works: a duplicate attempt never overwrites credentials.
-    expect((await client.post('/auth/login', { username, password })).status).toBe(200);
+    expect((await client.post('/auth/login', { email, password })).status).toBe(200);
 
     const racer = track();
     const racing = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
     const responses = await Promise.all([racer, racer.toUpperCase(), ` ${racer} `, racer, racer].map((value) =>
-      racing.post('/auth/signup', { displayName: 'Racer', username: value, password: testPassword() })));
+      racing.post('/auth/signup', { displayName: 'Racer', email: value, password: testPassword() })));
     const statuses = responses.map(({ status }) => status).sort();
     expect(statuses).toEqual([201, 409, 409, 409, 409]);
-    const rows = await db.query.users.findMany({ where: eq(users.username, racer), columns: { id: true } });
+    const rows = await db.query.users.findMany({ where: eq(users.email, racer), columns: { id: true } });
     expect(rows).toHaveLength(1);
     expect(await db.$count(authAccounts, eq(authAccounts.userId, rows[0].id))).toBe(1);
   }, 60_000);
 
   it('rejects absent, null and untrusted origins on every mutation', async () => {
-    const body = { displayName: 'Temporary verification', username: track(), password: testPassword() };
+    const body = { displayName: 'Temporary verification', email: track(), password: testPassword() };
     for (const origin of [null, 'null', 'https://untrusted.example.invalid', `${TEST_ORIGIN}.evil.example.invalid`, 'http://127.0.0.1:4100', 'http://127.0.0.1:3000']) {
-      for (const [path, payload] of [['/auth/signup', body], ['/auth/login', { username, password }], ['/auth/logout', {}]] as const) {
+      for (const [path, payload] of [['/auth/signup', body], ['/auth/login', { email, password }], ['/auth/logout', {}]] as const) {
         const response = await client.post(path, payload, { origin, cookie });
         expect(response.status, `${path} ${origin}`).toBe(403);
         expect((await errorOf(response)).code).toBe('ORIGIN_REJECTED');
         expect(response.headers.getSetCookie()).toEqual([]);
       }
     }
-    expect(await db.$count(users, eq(users.username, body.username))).toBe(0);
+    expect(await db.$count(users, eq(users.email, body.email))).toBe(0);
     expect((await client.get('/auth/session', { cookie })).status).toBe(200);
   }, 30_000);
 
   it('caps JSON bodies at 8 KiB and rejects malformed JSON', async () => {
-    const oversized = await client.post('/auth/signup', { displayName: 'x'.repeat(9 * 1024), username: track(), password: testPassword() });
+    const oversized = await client.post('/auth/signup', { displayName: 'x'.repeat(9 * 1024), email: track(), password: testPassword() });
     expect(oversized.status).toBe(413);
     expect((await errorOf(oversized)).code).toBe('PAYLOAD_TOO_LARGE');
-    const malformed = await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN, 'X-Forwarded-For': addresses[0] }, body: '{"username":' });
+    const malformed = await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN, 'X-Forwarded-For': addresses[0] }, body: '{"email":' });
     expect(malformed.status).toBe(400);
     expect((await errorOf(malformed)).code).toBe('VALIDATION_FAILED');
   });
 
-  it('throttles login per username and signup per address with Retry-After', async () => {
+  it('throttles login per normalised email and signup per address with Retry-After', async () => {
     const victim = track();
     const loginClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
     for (let attempt = 1; attempt <= 10; attempt++) {
-      expect((await loginClient.post('/auth/login', { username: victim, password: testPassword() })).status, `attempt ${attempt}`).toBe(401);
+      expect((await loginClient.post('/auth/login', { email: victim, password: testPassword() })).status, `attempt ${attempt}`).toBe(401);
     }
-    const limited = await loginClient.post('/auth/login', { username: victim.toUpperCase(), password: testPassword() });
+    const limited = await loginClient.post('/auth/login', { email: ` ${victim.toUpperCase()} `, password: testPassword() });
     expect(limited.status).toBe(429);
     expect((await errorOf(limited)).code).toBe('RATE_LIMITED');
     const retryAfter = Number(limited.headers.get('retry-after'));
     expect(retryAfter).toBeGreaterThan(0);
     expect(retryAfter).toBeLessThanOrEqual(15 * 60);
-    // Another username from the same address is unaffected.
-    expect((await loginClient.post('/auth/login', { username, password })).status).toBe(200);
+    // Another email from the same address is unaffected.
+    expect((await loginClient.post('/auth/login', { email, password })).status).toBe(200);
 
     const signupClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
     for (let attempt = 1; attempt <= 5; attempt++) {
-      expect((await signupClient.post('/auth/signup', { displayName: 'Other', username, password: testPassword() })).status, `attempt ${attempt}`).toBe(409);
+      expect((await signupClient.post('/auth/signup', { displayName: 'Other', email, password: testPassword() })).status, `attempt ${attempt}`).toBe(409);
     }
-    const blocked = await signupClient.post('/auth/signup', { displayName: 'Other', username: track(), password: testPassword() });
+    const blocked = await signupClient.post('/auth/signup', { displayName: 'Other', email: track(), password: testPassword() });
     expect(blocked.status).toBe(429);
     expect(Number(blocked.headers.get('retry-after'))).toBeLessThanOrEqual(60 * 60);
-    expect(await db.$count(users, eq(users.username, usernames.at(-1)!))).toBe(0);
+    expect(await db.$count(users, eq(users.email, emails.at(-1)!))).toBe(0);
+    // The counter is stored under a digest, never under the address itself.
+    expect(await db.$count(authRateLimits, like(authRateLimits.key, `%${victim}%`))).toBe(0);
   }, 60_000);
 
   it('counts wrapper attempts atomically in the database and resets expired windows', async () => {
@@ -260,7 +264,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     const config = app.get<ConfigService>(ConfigService);
     const issued = async (baseUrl: string, origins: string[]) => {
       const auth = createAuth(db, { BETTER_AUTH_SECRET: config.getOrThrow<string>('BETTER_AUTH_SECRET'), BETTER_AUTH_URL: baseUrl, AUTH_TRUSTED_ORIGINS: origins });
-      const { headers } = await auth.api.signInUsername({ body: { username, password }, headers: new Headers(), returnHeaders: true });
+      const { headers } = await auth.api.signInEmail({ body: { email, password }, headers: new Headers(), returnHeaders: true });
       return headers.getSetCookie();
     };
     const secure = (value: string) => /^__Secure-better-auth\.session_token=/.test(value) && /; Secure/i.test(value) && /HttpOnly/i.test(value) && /SameSite=Lax/i.test(value);
@@ -297,7 +301,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(empty.meta).toMatchObject({ total: 0, totalPages: 0 });
     expect(empty.counts).toEqual({ total: 0, favorites: 0, categories: categoriesA.map(({ id, name }) => ({ id, name, total: 0 })) });
 
-    const first = await db.query.users.findFirst({ where: eq(users.username, username), columns: { id: true } });
+    const first = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
     const other = await signupUser(apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]), track());
     const categoriesB = await categoriesFor(other.cookie);
     if (!first) throw new Error('Temporary auth verification user missing.');

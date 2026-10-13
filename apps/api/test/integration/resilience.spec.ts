@@ -68,7 +68,7 @@ describe('Recipe resilience over HTTP', () => {
         useFactory: (service: ResilienceService) => new ControlledReader(service) },
       { provide: RecipesService, useExisting: ControlledReader }],
     }).overrideGuard(SessionGuard).useValue({ canActivate: (context: ExecutionContext) => {
-      context.switchToHttp().getRequest<AuthRequest>().user = { id: 'controlled-owner', displayName: 'Controlled owner', username: 'controlled_owner' };
+      context.switchToHttp().getRequest<AuthRequest>().user = { id: 'controlled-owner', displayName: 'Controlled owner' };
       return true;
     } }).compile();
     app = module.createNestApplication({ logger: false });

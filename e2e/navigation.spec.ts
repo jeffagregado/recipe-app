@@ -64,7 +64,7 @@ test.describe('at 390×844', () => {
     await expect(header.getByRole('link', { name: /My Recipes/ })).toHaveAttribute('href', '/recipes');
     await expect(header.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
     await expect(header).not.toContainText(creator.user.displayName);
-    await expect(header).not.toContainText(creator.username);
+    await expect(header).not.toContainText(creator.email);
     await logOut(page);
   });
 });

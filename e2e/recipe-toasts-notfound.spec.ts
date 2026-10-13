@@ -173,7 +173,7 @@ test.describe('page not found', () => {
       for (const [label, path] of unknownPaths(workerData, id)) {
         await visitor.goto(`${WEB_URL}${path}`);
         await expect(visitor, label).toHaveURL(`${WEB_URL}/`);
-        await expect(visitor.getByLabel('Username', { exact: true }), label).toBeVisible();
+        await expect(visitor.getByLabel('Email', { exact: true }), label).toBeVisible();
         await expect(visitor.getByRole('heading', { level: 1, name: 'Page not found' }), label).toHaveCount(0);
       }
     } finally { await anonymous.close(); }

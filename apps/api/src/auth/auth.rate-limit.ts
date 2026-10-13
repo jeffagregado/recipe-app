@@ -6,8 +6,9 @@ import type { DrizzleDb } from '../database/database.service.js';
 import { authRateLimits } from '../database/schema.js';
 import { AuthError, unavailable } from './auth.errors.js';
 
+/** Client addresses and emails are stored hashed, so the counter table holds no address a person typed. */
 export function rateLimitKey(scope: string, value: string): string {
-  const identity = scope.endsWith('address') ? createHash('sha256').update(value).digest('hex').slice(0, 32) : value;
+  const identity = /(?:address|email)$/.test(scope) ? createHash('sha256').update(value).digest('hex').slice(0, 32) : value;
   return `wrapper:${scope}:${identity}`;
 }
 
