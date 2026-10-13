@@ -1,0 +1,2 @@
+ALTER TABLE "users" ADD COLUMN "pending_email" text;--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_pending_email_normalized_check" CHECK ("users"."pending_email" = lower(btrim("users"."pending_email")) AND length("users"."pending_email") > 0);

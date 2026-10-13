@@ -9,7 +9,7 @@ import { GOOGLE_ENDPOINTS } from '../../src/auth/auth.google.js';
 import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authAccounts, authRateLimits, authSessions, authVerifications, users } from '../../src/database/schema.js';
-import { apiClient, cookiePair, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
+import { apiClient, cookiePair, emailChangeTokens, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
 import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { GoogleIdentity } from '../google-stand-in.js';
 
@@ -100,20 +100,20 @@ describe('Sign-in methods: connect and disconnect Google', () => {
     const person = identity({ email: `Mixed.${randomBytes(6).toString('hex')}@Example.INVALID` });
     emails.push(person.email.toLowerCase());
     const created = await googleOnly(person);
-    expect(created.user).toEqual({ id: created.user.id, displayName: 'Ana Google', hasPassword: false, google: { email: person.email.toLowerCase() } });
+    expect(created.user).toEqual({ id: created.user.id, displayName: 'Ana Google', email: person.email.toLowerCase(), pendingEmail: null, hasPassword: false, google: { email: person.email.toLowerCase() } });
     const withPassword = await member();
-    expect(withPassword.user).toEqual({ id: withPassword.user.id, displayName: 'Temporary verification', hasPassword: true, google: null });
-    expect(await sessionUser(withPassword.cookie)).toEqual({ id: withPassword.user.id, displayName: 'Temporary verification', hasPassword: true, google: null });
+    expect(withPassword.user).toEqual({ id: withPassword.user.id, displayName: 'Temporary verification', email: withPassword.email, pendingEmail: null, hasPassword: true, google: null });
+    expect(await sessionUser(withPassword.cookie)).toEqual({ id: withPassword.user.id, displayName: 'Temporary verification', email: withPassword.email, pendingEmail: null, hasPassword: true, google: null });
   }, 60_000);
 
   it('shows an identity attached before the address was kept as connected without one, until its next Google sign-in', async () => {
     const created = await googleOnly();
-    await db.update(authAccounts).set({ providerEmail: null }).where(eq(authAccounts.accountId, created.person.sub));
-    expect(await sessionUser(created.cookie)).toEqual({ id: created.user.id, displayName: 'Ana Google', hasPassword: false, google: { email: null } });
+    await db.update(authAccounts).set({ googleEmail: null }).where(eq(authAccounts.accountId, created.person.sub));
+    expect(await sessionUser(created.cookie)).toEqual({ id: created.user.id, displayName: 'Ana Google', email: created.person.email, pendingEmail: null, hasPassword: false, google: { email: null } });
     // Google now reports another address for the same identity; the Account's own email stays what it was.
     const moved = testEmail();
     expect((await finish(await signInFlow(), { ...created.person, email: moved })).status).toBe(204);
-    expect(await sessionUser(created.cookie)).toEqual({ id: created.user.id, displayName: 'Ana Google', hasPassword: false, google: { email: moved } });
+    expect(await sessionUser(created.cookie)).toEqual({ id: created.user.id, displayName: 'Ana Google', email: created.person.email, pendingEmail: null, hasPassword: false, google: { email: moved } });
     expect((await accountOf(created.person.email))?.id).toBe(created.user.id);
     expect(await db.$count(users, eq(users.email, moved))).toBe(0);
   }, 60_000);
@@ -134,13 +134,13 @@ describe('Sign-in methods: connect and disconnect Google', () => {
     // The session that asked is the session that stays: a connect issues no cookie.
     expect(response.headers.getSetCookie()).toEqual([]);
 
-    expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', hasPassword: true, google: { email: person.email } });
+    expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: { email: person.email } });
     const after = await accountOf(owner.email);
     expect({ id: after?.id, name: after?.name, email: after?.email, emailVerified: after?.emailVerified })
       .toEqual({ id: owner.user.id, name: 'Temporary verification', email: owner.email, emailVerified: true });
     // Only the identity and its address are kept: none of Google's tokens.
-    expect(after?.accounts.filter(({ providerId }) => providerId === 'google').map(({ accountId, providerEmail, accessToken, refreshToken, idToken, scope }) => ({ accountId, providerEmail, accessToken, refreshToken, idToken, scope })))
-      .toEqual([{ accountId: person.sub, providerEmail: person.email, accessToken: null, refreshToken: null, idToken: null, scope: null }]);
+    expect(after?.accounts.filter(({ providerId }) => providerId === 'google').map(({ accountId, googleEmail, accessToken, refreshToken, idToken, scope }) => ({ accountId, googleEmail, accessToken, refreshToken, idToken, scope })))
+      .toEqual([{ accountId: person.sub, googleEmail: person.email, accessToken: null, refreshToken: null, idToken: null, scope: null }]);
     expect(await db.$count(users, eq(users.email, person.email))).toBe(0);
     expect(await db.$count(authSessions, eq(authSessions.userId, owner.user.id))).toBe(1);
 
@@ -191,8 +191,8 @@ describe('Sign-in methods: connect and disconnect Google', () => {
     });
     expect(await signInMethods(owner.user.id)).toEqual([{ providerId: 'credential', accountId: owner.user.id }]);
     expect(await signInMethods(holder.user.id)).toEqual([{ providerId: 'google', accountId: holder.person.sub }]);
-    expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', hasPassword: true, google: null });
-    expect(await sessionUser(holder.cookie)).toEqual({ id: holder.user.id, displayName: 'Ana Google', hasPassword: false, google: { email: holder.person.email } });
+    expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
+    expect(await sessionUser(holder.cookie)).toEqual({ id: holder.user.id, displayName: 'Ana Google', email: holder.person.email, pendingEmail: null, hasPassword: false, google: { email: holder.person.email } });
   }, 90_000);
 
   it('refuses to connect an identity whose email Google reports as unverified', async () => {
@@ -212,8 +212,27 @@ describe('Sign-in methods: connect and disconnect Google', () => {
     expect((await finish(flows[0], first, owner.cookie)).status).toBe(200);
     await expectRefused(await finish(flows[1], second, owner.cookie), 400, CONNECT_FAILED);
     expect(await signInMethods(owner.user.id)).toEqual([{ providerId: 'credential', accountId: owner.user.id }, { providerId: 'google', accountId: first.sub }]);
-    expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', hasPassword: true, google: { email: first.email } });
+    expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: { email: first.email } });
     await expectRefused(await connect(owner.cookie), 409, { code: 'GOOGLE_ALREADY_LINKED', message: 'Google is already connected to this Account.' });
+  }, 90_000);
+
+  it('connects Google to an Account with a pending email change and leaves the change and its link as they were', async () => {
+    const owner = await member();
+    const newEmail = testEmail();
+    emails.push(newEmail);
+    expect((await client.post('/account/email-change', { newEmail, currentPassword: owner.password }, { cookie: owner.cookie })).status).toBe(200);
+    const [link] = await emailChangeTokens(db, owner.email);
+    const person = identity();
+
+    expect((await finish(await flowOf(await connect(owner.cookie)), person, owner.cookie)).status).toBe(200);
+    expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: newEmail, hasPassword: true, google: { email: person.email } });
+    // Compared without printing either side: a failure must not put a link in the log.
+    const links = await emailChangeTokens(db, owner.email);
+    expect(links.length).toBe(1);
+    expect(links[0] === link).toBe(true);
+    // The link still moves the Account, and Google stays attached with its own address.
+    expect((await client.post('/account/email-change/confirm', { token: link }, { cookie: owner.cookie })).status).toBe(200);
+    expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: newEmail, pendingEmail: null, hasPassword: true, google: { email: person.email } });
   }, 90_000);
 
   it('still creates a separate Account when a signed-in person finishes a flow that was started as a sign-in', async () => {
@@ -230,7 +249,7 @@ describe('Sign-in methods: connect and disconnect Google', () => {
     const created = await googleOnly();
     await expectRefused(await disconnect(created.cookie), 409, { code: 'PASSWORD_REQUIRED', message: 'Set a password first.' });
     expect(await signInMethods(created.user.id)).toEqual([{ providerId: 'google', accountId: created.person.sub }]);
-    expect(await sessionUser(created.cookie)).toEqual({ id: created.user.id, displayName: 'Ana Google', hasPassword: false, google: { email: created.person.email } });
+    expect(await sessionUser(created.cookie)).toEqual({ id: created.user.id, displayName: 'Ana Google', email: created.person.email, pendingEmail: null, hasPassword: false, google: { email: created.person.email } });
   }, 60_000);
 
   it('disconnects Google from an Account with a password, keeps the session and leaves the password as the way in', async () => {
@@ -245,7 +264,7 @@ describe('Sign-in methods: connect and disconnect Google', () => {
     expect(responses[0].headers.getSetCookie()).toEqual([]);
 
     expect(await signInMethods(owner.user.id)).toEqual([{ providerId: 'credential', accountId: owner.user.id }]);
-    expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', hasPassword: true, google: null });
+    expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
     expect((await client.post('/auth/login', { email: owner.email, password: owner.password })).status).toBe(200);
     // The identity no longer opens this Account: its next sign-in is a new person's, matched by the Google address.
     const again = await finish(await signInFlow(), person);

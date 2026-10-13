@@ -35,6 +35,8 @@ type WorkerData = {
   verificationTokens: (email: string) => Promise<string[]>;
   /** The tokens of the password reset links stored for an address, newest first. */
   resetTokens: (email: string) => Promise<string[]>;
+  /** The tokens of the email-change links stored for the Account that currently has this address, newest first. */
+  emailChangeTokens: (email: string) => Promise<string[]>;
   /** How many of these stored objects still answer 200. Keys stay inside the helper's callers; only counts leave. */
   countStoredObjects: (keys: string[]) => Promise<number>;
 };
@@ -85,7 +87,7 @@ async function removeWorkerData(db: DrizzleDb, emails: string[], addresses: stri
 
 export const authTest = base.extend<Record<never, never>, { workerData: WorkerData }>({
   workerData: [async ({}, use) => {
-    const { apiClient, signupUser, insertOwnedRecipes, testAddress, testEmail, testPassword, verificationTokens, resetTokens } = await loadAuthHarness();
+    const { apiClient, signupUser, insertOwnedRecipes, testAddress, testEmail, testPassword, verificationTokens, resetTokens, emailChangeTokens } = await loadAuthHarness();
     let connection: string;
     try { connection = await getDevDatabaseUrl(); } catch { throw new Error('Could not resolve the approved Neon dev target for E2E.'); }
     const pool = new pg.Pool({ connectionString: connection, ssl: { rejectUnauthorized: true }, max: 2, connectionTimeoutMillis: 10_000 });
@@ -122,6 +124,7 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
         db, client, address, owner, other, emails, newEmail, newPassword: testPassword, signupFreshAccount, signupUnverified, countStoredObjects,
         verificationTokens: (email) => verificationTokens(db, email),
         resetTokens: (email) => resetTokens(db, email),
+        emailChangeTokens: (email) => emailChangeTokens(db, email),
       });
     } finally {
       try { await storage?.close(); await removeWorkerData(db, emails, addresses); }

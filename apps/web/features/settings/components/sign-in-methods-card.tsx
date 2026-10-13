@@ -2,8 +2,7 @@
 
 import type { GoogleSignIn } from '@recipe-app/contracts/types'
 import { Loader2 } from 'lucide-react'
-import { unstable_rethrow } from 'next/navigation'
-import { useId, useRef, useState, useTransition } from 'react'
+import { useId, useState } from 'react'
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -22,6 +21,7 @@ import { useAppToast } from '@/lib/use-app-toast'
 import { connectGoogle } from '../actions/connect-google'
 import { disconnectGoogle } from '../actions/disconnect-google'
 import { SIGN_IN_METHODS_MESSAGES, type ConnectGoogleResult, type DisconnectGoogleResult } from '../actions/results'
+import { useSingleFlight } from '../lib/use-single-flight'
 
 type SignInMethodsCardProps = {
 	/** Both from the session read: a disconnect or a connect refreshes it, and the card renders what it then reports. */
@@ -44,42 +44,28 @@ export function SignInMethodsCard({ hasPassword, google, onConnect = connectGoog
 	const toast = useAppToast()
 	const headingId = useId()
 	const reasonId = useId()
-	const [pending, startTransition] = useTransition()
-	const inFlight = useRef(false)
 	const [confirming, setConfirming] = useState(false)
 	const [alert, setAlert] = useState<string>()
 	// The last Sign-in method stays: without a password Google cannot go.
 	const locked = google !== null && !hasPassword
-
-	function show(result: ConnectGoogleResult | DisconnectGoogleResult) {
-		if (result.status === 'disconnected') {
-			toast.success(SIGN_IN_METHODS_MESSAGES.disconnected)
-			return
-		}
-		toast.error(result.message)
-		setAlert(result.message)
-	}
-
-	function run(action: () => Promise<ConnectGoogleResult | DisconnectGoogleResult>, fallback: string) {
-		if (inFlight.current) return
-		inFlight.current = true
-		setAlert(undefined)
-		startTransition(async () => {
-			let result: ConnectGoogleResult | DisconnectGoogleResult
-			try { result = await action() } catch (error) {
-				inFlight.current = false
-				// A connect that starts redirects to Google, and a Next action redirect rejects its promise; preserve that control flow.
-				unstable_rethrow(error)
-				result = { status: 'failed', message: fallback }
+	// A connect that starts redirects to Google, so only a start that failed settles here.
+	const { pending, run } = useSingleFlight(
+		(does: keyof typeof GOOGLE_BUTTON): Promise<ConnectGoogleResult | DisconnectGoogleResult> => (does === 'connect' ? onConnect() : onDisconnect()),
+		(does): ConnectGoogleResult | DisconnectGoogleResult => ({ status: 'failed', message: does === 'connect' ? SIGN_IN_METHODS_MESSAGES.connectFailed : SIGN_IN_METHODS_MESSAGES.disconnectFailed }),
+		(result) => {
+			if (result.status === 'disconnected') {
+				toast.success(SIGN_IN_METHODS_MESSAGES.disconnected)
+				return
 			}
-			inFlight.current = false
-			show(result)
-		})
-	}
+			toast.error(result.message)
+			setAlert(result.message)
+		},
+	)
 
-	function disconnect() {
+	function start(does: keyof typeof GOOGLE_BUTTON) {
 		setConfirming(false)
-		run(onDisconnect, SIGN_IN_METHODS_MESSAGES.disconnectFailed)
+		setAlert(undefined)
+		run(does)
 	}
 
 	return (
@@ -102,7 +88,7 @@ export function SignInMethodsCard({ hasPassword, google, onConnect = connectGoog
 								pending={pending}
 								// Disabled rather than hidden without a password, with the reason beside it.
 								reasonId={locked ? reasonId : undefined}
-								onClick={google ? () => setConfirming(true) : () => run(onConnect, SIGN_IN_METHODS_MESSAGES.connectFailed)}
+								onClick={google ? () => setConfirming(true) : () => start('connect')}
 							/>
 						</li>
 					</ul>
@@ -119,7 +105,7 @@ export function SignInMethodsCard({ hasPassword, google, onConnect = connectGoog
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Keep</AlertDialogCancel>
-						<AlertDialogAction variant="destructive" onClick={disconnect}>Disconnect</AlertDialogAction>
+						<AlertDialogAction variant="destructive" onClick={() => start('disconnect')}>Disconnect</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>

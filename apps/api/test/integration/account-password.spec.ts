@@ -89,15 +89,15 @@ describe('Account password HTTP', () => {
   it('reports whether a password is set wherever the public user is returned', async () => {
     const client = newClient();
     const owner = await signupUser(client, db, track());
-    expect(owner.user).toEqual({ id: owner.user.id, displayName: 'Temporary verification', hasPassword: true, google: null });
-    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', hasPassword: true, google: null });
+    expect(owner.user).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
+    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
 
     const googleOnly = await signupWithGoogle(client);
-    expect(await sessionOf(client, googleOnly.cookie)).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', hasPassword: false, google: { email: googleOnly.email } });
+    expect(await sessionOf(client, googleOnly.cookie)).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', email: googleOnly.email, pendingEmail: null, hasPassword: false, google: { email: googleOnly.email } });
     // A rename answers with the same shape, so the page never loses the field between reads.
     const renamed = await send('PUT', '/account/display-name', { displayName: 'Ana Google' }, { cookie: googleOnly.cookie });
     expect(renamed.status).toBe(200);
-    expect(authUserResponseSchema.parse(await renamed.json())).toEqual({ user: { id: googleOnly.id, displayName: 'Ana Google', hasPassword: false, google: { email: googleOnly.email } } });
+    expect(authUserResponseSchema.parse(await renamed.json())).toEqual({ user: { id: googleOnly.id, displayName: 'Ana Google', email: googleOnly.email, pendingEmail: null, hasPassword: false, google: { email: googleOnly.email } } });
   }, 60_000);
 
   it('changes the password with the current one, signs every other session out and keeps this one', async () => {
@@ -125,7 +125,7 @@ describe('Account password HTTP', () => {
     for (const wrong of [owner.password, newPassword.trim()]) expect(await loginStatus(client, owner.email, wrong)).toBe(401);
     expect(await loginStatus(client, owner.email, newPassword)).toBe(200);
     expect(await loginStatus(client, stranger.email, stranger.password)).toBe(200);
-    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', hasPassword: true, google: null });
+    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
   }, 60_000);
 
   it('refuses a wrong current password on its field and changes nothing', async () => {
@@ -147,7 +147,7 @@ describe('Account password HTTP', () => {
     const googleOnly = await signupWithGoogle(client);
     const newPassword = testPassword();
     await expectError(await changePassword({ currentPassword: newPassword, newPassword }, { cookie: googleOnly.cookie }), 400, 'INVALID_CURRENT_PASSWORD');
-    expect(await sessionOf(client, googleOnly.cookie)).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', hasPassword: false, google: { email: googleOnly.email } });
+    expect(await sessionOf(client, googleOnly.cookie)).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', email: googleOnly.email, pendingEmail: null, hasPassword: false, google: { email: googleOnly.email } });
     expect(await loginStatus(client, googleOnly.email, newPassword)).toBe(401);
   }, 60_000);
 
@@ -211,7 +211,7 @@ describe('Account password HTTP', () => {
     // Compared without printing either side: a failure must not put a token or an address in the log.
     expect(sent.html.includes(`<a href="${TEST_ORIGIN}/reset-password?token=${token}">`)).toBe(true);
     // Asking changes nothing about the Account: it is still signed in and still has no password.
-    expect(await sessionOf(client, googleOnly.cookie)).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', hasPassword: false, google: { email: googleOnly.email } });
+    expect(await sessionOf(client, googleOnly.cookie)).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', email: googleOnly.email, pendingEmail: null, hasPassword: false, google: { email: googleOnly.email } });
 
     const password = testPassword();
     expect((await client.post('/auth/reset-password', { token, password })).status).toBe(204);
@@ -219,7 +219,7 @@ describe('Account password HTTP', () => {
     expect(await sessionStatus(client, googleOnly.cookie)).toBe(401);
     const login = await client.post('/auth/login', { email: googleOnly.email, password });
     expect(login.status).toBe(200);
-    expect(await sessionOf(client, cookiePair(login))).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', hasPassword: true, google: { email: googleOnly.email } });
+    expect(await sessionOf(client, cookiePair(login))).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', email: googleOnly.email, pendingEmail: null, hasPassword: true, google: { email: googleOnly.email } });
   }, 60_000);
 
   it('says so when the mail cannot be sent, and the next request sends', async () => {

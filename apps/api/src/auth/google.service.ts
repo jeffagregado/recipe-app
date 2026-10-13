@@ -185,9 +185,9 @@ export class GoogleSignInService {
   private async keepAddress(identity: { sub: string; email: string } | undefined): Promise<void> {
     if (!identity) return;
     try {
-      await this.db.update(authAccounts).set({ providerEmail: identity.email }).where(and(
+      await this.db.update(authAccounts).set({ googleEmail: identity.email }).where(and(
         eq(authAccounts.providerId, GOOGLE_PROVIDER_ID), eq(authAccounts.accountId, identity.sub),
-        or(isNull(authAccounts.providerEmail), ne(authAccounts.providerEmail, identity.email)),
+        or(isNull(authAccounts.googleEmail), ne(authAccounts.googleEmail, identity.email)),
       ));
     } catch (cause) { logAuthFailure('google-address', cause); }
   }

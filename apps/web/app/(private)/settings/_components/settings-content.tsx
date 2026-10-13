@@ -1,5 +1,6 @@
 import { requireSession } from '@/features/auth/queries'
 import { DisplayNameCard } from '@/features/settings/components/display-name-card'
+import { EmailCard } from '@/features/settings/components/email-card'
 import { PasswordCard } from '@/features/settings/components/password-card'
 import { SignInMethodsCard } from '@/features/settings/components/sign-in-methods-card'
 
@@ -9,6 +10,7 @@ export async function SettingsContent() {
 	return (
 		<>
 			<DisplayNameCard displayName={user.displayName} />
+			<EmailCard email={user.email} pendingEmail={user.pendingEmail} hasPassword={user.hasPassword} />
 			<PasswordCard hasPassword={user.hasPassword} />
 			<SignInMethodsCard hasPassword={user.hasPassword} google={user.google} />
 		</>

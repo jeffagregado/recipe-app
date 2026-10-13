@@ -23,7 +23,7 @@ export const hasPassword = sql<boolean>`${authAccounts.password} is not null`;
 export async function readPublicUser(db: DrizzleDb, userId: string): Promise<AuthUser | undefined> {
   // An Account has at most one Google identity too, so this join does not multiply the row either.
   const google = alias(authAccounts, 'google_identity');
-  const [user] = await db.select({ id: users.id, displayName: users.name, hasPassword, googleId: google.id, googleEmail: google.providerEmail })
+  const [user] = await db.select({ id: users.id, displayName: users.name, email: users.email, pendingEmail: users.pendingEmail, hasPassword, googleId: google.id, googleEmail: google.googleEmail })
     .from(users).leftJoin(authAccounts, ownCredential)
     .leftJoin(google, and(eq(google.userId, users.id), eq(google.providerId, GOOGLE_PROVIDER_ID)))
     .where(eq(users.id, userId)).limit(1);

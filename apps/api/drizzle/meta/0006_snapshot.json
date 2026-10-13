@@ -1,5 +1,5 @@
 {
-  "id": "240c39bf-0ae6-4e9e-ad2b-9b1c1b9a2087",
+  "id": "5718592b-7a9d-449d-96d0-a6904a778ba0",
   "prevId": "2e62c857-edfd-409e-ac21-f05fb5c7e0b3",
   "version": "7",
   "dialect": "postgresql",
@@ -75,12 +75,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "provider_email": {
-          "name": "provider_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -143,14 +137,6 @@
           "columns": [
             "provider_id",
             "account_id"
-          ]
-        },
-        "auth_accounts_user_provider_key": {
-          "name": "auth_accounts_user_provider_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id",
-            "provider_id"
           ]
         }
       },
@@ -425,6 +411,12 @@
           "notNull": true,
           "default": false
         },
+        "pending_email": {
+          "name": "pending_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "image": {
           "name": "image",
           "type": "text",
@@ -470,6 +462,10 @@
         "users_email_normalized_check": {
           "name": "users_email_normalized_check",
           "value": "\"users\".\"email\" = lower(btrim(\"users\".\"email\")) AND length(\"users\".\"email\") > 0"
+        },
+        "users_pending_email_normalized_check": {
+          "name": "users_pending_email_normalized_check",
+          "value": "\"users\".\"pending_email\" = lower(btrim(\"users\".\"pending_email\")) AND length(\"users\".\"pending_email\") > 0"
         }
       },
       "isRLSEnabled": false

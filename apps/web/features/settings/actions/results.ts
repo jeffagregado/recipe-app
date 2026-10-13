@@ -62,6 +62,54 @@ export const SET_PASSWORD_MESSAGES = {
 	rateLimited: 'You asked for too many emails. Try again in an hour.',
 } as const
 
+export type EmailFieldName = 'newEmail' | 'currentPassword'
+
+/**
+ * - `sent`: the link is on its way to the new address and the change is pending; the Account's email is unchanged.
+ * - `invalid`: nothing was sent; the message belongs on the named field.
+ * - `session-expired` and `failed`: nothing was sent, except after a lost connection, where the refreshed card shows what happened.
+ */
+export type ChangeEmailResult =
+	| { status: 'sent' }
+	| { status: 'invalid'; field: EmailFieldName; message: string }
+	| { status: 'session-expired'; message: string }
+	| { status: 'failed'; message: string }
+
+/** What the pending-change banner's Resend and Cancel answer. Every other status changed nothing. */
+export type PendingEmailChangeResult =
+	| { status: 'resent' }
+	| { status: 'cancelled' }
+	| { status: 'session-expired'; message: string }
+	| { status: 'failed'; message: string }
+
+export const EMAIL_MESSAGES = {
+	sent: 'Verification link sent',
+	resent: 'Verification link sent again',
+	cancelled: 'Email change cancelled',
+	failed: 'Couldn’t send the verification link. Try again.',
+	cancelFailed: 'Couldn’t cancel the change. Try again.',
+	invalid: 'Check your new email and password and try again.',
+	wrongCurrent: 'Current password is incorrect.',
+	taken: 'Email already exists.',
+	passwordRequired: 'Set a password before changing your email.',
+	notPending: 'No email change is waiting to be confirmed.',
+	...SHARED_MESSAGES,
+	// Either the hourly limit on emails or the shorter one on password attempts; the API does not say which.
+	rateLimited: 'Too many attempts. Try again later.',
+	resendLimited: 'You asked for too many emails. Try again in an hour.',
+} as const
+
+/** `invalid`: the link is expired, used or unknown. `failed`: nothing was confirmed and the same link can be tried again. Success redirects. */
+export type ConfirmEmailChangeResult =
+	| { status: 'invalid' }
+	| { status: 'failed'; message: string }
+
+export const CONFIRM_EMAIL_MESSAGES = {
+	failed: 'We could not confirm your new email. Please try again.',
+	rateLimited: 'Too many attempts. Please wait and try again.',
+	unverified: SHARED_MESSAGES.unverified,
+} as const
+
 /** A connect that starts leaves the page for Google, so only the ways it did not start are answered. */
 export type ConnectGoogleResult =
 	| { status: 'session-expired'; message: string }

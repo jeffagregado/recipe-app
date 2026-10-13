@@ -5,6 +5,7 @@ import { and, desc, eq, inArray, like, or } from 'drizzle-orm';
 import { authUserResponseSchema } from '@recipe-app/contracts/schemas';
 import type { AuthUser } from '@recipe-app/contracts/types';
 import { mountAuth } from '../src/auth/auth.http.js';
+import { EMAIL_CHANGE_IDENTIFIERS, tokenOfEmailChangeIdentifier } from '../src/auth/auth.email-change.js';
 import { rateLimitKey } from '../src/auth/auth.rate-limit.js';
 import { RESET_IDENTIFIERS, tokenOfResetIdentifier } from '../src/auth/auth.reset.js';
 import { tokenOfIdentifier, VERIFICATION_IDENTIFIERS } from '../src/auth/auth.verification.js';
@@ -80,6 +81,9 @@ async function storedTokens(db: DrizzleDb, email: string, identifiers: string, t
 export const verificationTokens = (db: DrizzleDb, email: string) => storedTokens(db, email, VERIFICATION_IDENTIFIERS, tokenOfIdentifier);
 export const resetTokens = (db: DrizzleDb, email: string) => storedTokens(db, email, RESET_IDENTIFIERS, tokenOfResetIdentifier);
 
+/** Looked up by the Account's current email: the link is stored for the Account, not for the address it was mailed to. */
+export const emailChangeTokens = (db: DrizzleDb, email: string) => storedTokens(db, email, EMAIL_CHANGE_IDENTIFIERS, tokenOfEmailChangeIdentifier);
+
 export async function latestVerificationToken(db: DrizzleDb, email: string): Promise<string> {
   const [token] = await verificationTokens(db, email);
   if (!token) throw new Error('No verification link is stored for the temporary account.');
@@ -102,6 +106,12 @@ export async function signupUser(client: ReturnType<typeof apiClient>, db: Drizz
   if (login.status !== 200) throw new Error(`Temporary login failed with HTTP ${login.status}.`);
   const { user } = authUserResponseSchema.parse(await login.json());
   return { user, email, password, cookie: cookiePair(login) };
+}
+
+export async function latestEmailChangeToken(db: DrizzleDb, email: string): Promise<string> {
+  const [token] = await emailChangeTokens(db, email);
+  if (!token) throw new Error('No email-change link is stored for the temporary account.');
+  return token;
 }
 
 export const ownedId = (tag: string, id: string) => `${tag}-${id}`;
@@ -133,8 +143,8 @@ export async function removeTestData(db: DrizzleDb, data: { emails: string[]; ad
   }
   const keys = [
     ...accountKeys,
-    ...data.emails.flatMap((email) => ['login:email', 'resend:email', 'notice:email', 'forgot:email'].map((scope) => rateLimitKey(scope, email))),
-    ...data.addresses.flatMap((address) => ['login:address', 'signup:address', 'resend:address', 'verify:address', 'google-start:address', 'google-callback:address', 'forgot:address', 'reset:address', 'set-password:address'].map((scope) => rateLimitKey(scope, address))),
+    ...data.emails.flatMap((email) => ['login:email', 'resend:email', 'notice:email', 'forgot:email', 'email-change:email'].map((scope) => rateLimitKey(scope, email))),
+    ...data.addresses.flatMap((address) => ['login:address', 'signup:address', 'resend:address', 'verify:address', 'google-start:address', 'google-callback:address', 'forgot:address', 'reset:address', 'set-password:address', 'email-change:address', 'email-change-confirm:address'].map((scope) => rateLimitKey(scope, address))),
   ];
   await db.delete(authRateLimits).where(or(inArray(authRateLimits.key, keys), ...data.addresses.map((address) => like(authRateLimits.key, `${address}%`))));
 }

@@ -41,4 +41,4 @@ export function googleConnectFailed(operation: string, cause: unknown): AuthErro
   return new AuthError(400, 'GOOGLE_CONNECT_FAILED', 'Could not connect Google. Try again.', { cause });
 }
 /** The last Sign-in method is never removed: Google goes only while a password remains. */
-export const passwordRequired = () => new AuthError(409, 'PASSWORD_REQUIRED', 'Set a password first.');
+export const passwordRequiredToDisconnect = () => new AuthError(409, 'PASSWORD_REQUIRED', 'Set a password first.');

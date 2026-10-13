@@ -9,12 +9,15 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   email: text('email').notNull(),
   emailVerified: boolean('email_verified').default(false).notNull(),
+  // The address an email change is waiting on. Not unique: the address is claimed only when its link is confirmed.
+  pendingEmail: text('pending_email'),
   image: text('image'),
   ...timestamps(),
 }, (t) => [
   primaryKey({ name: 'users_pkey', columns: [t.id] }),
   unique('users_email_key').on(t.email),
   check('users_email_normalized_check', sql`${t.email} = lower(btrim(${t.email})) AND length(${t.email}) > 0`),
+  check('users_pending_email_normalized_check', sql`${t.pendingEmail} = lower(btrim(${t.pendingEmail})) AND length(${t.pendingEmail}) > 0`),
 ]);
 
 export const authSessions = pgTable('auth_sessions', {
@@ -45,7 +48,7 @@ export const authAccounts = pgTable('auth_accounts', {
   scope: text('scope'),
   password: text('password'),
   // Not a Better Auth field: the address Google reported for the identity, kept so Settings can name it (issue #52).
-  providerEmail: text('provider_email'),
+  googleEmail: text('google_email'),
   ...timestamps(),
 }, (t) => [
   primaryKey({ name: 'auth_accounts_pkey', columns: [t.id] }),
