@@ -24,8 +24,8 @@ describe('Account settings HTTP', () => {
   beforeAll(async () => {
     ({ app, baseUrl, db } = await startApi());
     client = apiClient(baseUrl, addresses[0]);
-    owner = await signupUser(client, emails[0]);
-    other = await signupUser(client, emails[1]);
+    owner = await signupUser(client, db, emails[0]);
+    other = await signupUser(client, db, emails[1]);
     limitKeys = [owner, other].map(({ user }) => `wrapper:display-name:user:${user.id}`);
     original = await sessionName();
   }, 60_000);
