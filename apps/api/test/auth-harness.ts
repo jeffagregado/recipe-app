@@ -6,6 +6,7 @@ import { authUserResponseSchema } from '@recipe-app/contracts/schemas';
 import type { AuthUser } from '@recipe-app/contracts/types';
 import { mountAuth } from '../src/auth/auth.http.js';
 import { rateLimitKey } from '../src/auth/auth.rate-limit.js';
+import { RESET_IDENTIFIERS, tokenOfResetIdentifier } from '../src/auth/auth.reset.js';
 import { tokenOfIdentifier, VERIFICATION_IDENTIFIERS } from '../src/auth/auth.verification.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import type { DrizzleDb } from '../src/database/database.service.js';
@@ -67,18 +68,27 @@ export function apiClient(baseUrl: string, defaultAddress: string, defaultOrigin
 /** Name=value pairs for a Cookie header; attributes stay on the response under test. */
 export const cookiePair = (response: Response) => response.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ');
 
-/** The tokens of the links still stored for an address, newest first. The verifications table is the agreed seam for links. */
-export async function verificationTokens(db: DrizzleDb, email: string): Promise<string[]> {
+/** The tokens of one kind of link still stored for an address, newest first. The verifications table is the agreed seam for links. */
+async function storedTokens(db: DrizzleDb, email: string, identifiers: string, tokenOf: (identifier: string) => string): Promise<string[]> {
   const rows = await db.select({ identifier: authVerifications.identifier }).from(authVerifications)
     .innerJoin(users, eq(users.id, authVerifications.value))
-    .where(and(eq(users.email, email), like(authVerifications.identifier, VERIFICATION_IDENTIFIERS)))
+    .where(and(eq(users.email, email), like(authVerifications.identifier, identifiers)))
     .orderBy(desc(authVerifications.createdAt));
-  return rows.map(({ identifier }) => tokenOfIdentifier(identifier));
+  return rows.map(({ identifier }) => tokenOf(identifier));
 }
+
+export const verificationTokens = (db: DrizzleDb, email: string) => storedTokens(db, email, VERIFICATION_IDENTIFIERS, tokenOfIdentifier);
+export const resetTokens = (db: DrizzleDb, email: string) => storedTokens(db, email, RESET_IDENTIFIERS, tokenOfResetIdentifier);
 
 export async function latestVerificationToken(db: DrizzleDb, email: string): Promise<string> {
   const [token] = await verificationTokens(db, email);
   if (!token) throw new Error('No verification link is stored for the temporary account.');
+  return token;
+}
+
+export async function latestResetToken(db: DrizzleDb, email: string): Promise<string> {
+  const [token] = await resetTokens(db, email);
+  if (!token) throw new Error('No reset link is stored for the temporary account.');
   return token;
 }
 
@@ -120,8 +130,8 @@ export async function removeTestData(db: DrizzleDb, data: { emails: string[]; ad
     await db.delete(users).where(inArray(users.email, data.emails));
   }
   const keys = [
-    ...data.emails.flatMap((email) => ['login:email', 'resend:email'].map((scope) => rateLimitKey(scope, email))),
-    ...data.addresses.flatMap((address) => ['login:address', 'signup:address', 'resend:address', 'verify:address'].map((scope) => rateLimitKey(scope, address))),
+    ...data.emails.flatMap((email) => ['login:email', 'resend:email', 'forgot:email'].map((scope) => rateLimitKey(scope, email))),
+    ...data.addresses.flatMap((address) => ['login:address', 'signup:address', 'resend:address', 'verify:address', 'forgot:address', 'reset:address'].map((scope) => rateLimitKey(scope, address))),
   ];
   await db.delete(authRateLimits).where(or(inArray(authRateLimits.key, keys), ...data.addresses.map((address) => like(authRateLimits.key, `${address}%`))));
 }

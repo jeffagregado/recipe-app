@@ -11,12 +11,14 @@ import { AuthService } from './auth.service.js';
 import { AuthRateLimiter } from './auth.rate-limit.js';
 import { SessionGuard } from './session.guard.js';
 import { OriginGuard } from './origin.guard.js';
+import { PasswordResetController } from './password-reset.controller.js';
+import { PasswordResetService } from './password-reset.service.js';
 
 export { AUTH } from './auth.tokens.js';
 
 @Module({
   imports: [DatabaseModule, MailModule],
-  controllers: [AuthController],
+  controllers: [AuthController, PasswordResetController],
   providers: [{
     provide: AUTH,
     inject: [DRIZZLE_DB, ConfigService],
@@ -25,7 +27,7 @@ export { AUTH } from './auth.tokens.js';
       BETTER_AUTH_URL: config.get('BETTER_AUTH_URL', { infer: true }),
       AUTH_TRUSTED_ORIGINS: config.get('AUTH_TRUSTED_ORIGINS', { infer: true }),
     }),
-  }, AuthService, AuthRateLimiter, SessionGuard, OriginGuard],
+  }, AuthService, PasswordResetService, AuthRateLimiter, SessionGuard, OriginGuard],
   exports: [AUTH, AuthService, SessionGuard, OriginGuard, AuthRateLimiter],
 })
 export class AuthModule {}
