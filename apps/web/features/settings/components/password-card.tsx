@@ -2,20 +2,17 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { changePasswordSchema } from '@recipe-app/contracts/schemas'
-import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, type ChangePasswordInput } from '@recipe-app/contracts/types'
+import type { ChangePasswordInput } from '@recipe-app/contracts/types'
 import { Loader2 } from 'lucide-react'
-import { useId, useRef, useState, useTransition, type BaseSyntheticEvent, type ComponentProps } from 'react'
+import { useId, useRef, useState, useTransition, type BaseSyntheticEvent } from 'react'
 import { useForm, useFormState, useWatch } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { FieldError } from '@/features/recipes/form/components/form-field'
-import { fieldA11y, inputClass } from '@/features/recipes/form/lib/field-props'
 import { useAppToast } from '@/lib/use-app-toast'
-import { cn } from '@/lib/utils'
 import { changePassword } from '../actions/change-password'
 import { requestSetPassword } from '../actions/request-set-password'
 import { PASSWORD_MESSAGES, SET_PASSWORD_MESSAGES, type ChangePasswordResult, type RequestSetPasswordResult } from '../actions/results'
+import { PasswordField } from './password-field'
 
 type PasswordCardProps = {
 	/** From the session read. When a first password is set through the emailed link, the next sign-in renders the change form. */
@@ -116,33 +113,6 @@ function ChangePasswordForm({ onChange }: { onChange: NonNullable<PasswordCardPr
 				</Button>
 			</div>
 		</form>
-	)
-}
-
-type PasswordFieldProps = ComponentProps<typeof Input> & {
-	id: string
-	label: string
-	error?: string
-	/** Shows the allowed length inside the field, and says it to assistive technology. */
-	range?: boolean
-}
-
-/** A labelled, masked field with its error below it. */
-function PasswordField({ id, label, error, range, ...props }: PasswordFieldProps) {
-	return (
-		<div className="space-y-1.5">
-			<label htmlFor={id} className="text-sm font-medium">{label}</label>
-			<div className="relative">
-				<Input {...fieldA11y(id, error, range)} {...props} type="password" className={cn(inputClass, range && 'pr-20')} />
-				{range && (
-					<span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground tabular-nums">
-						{PASSWORD_MIN_LENGTH}–{PASSWORD_MAX_LENGTH}
-					</span>
-				)}
-			</div>
-			{range && <p id={`${id}-hint`} className="sr-only">{PASSWORD_MIN_LENGTH} to {PASSWORD_MAX_LENGTH} characters</p>}
-			{error && <FieldError id={`${id}-error`}>{error}</FieldError>}
-		</div>
 	)
 }
 
