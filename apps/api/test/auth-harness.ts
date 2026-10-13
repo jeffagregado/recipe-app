@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { eq, inArray, like, or } from 'drizzle-orm';
 import { authUserResponseSchema } from '@recipe-app/contracts/schemas';
@@ -13,6 +12,8 @@ import { authRateLimits, categories, recipeCategories, recipes, users } from '..
 import type { SeedRecipe } from '../src/recipes/fixtures/fixture.js';
 import { seedRecipes } from '../src/recipes/seed-recipes.js';
 import { getDevDatabaseUrl } from './neon-dev.js';
+import { createAppWithRecordedMail } from './recording-mail.js';
+import type { RecordingMailTransport } from './recording-mail.js';
 
 export const TEST_ORIGIN = 'http://localhost:3000';
 
@@ -31,17 +32,17 @@ export function testAddress(): string {
 export const testUsername = () => `t_${randomBytes(10).toString('hex')}`;
 export const testPassword = () => randomBytes(24).toString('base64url');
 
-export async function startApi(): Promise<{ app: NestExpressApplication; baseUrl: string; db: DrizzleDb }> {
+export async function startApi(): Promise<{ app: NestExpressApplication; baseUrl: string; db: DrizzleDb; mail: RecordingMailTransport }> {
   process.env.DATABASE_URL = await getDevDatabaseUrl();
   process.env.BETTER_AUTH_URL = 'http://127.0.0.1:4101';
   // Process environment overrides the env file, so the suite never depends on the developer's list.
   process.env.AUTH_TRUSTED_ORIGINS = TEST_ORIGIN;
   const { AppModule } = await import('../src/app.module.js');
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: false, bodyParser: false, abortOnError: false });
+  const { app, mail } = await createAppWithRecordedMail(AppModule, { logger: false, bodyParser: false, abortOnError: false });
   mountAuth(app);
   await app.listen(0, '127.0.0.1');
   const baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
-  return { app, baseUrl, db: app.get(DatabaseService).db };
+  return { app, baseUrl, db: app.get(DatabaseService).db, mail };
 }
 
 type RequestOptions = { cookie?: string; origin?: string | null; address?: string };
