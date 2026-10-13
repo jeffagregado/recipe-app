@@ -18,3 +18,5 @@ export function unavailable(operation: string, cause: unknown): AuthError {
 }
 export const unauthenticated = () => new AuthError(401, 'UNAUTHENTICATED', 'Log in to continue.');
 export const emailAlreadyExists = () => new AuthError(409, 'EMAIL_ALREADY_EXISTS', 'Email already exists.');
+export const emailNotVerified = (cause: unknown) => new AuthError(403, 'EMAIL_NOT_VERIFIED', 'Verify your email to log in.', { cause });
+export const verificationLinkInvalid = () => new AuthError(400, 'VERIFICATION_LINK_INVALID', 'This verification link has expired or was already used.');

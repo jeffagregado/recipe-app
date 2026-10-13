@@ -31,8 +31,6 @@ export function createAuth(db: DrizzleDb, config: Pick<Environment, 'BETTER_AUTH
     logger: { log: logAuthEvent },
     database: drizzleAdapter(trackTransactions(db), { provider: 'pg', schema, transaction: true }),
     databaseHooks: {
-      // Until the verification gate of issue #44 exists, an Account is created already verified.
-      user: { create: { before: async (user) => ({ data: { ...user, emailVerified: true } }) } },
       account: {
         create: {
           // Sign-up creates the user and then its credential account in one transaction. Writing the default categories here,
@@ -47,7 +45,9 @@ export function createAuth(db: DrizzleDb, config: Pick<Environment, 'BETTER_AUTH
       },
     },
     trustedOrigins: config.AUTH_TRUSTED_ORIGINS,
-    emailAndPassword: { enabled: true, minPasswordLength: PASSWORD_MIN_LENGTH, maxPasswordLength: PASSWORD_MAX_LENGTH },
+    // An Account signs in only with a Verified email. No `emailVerification` sender is configured on purpose: the wrapper
+    // owns the single-use link, so Better Auth mails nobody by itself, at sign-up or at a refused login.
+    emailAndPassword: { enabled: true, requireEmailVerification: true, minPasswordLength: PASSWORD_MIN_LENGTH, maxPasswordLength: PASSWORD_MAX_LENGTH },
     user: { modelName: 'users' },
     // Fixed seven-day sessions: no sliding renewal and no cookie-cached session copies.
     session: {

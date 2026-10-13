@@ -18,11 +18,15 @@ function harness() {
   const findSession = vi.fn();
   const findUser = vi.fn();
   const auth = { api: { getSession, signOut, signUpEmail }, $context: Promise.resolve({ authCookies: { sessionToken: { name: 'better-auth.session_token' } } }) } as unknown as RecipeAuth;
-  const db = { query: { authSessions: { findFirst: findSession }, users: { findFirst: findUser } } } as unknown as DrizzleDb;
+  const send = vi.fn();
+  const db = {
+    query: { authSessions: { findFirst: findSession }, users: { findFirst: findUser } },
+    delete: () => ({ where: () => Promise.resolve() }), insert: () => ({ values: () => Promise.resolve() }),
+  } as unknown as DrizzleDb;
   const resilience = { preset: () => ({ execute: (fn: () => unknown) => fn() }) } as unknown as ResilienceService;
-  const service = new AuthService(auth, db, resilience);
+  const service = new AuthService(auth, db, resilience, { send });
   const request = { headers: {}, ip: '127.0.0.1' } as IncomingMessage & { ip: string };
-  return { service, request, getSession, signOut, signUpEmail, findSession, findUser };
+  return { service, request, getSession, signOut, signUpEmail, findSession, findUser, send };
 }
 
 describe('Auth dependency failure boundaries', () => {
@@ -50,7 +54,7 @@ describe('Auth dependency failure boundaries', () => {
     const { service, request, signUpEmail, findUser } = harness();
     signUpEmail.mockRejectedValue(new APIError('UNPROCESSABLE_ENTITY', { code: 'FAILED_TO_CREATE_USER', message: 'Creation failed' }));
     findUser.mockResolvedValue(exists ? { id: 'unit-user' } : undefined);
-    await expect(service.signup({ displayName: 'Unit User', email: 'unit@example.invalid', password: 'unit-password-123' }, request))
+    await expect(service.signup({ displayName: 'Unit User', email: 'unit@example.invalid', password: 'unit-password-123' }, request, 'http://localhost:3000'))
       .rejects.toMatchObject({ status: exists ? 409 : 503 });
   });
 });
@@ -94,6 +98,20 @@ describe('Auth failure logging', () => {
       expect(logs.lines[0]).toContain('logout-confirm');
       expect(logs.lines[0]).not.toContain(cookie);
       expect(logs.lines[0]).not.toContain(email);
+    } finally { logs.restore(); }
+  });
+
+  it.each(['signup', 'resend'] as const)('completes %s and logs only a label and class when the verification mail fails', async (operation) => {
+    const { service, request, signUpEmail, findUser, send } = harness();
+    const logs = captureLogs();
+    try {
+      signUpEmail.mockResolvedValue({ user: { id: 'unit-user' } });
+      findUser.mockResolvedValue({ id: 'unit-user', email, emailVerified: false });
+      send.mockImplementation((message: { html: string }) => Promise.reject(new Error(`refused ${email} ${message.html}`)));
+      if (operation === 'signup') await expect(service.signup({ displayName: 'Unit User', email, password: 'unit-password-123' }, request, 'http://localhost:3000')).resolves.toBeUndefined();
+      else await expect(service.resendVerification(email, 'http://localhost:3000')).resolves.toBeUndefined();
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(logs.lines).toEqual([`Auth ${operation === 'signup' ? 'signup-mail' : 'resend-verification-mail'} failed: Error.`]);
     } finally { logs.restore(); }
   });
 });

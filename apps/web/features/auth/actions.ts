@@ -1,11 +1,12 @@
 'use server'
 
-import { authUserResponseSchema, loginSchema, signupSchema } from '@recipe-app/contracts/schemas'
+import { authUserResponseSchema, loginSchema, resendVerificationSchema, signupResponseSchema, signupSchema } from '@recipe-app/contracts/schemas'
 import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import type { ZodError } from 'zod'
 import { authFetch } from './api'
-import { mapAuthError, publicFailure, serviceFailure, type AuthFailure, type AuthMutation, type LogoutResult } from './action-result'
+import { mapAuthError, publicFailure, serviceFailure, type AuthFailure, type AuthMutation, type LogoutResult, type ResendVerificationResult } from './action-result'
+import { rememberPendingVerification } from './pending-verification'
 import { applySessionCookies, clearSessionCookies, sessionCookieHeader } from './session-cookie'
 
 function validationFailure(error: ZodError): AuthFailure {
@@ -17,7 +18,7 @@ function validationFailure(error: ZodError): AuthFailure {
 	return { ok: false, code: 'VALIDATION_FAILED', message: 'Check your details and try again.', fieldErrors }
 }
 
-const EXPECTED_STATUS: Record<AuthMutation, number> = { signup: 201, login: 200, logout: 204 }
+const EXPECTED_STATUS: Record<AuthMutation, number> = { signup: 201, login: 200, logout: 204, 'resend-verification': 204 }
 const ORIGIN_REJECTED: AuthFailure = { ok: false, code: 'ORIGIN_REJECTED', message: 'This request could not be verified. Refresh the page and try again.' }
 
 /** Only the request Origin, client address and (logout) session cookie reach the API. */
@@ -40,6 +41,9 @@ async function applySuccess(operation: AuthMutation, response: Response, store: 
 		clearSessionCookies(store)
 		return
 	}
+	if (operation === 'resend-verification') return
+	// Signup creates no session: whatever cookie the response carries is ignored.
+	if (operation === 'signup') return signupResponseSchema.safeParse(await response.json().catch(() => undefined)).success ? undefined : logFailure(operation, serviceFailure(operation), response.status)
 	const parsed = authUserResponseSchema.safeParse(await response.json().catch(() => undefined))
 	if (!parsed.success || applySessionCookies(response.headers, store) === 0) return logFailure(operation, serviceFailure(operation), response.status)
 }
@@ -66,7 +70,8 @@ export async function signup(input: unknown): Promise<AuthFailure> {
 	if (!parsed.success) return validationFailure(parsed.error)
 	const error = await mutate('signup', parsed.data)
 	if (error) return error
-	redirect('/recipes')
+	rememberPendingVerification(await cookies(), parsed.data.email, (await headers()).get('origin'))
+	redirect('/check-email')
 }
 
 export async function login(input: unknown): Promise<AuthFailure> {
@@ -75,6 +80,14 @@ export async function login(input: unknown): Promise<AuthFailure> {
 	const error = await mutate('login', parsed.data)
 	if (error) return error
 	redirect('/recipes')
+}
+
+/** The answer is the same whether or not the address has an Account. */
+export async function resendVerification(input: unknown): Promise<ResendVerificationResult> {
+	const parsed = resendVerificationSchema.safeParse(input)
+	if (!parsed.success) return validationFailure(parsed.error)
+	const error = await mutate('resend-verification', parsed.data)
+	return error ?? { ok: true }
 }
 
 export async function logout(): Promise<LogoutResult> {

@@ -15,6 +15,8 @@ export function useAuthForm() {
 	const [mode, setMode] = useState<Mode>('login')
 	const [showPassword, setShowPassword] = useState(false)
 	const [message, setMessage] = useState<string>()
+	// Set only by a login the API refused for an unverified email: the address the resend control is bound to.
+	const [unverifiedEmail, setUnverifiedEmail] = useState<string>()
 	const [pending, startTransition] = useTransition()
 	const isSignup = mode === 'signup'
 	const resolver: Resolver<SignupInput> = async (values, context, options) => {
@@ -33,6 +35,7 @@ export function useAuthForm() {
 		resetField('password')
 		clearErrors()
 		setMessage(undefined)
+		setUnverifiedEmail(undefined)
 		setShowPassword(false)
 		setMode(next)
 	}
@@ -40,12 +43,15 @@ export function useAuthForm() {
 	const submit = handleSubmit((values) => {
 		if (pending) return
 		setMessage(undefined)
+		setUnverifiedEmail(undefined)
 		startTransition(async () => {
 			const result = await submitAuth(() => isSignup ? signup(values) : login({ email: values.email, password: values.password }), mode, () => {
 				resetField('password')
-				broadcastAuth('login')
+				// Signup creates no session; it only leads to /check-email.
+				if (!isSignup) broadcastAuth('login')
 			})
 			setMessage(result.message)
+			if (result.code === 'EMAIL_NOT_VERIFIED') setUnverifiedEmail(values.email)
 			for (const field of ['displayName', 'email', 'password'] as const) {
 				const error = result.fieldErrors?.[field]?.[0]
 				if (error) { setError(field, { type: 'server', message: error }, { shouldFocus: true }); break }
@@ -53,6 +59,6 @@ export function useAuthForm() {
 		})
 	})
 
-	return { mode, isSignup, pending, showPassword, setShowPassword, message, errors, register, switchMode, submit }
+	return { mode, isSignup, pending, showPassword, setShowPassword, message, unverifiedEmail, errors, register, switchMode, submit }
 }
 

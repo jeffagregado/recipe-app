@@ -2,15 +2,19 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ResilienceService } from '@nestjs/resilience';
 import type { ResiliencePolicy } from '@nestjs/resilience';
 import { APIError } from 'better-auth/api';
-import { eq } from 'drizzle-orm';
+import { and, eq, gt, like, lte } from 'drizzle-orm';
 import { authUserSchema } from '@recipe-app/contracts/schemas';
 import type { AuthSessionResponse, AuthUser, LoginInput, SignupInput } from '@recipe-app/contracts/types';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
-import { authSessions, users } from '../database/schema.js';
+import { authSessions, authVerifications, users } from '../database/schema.js';
+import { MAIL_TRANSPORT } from '../mail/mail.transport.js';
+import type { MailTransport } from '../mail/mail.transport.js';
 import { AUTH } from './auth.tokens.js';
 import type { RecipeAuth } from './auth.js';
-import { AuthError, emailAlreadyExists, unauthenticated, unavailable } from './auth.errors.js';
+import { AuthError, emailAlreadyExists, emailNotVerified, unauthenticated, unavailable, verificationLinkInvalid } from './auth.errors.js';
+import { logAuthFailure } from './auth.logger.js';
+import { newVerificationToken, VERIFICATION_IDENTIFIERS, VERIFICATION_LIFETIME_MS, verificationIdentifier, verificationMessage } from './auth.verification.js';
 import { authHeaders } from './auth.request.js';
 import type { AuthRequest } from './auth.request.js';
 
@@ -22,20 +26,60 @@ function publicUser(user: { id: string; name: string }): AuthUser {
 export class AuthService {
   private readonly credentialPolicy: ResiliencePolicy;
 
-  constructor(@Inject(AUTH) private readonly auth: RecipeAuth, @Inject(DRIZZLE_DB) private readonly db: DrizzleDb, resilience: ResilienceService) {
+  constructor(
+    @Inject(AUTH) private readonly auth: RecipeAuth,
+    @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
+    resilience: ResilienceService,
+    @Inject(MAIL_TRANSPORT) private readonly mail: MailTransport,
+  ) {
     this.credentialPolicy = resilience.preset('authCredential');
   }
 
-  async signup(input: SignupInput, request: AuthRequest): Promise<{ user: AuthUser; cookie: string }> {
+  /** Creates an unverified Account and mails its link. No session exists until the link is opened and the person logs in. */
+  async signup(input: SignupInput, request: AuthRequest, origin: string): Promise<void> {
+    let userId: string;
     try {
-      const { response, headers } = await this.credentialPolicy.execute(() => this.auth.api.signUpEmail({
-        body: { name: input.displayName, email: input.email, password: input.password },
-        headers: authHeaders(request), returnHeaders: true,
+      const { user } = await this.credentialPolicy.execute(() => this.auth.api.signUpEmail({
+        body: { name: input.displayName, email: input.email, password: input.password }, headers: authHeaders(request),
       }));
-      return { user: publicUser(response.user), cookie: await this.sessionCookie(headers) };
+      userId = user.id;
     } catch (cause) {
       return this.rejectSignup(cause, input.email);
     }
+    // With verification required, Better Auth answers a taken email like a new one, under an id that was never stored.
+    let created: { id: string } | undefined;
+    try {
+      created = await this.db.query.users.findFirst({ where: eq(users.id, userId), columns: { id: true } });
+    } catch (cause) { throw unavailable('signup', cause); }
+    if (!created) throw emailAlreadyExists();
+    await this.sendVerification({ id: userId, email: input.email }, origin, 'signup-mail');
+  }
+
+  /** Sends a new link only to a known, unverified Account. The caller answers the same either way. */
+  async resendVerification(email: string, origin: string): Promise<void> {
+    let user: { id: string; email: string; emailVerified: boolean } | undefined;
+    try {
+      user = await this.db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true, email: true, emailVerified: true } });
+    } catch (cause) { throw unavailable('resend-verification', cause); }
+    if (user && !user.emailVerified) await this.sendVerification(user, origin, 'resend-verification-mail');
+  }
+
+  /** Consumes the link: marks the email verified and retires every other link of that Account. Creates no session. */
+  async verifyEmail(token: string): Promise<void> {
+    let verified: boolean;
+    try {
+      verified = await this.db.transaction(async (tx) => {
+        // Deleting the row is the single use: of two requests with one token, only one gets it back.
+        const [link] = await tx.delete(authVerifications)
+          .where(and(eq(authVerifications.identifier, verificationIdentifier(token)), gt(authVerifications.expiresAt, new Date())))
+          .returning({ userId: authVerifications.value });
+        if (!link) return false;
+        const accounts = await tx.update(users).set({ emailVerified: true }).where(eq(users.id, link.userId)).returning({ id: users.id });
+        await tx.delete(authVerifications).where(and(eq(authVerifications.value, link.userId), like(authVerifications.identifier, VERIFICATION_IDENTIFIERS)));
+        return accounts.length === 1;
+      });
+    } catch (cause) { throw unavailable('verify-email', cause); }
+    if (!verified) throw verificationLinkInvalid();
   }
 
   async login(input: LoginInput, request: AuthRequest): Promise<{ user: AuthUser; cookie: string }> {
@@ -45,6 +89,8 @@ export class AuthService {
       }));
       return { user: publicUser(response.user), cookie: await this.sessionCookie(headers) };
     } catch (cause) {
+      // Better Auth checks the password first, so this code is only ever given to someone who knows it.
+      if (cause instanceof APIError && cause.body?.code === 'EMAIL_NOT_VERIFIED') throw emailNotVerified(cause);
       if (cause instanceof APIError && cause.statusCode >= 400 && cause.statusCode < 500) {
         throw new AuthError(401, 'INVALID_CREDENTIALS', 'Invalid email or password', { cause });
       }
@@ -77,6 +123,22 @@ export class AuthService {
   private async readSession(request: AuthRequest, operation: string) {
     try { return await this.auth.api.getSession({ headers: authHeaders(request, true) }); }
     catch (cause) { throw unavailable(operation, cause); }
+  }
+
+  /**
+   * Stores a 24-hour link for the Account and mails it. A failure is logged and not raised: the Account already exists,
+   * the person can ask again, and an error here would tell a caller of resend that the address is registered.
+   */
+  private async sendVerification(user: { id: string; email: string }, origin: string, operation: string): Promise<void> {
+    const token = newVerificationToken();
+    const now = Date.now();
+    try {
+      await this.db.delete(authVerifications).where(and(
+        eq(authVerifications.value, user.id), like(authVerifications.identifier, VERIFICATION_IDENTIFIERS), lte(authVerifications.expiresAt, new Date(now)),
+      ));
+      await this.db.insert(authVerifications).values({ identifier: verificationIdentifier(token), value: user.id, expiresAt: new Date(now + VERIFICATION_LIFETIME_MS) });
+      await this.mail.send(verificationMessage(user.email, origin, token));
+    } catch (cause) { logAuthFailure(operation, cause); }
   }
 
   private async rejectSignup(cause: unknown, email: string): Promise<never> {
