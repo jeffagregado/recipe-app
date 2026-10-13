@@ -25,7 +25,7 @@ function requireId<K>(ids: Map<K, string>, name: K): string {
 }
 
 async function checkOwner(tx: Transaction, samples: SeedRecipe[]): Promise<void> {
-  await tx.insert(users).values({ id: DEMO_AUTHOR_ID, name: 'Alex Sample', email: 'alex.sample@example.invalid', createdAt: seedDate, updatedAt: seedDate }).onConflictDoNothing();
+  await tx.insert(users).values({ id: DEMO_AUTHOR_ID, name: 'Alex Sample', email: 'alex.sample@example.invalid', emailVerified: true, createdAt: seedDate, updatedAt: seedDate }).onConflictDoNothing();
   const author = await tx.query.users.findFirst({ where: eq(users.id, DEMO_AUTHOR_ID), with: { accounts: { columns: { id: true } } } });
   if (!author || author.email !== 'alex.sample@example.invalid' || author.accounts.length > 0) {
     throw new Error('Demo author collision: seed requires its reserved fictional identity without login accounts.');

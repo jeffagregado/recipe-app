@@ -10,31 +10,30 @@ test.use({ trace: 'off', screenshot: 'off' });
 const cards = (page: Page) => page.getByRole('list', { name: 'Recipes' }).locator(':scope > li');
 const allCount = (page: Page) => page.getByRole('group', { name: 'Recipe categories' }).getByRole('button', { name: /^All / });
 const mode = (page: Page, name: string) => page.getByRole('group', { name: 'Authentication mode' }).getByRole('button', { name, exact: true });
-async function login(page: Page, username: string, password: string) {
+async function login(page: Page, email: string, password: string) {
   await page.goto('/');
-  await page.getByLabel('Username', { exact: true }).fill(username);
+  await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
 }
 async function logout(page: Page) {
   await page.getByRole('button', { name: 'Log out', exact: true }).filter({ visible: true }).click();
   await expect(page).toHaveURL(`${WEB_URL}/`);
-  await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
 }
 
 test('signup has three fields, creates empty library, forwards address and logs out', async ({ page, context, workerData }) => {
-  const username = workerData.newUsername();
+  const email = workerData.newEmail();
   const password = workerData.newPassword();
   const key = `wrapper:signup:address:${createHash('sha256').update(workerData.address).digest('hex').slice(0, 32)}`;
   const before = await workerData.db.query.authRateLimits.findFirst({ where: eq(authRateLimits.key, key) });
   await page.goto('/');
   await mode(page, 'Sign up').click();
   await expect(page.locator('form input')).toHaveCount(3);
-  await expect(page.locator('input[type="email"]')).toHaveCount(0);
   await expect(page.getByLabel('Display Name', { exact: true })).toHaveAttribute('autocomplete', 'name');
   await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute('autocomplete', 'new-password');
   await page.getByLabel('Display Name', { exact: true }).fill('My test kitchen');
-  await page.getByLabel('Username', { exact: true }).fill(username);
+  await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.locator('form').getByRole('button', { name: 'Sign up', exact: true }).click();
   await expect(page).toHaveURL(`${WEB_URL}/recipes`);
@@ -50,24 +49,24 @@ test('signup has three fields, creates empty library, forwards address and logs 
   await logout(page);
   await page.goto('/recipes');
   await expect(page).toHaveURL(`${WEB_URL}/`);
-  await login(page, username.toUpperCase(), password);
+  await login(page, email.toUpperCase(), password);
   await expect(page).toHaveURL(`${WEB_URL}/recipes`);
   await expect(page.getByText('Your recipe library is empty.', { exact: true })).toBeVisible();
 });
 
-test('wrong password and unknown user match; duplicate username links an exact field error', async ({ page, workerData }) => {
-  await login(page, workerData.owner.username, workerData.newPassword());
-  await expect(page.locator('form').getByRole('alert')).toHaveText('Invalid username or password');
-  const unknown = workerData.newUsername();
+test('wrong password and unknown email match; duplicate email links an exact field error', async ({ page, workerData }) => {
+  await login(page, workerData.owner.email, workerData.newPassword());
+  await expect(page.locator('form').getByRole('alert')).toHaveText('Invalid email or password');
+  const unknown = workerData.newEmail();
   await login(page, unknown, workerData.newPassword());
-  await expect(page.locator('form').getByRole('alert')).toHaveText('Invalid username or password');
+  await expect(page.locator('form').getByRole('alert')).toHaveText('Invalid email or password');
   await mode(page, 'Sign up').click();
   await page.getByLabel('Display Name', { exact: true }).fill('Another kitchen');
-  await page.getByLabel('Username', { exact: true }).fill(workerData.owner.username.toUpperCase());
+  await page.getByLabel('Email', { exact: true }).fill(workerData.owner.email.toUpperCase());
   await page.getByLabel('Password', { exact: true }).fill(workerData.newPassword());
   await page.locator('form').getByRole('button', { name: 'Sign up', exact: true }).click();
-  await expect(page.getByLabel('Username', { exact: true })).toHaveAccessibleDescription('Username is unavailable.');
-  await expect(page.getByLabel('Username', { exact: true })).toBeFocused();
+  await expect(page.getByLabel('Email', { exact: true })).toHaveAccessibleDescription('Email already exists.');
+  await expect(page.getByLabel('Email', { exact: true })).toBeFocused();
 });
 
 test('anonymous routes redirect, keyboard login works, toggle/error focus and 320px layout work', async ({ page, workerData }) => {
@@ -75,8 +74,8 @@ test('anonymous routes redirect, keyboard login works, toggle/error focus and 32
   await expect(page).toHaveURL(`${WEB_URL}/`);
   await page.setViewportSize({ width: 320, height: 720 });
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(page.getByLabel('Username', { exact: true })).toBeFocused();
-  await page.keyboard.type(workerData.owner.username.toUpperCase());
+  await expect(page.getByLabel('Email', { exact: true })).toBeFocused();
+  await page.keyboard.type(workerData.owner.email.toUpperCase());
   await page.keyboard.press('Tab');
   await expect(page.getByLabel('Password', { exact: true })).toBeFocused();
   await page.keyboard.type(workerData.owner.password);
@@ -95,7 +94,7 @@ test('anonymous routes redirect, keyboard login works, toggle/error focus and 32
 });
 
 test('switching owners clears rows, totals, pagination and browser Back state', async ({ page, workerData }) => {
-  await login(page, workerData.owner.username, workerData.owner.password);
+  await login(page, workerData.owner.email, workerData.owner.password);
   await expect(cards(page)).toHaveCount(20);
   await expect(allCount(page)).toContainText('100');
   await page.getByText('Showing 20 of 100 recipes', { exact: true }).scrollIntoViewIfNeeded();
@@ -104,7 +103,7 @@ test('switching owners clears rows, totals, pagination and browser Back state', 
   await page.goBack();
   await expect(page).toHaveURL(`${WEB_URL}/`);
   await expect(cards(page)).toHaveCount(0);
-  await login(page, workerData.other.username, workerData.other.password);
+  await login(page, workerData.other.email, workerData.other.password);
   await expect(cards(page)).toHaveCount(20);
   await expect(allCount(page)).toContainText('25');
   const nextPage = page.waitForResponse((response) => new URL(response.url()).pathname === '/backend/recipes' && new URL(response.url()).searchParams.get('page') === '2');
@@ -115,7 +114,7 @@ test('switching owners clears rows, totals, pagination and browser Back state', 
   expect(hrefs.every((href) => href?.startsWith(`/recipes/${workerData.other.tag}-`))).toBe(true);
   await expect(cards(page).getByRole('heading').filter({ hasText: /^Other kitchen: / })).toHaveCount(25);
   await logout(page);
-  await login(page, workerData.owner.username, workerData.owner.password);
+  await login(page, workerData.owner.email, workerData.owner.password);
   await expect(cards(page)).toHaveCount(20);
   await expect(allCount(page)).toContainText('100');
   await expect(cards(page).getByText(/^Other kitchen: /)).toHaveCount(0);
@@ -123,7 +122,7 @@ test('switching owners clears rows, totals, pagination and browser Back state', 
 
 for (const trigger of ['pagination', 'focus'] as const) {
   test(`revoked session leaves private UI on next ${trigger}`, async ({ page, workerData }) => {
-    await login(page, workerData.owner.username, workerData.owner.password);
+    await login(page, workerData.owner.email, workerData.owner.password);
     await expect(cards(page)).toHaveCount(20);
     // Revokes only this test's current session, leaving the worker's fixture session intact.
     const cookie = (await page.context().cookies()).filter(({ name }) => name === 'better-auth.session_token').map(({ name, value }) => `${name}=${value}`).join('; ');
@@ -137,7 +136,7 @@ for (const trigger of ['pagination', 'focus'] as const) {
 }
 
 test('session tokens stay out of rendered HTML and browser storage; the create form renders no secrets', async ({ page, context, workerData }) => {
-  await login(page, workerData.owner.username, workerData.owner.password);
+  await login(page, workerData.owner.email, workerData.owner.password);
   await expect(cards(page)).toHaveCount(20);
   const secrets = (await context.cookies()).filter(({ name }) => name.endsWith('session_token')).flatMap(({ value }) => [value, decodeURIComponent(value)]);
   const response = await page.goto('/recipes');
@@ -166,7 +165,7 @@ for (const width of [320, 390, 768, 1440]) {
     await mode(page, 'Sign up').click();
     await expect(page.getByLabel('Display Name', { exact: true })).toBeVisible();
     expect(await fits()).toBe(true);
-    await login(page, workerData.owner.username, workerData.owner.password);
+    await login(page, workerData.owner.email, workerData.owner.password);
     await expect(cards(page)).toHaveCount(20);
     expect(await fits()).toBe(true);
     expect(errors).toEqual([]);

@@ -7,7 +7,7 @@ import type { DefaultCategoryName } from '../src/categories/default-categories.j
 import type { ApiErrorEnvelope, CreateRecipeMetadata } from '@recipe-app/contracts/types';
 import { authRateLimits, favorites, ingredients, recipeImages, recipes, recipeWriteAttempts, users } from '../src/database/schema.js';
 import { StorageService } from '../src/storage/storage.service.js';
-import { apiClient, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testUsername } from './auth-harness.js';
+import { apiClient, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from './auth-harness.js';
 
 import { describePhoto } from './recipe-photos.js';
 
@@ -32,7 +32,7 @@ export const minimalRecipe = (name: string): CreateRecipeMetadata => ({
 export async function openRecipeSuite() {
   const { app, db, baseUrl } = await startApi();
   const storage = app.get(StorageService);
-  const addresses = [testAddress()]; const usernames = [testUsername(), testUsername()];
+  const addresses = [testAddress()]; const emails = [testEmail(), testEmail()];
   /** Prefix of every ingredient name a scenario invents, so canonical rows can be removed afterwards. */
   const name = `verification-${randomUUID()}`;
   const objectKeys = new Set<string>();
@@ -43,13 +43,13 @@ export async function openRecipeSuite() {
   const categories: Record<'owner' | 'other', ReturnType<typeof categoryListSchema.parse>> = { owner: [], other: [] };
   try {
     const client = apiClient(baseUrl, addresses[0]);
-    owner = await signupUser(client, usernames[0]); other = await signupUser(client, usernames[1]);
+    owner = await signupUser(client, emails[0]); other = await signupUser(client, emails[1]);
     for (const [who, user] of [['owner', owner], ['other', other]] as const) {
       const response = await fetch(`${baseUrl}/categories`, { headers: { Cookie: user.cookie } });
       expect(response.status).toBe(200);
       categories[who] = categoryListSchema.parse(await response.json());
     }
-  } catch (cause) { await removeTestData(db, { usernames, addresses }); await app.close(); throw cause; }
+  } catch (cause) { await removeTestData(db, { emails, addresses }); await app.close(); throw cause; }
   const userIds = [owner.user.id, other.user.id];
   const limitKeys = userIds.flatMap((id) => [`wrapper:recipe-write:user:${id}`, `wrapper:recipe-favorite:user:${id}`, `wrapper:category-write:user:${id}`]);
   const categoryIds = (names: DefaultCategoryName[], who: 'owner' | 'other' = 'owner'): string[] => names.map((name) => {
@@ -174,10 +174,10 @@ export async function openRecipeSuite() {
       if (await stored(key)) throw new Error('Disposable storage cleanup verification failed.');
     });
     await stage(() => db.delete(authRateLimits).where(inArray(authRateLimits.key, limitKeys)));
-    await stage(() => removeTestData(db, { usernames, addresses }));
+    await stage(() => removeTestData(db, { emails, addresses }));
     await stage(() => db.delete(ingredients).where(like(sql`lower(${ingredients.name})`, `${name}%`)));
     await stage(async () => {
-      expect(await db.$count(users, inArray(users.username, usernames))).toBe(0);
+      expect(await db.$count(users, inArray(users.email, emails))).toBe(0);
       expect(await db.$count(recipes, inArray(recipes.userId, userIds))).toBe(0);
       expect(await db.$count(recipeWriteAttempts, inArray(recipeWriteAttempts.userId, userIds))).toBe(0);
       expect(await db.$count(favorites, inArray(favorites.userId, userIds))).toBe(0);

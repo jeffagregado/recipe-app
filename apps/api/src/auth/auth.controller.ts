@@ -30,7 +30,7 @@ export class AuthController {
   async login(@Body() body: unknown, @Req() request: AuthRequest, @Res({ passthrough: true }) response: ServerResponse) {
     const input = validateAuth(loginSchema, body);
     await this.limiter.consume(rateLimitKey('login:address', clientAddress(request)), { limit: 50, windowMs: 900_000 });
-    await this.limiter.consume(rateLimitKey('login:username', input.username), { limit: 10, windowMs: 900_000 });
+    await this.limiter.consume(rateLimitKey('login:email', input.email), { limit: 10, windowMs: 900_000 });
     const result = await this.auth.login(input, request);
     response.setHeader('Set-Cookie', result.cookie);
     return { user: result.user };

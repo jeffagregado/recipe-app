@@ -18,7 +18,7 @@ describe('Native auth HTTP boundary', () => {
     try {
       await app.listen(0, '127.0.0.1');
       const url = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
-      for (const [path, method] of [['/api/auth/sign-in/username', 'OPTIONS'], ['/api/auth/ok', 'HEAD'], ['/api/auth/ok', 'POST'], ['/api/auth/get-session', 'GET']] as const) {
+      for (const [path, method] of [['/api/auth/sign-in/email', 'OPTIONS'], ['/api/auth/ok', 'HEAD'], ['/api/auth/ok', 'POST'], ['/api/auth/get-session', 'GET']] as const) {
         const response = await fetch(`${url}${path}`, { method, headers: { Origin: 'http://localhost:3000', 'Access-Control-Request-Method': 'POST' } });
         expect(response.status).toBe(404);
         expect(response.headers.getSetCookie()).toEqual([]);

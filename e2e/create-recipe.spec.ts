@@ -47,7 +47,7 @@ test.describe('navigation', () => {
       const page = await anonymous.newPage();
       await page.goto(`${WEB_URL}/recipes/create`);
       await expect(page).toHaveURL(`${WEB_URL}/`);
-      await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+      await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
     } finally { await anonymous.close(); }
   });
 });

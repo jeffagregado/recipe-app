@@ -187,7 +187,7 @@ describe('Categories HTTP', () => {
     expect((await put(rows(await read(s.other.cookie)), { cookie: s.other.cookie })).status).toBe(200);
     // Categories belong to their owner: no row survives the account.
     const id = `verify-category-owner-${randomUUID()}`;
-    await s.db.insert(users).values({ id, name: 'Temporary verification', email: `${id}@accounts.invalid`, createdAt: new Date(), updatedAt: new Date() });
+    await s.db.insert(users).values({ id, name: 'Temporary verification', email: `${id}@example.invalid`, createdAt: new Date(), updatedAt: new Date() });
     await s.db.insert(categories).values({ userId: id, name: 'Soup', sortOrder: 0 });
     await s.db.delete(users).where(eq(users.id, id));
     expect(await s.db.$count(categories, eq(categories.userId, id))).toBe(0);

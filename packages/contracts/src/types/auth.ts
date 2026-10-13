@@ -1,26 +1,24 @@
 import type { EntityId, ISODateString } from "./common.js";
 
-export const USERNAME_MIN_LENGTH = 3;
-export const USERNAME_MAX_LENGTH = 30;
+export const EMAIL_MAX_LENGTH = 254;
 export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 128;
 export const DISPLAY_NAME_MAX_LENGTH = 100;
 
-/** Public identity. Internal email, account records and session tokens never appear here. */
+/** Public identity. Email, account records and session tokens never appear here. */
 export type AuthUser = {
   id: EntityId;
   displayName: string;
-  username: string;
 };
 
 export type SignupInput = {
   displayName: string;
-  username: string;
+  email: string;
   password: string;
 };
 
 export type LoginInput = {
-  username: string;
+  email: string;
   password: string;
 };
 
@@ -38,7 +36,7 @@ export const AUTH_ERROR_CODES = [
   "INVALID_CREDENTIALS",
   "UNAUTHENTICATED",
   "ORIGIN_REJECTED",
-  "USERNAME_UNAVAILABLE",
+  "EMAIL_ALREADY_EXISTS",
   "PAYLOAD_TOO_LARGE",
   "RATE_LIMITED",
   "SERVICE_UNAVAILABLE",

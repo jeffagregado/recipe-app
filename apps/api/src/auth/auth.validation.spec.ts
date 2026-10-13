@@ -2,8 +2,8 @@ import { loginSchema, signupSchema } from '@recipe-app/contracts/schemas';
 import { describe, expect, it } from 'vitest';
 import { validateAuth } from './auth.validation.js';
 
-const signup = { displayName: 'Unit User', username: 'unit_user', password: 'unit-password-123' };
-const login = { username: 'unit_user', password: 'unit-password-123' };
+const signup = { displayName: 'Unit User', email: 'unit@example.invalid', password: 'unit-password-123' };
+const login = { email: 'unit@example.invalid', password: 'unit-password-123' };
 
 function failure(schema: Parameters<typeof validateAuth>[0], body: unknown) {
   try { validateAuth(schema, body); } catch (error) { return error as { getStatus(): number; getResponse(): { code: string; fieldErrors?: Record<string, string[]> } }; }
@@ -30,8 +30,8 @@ describe('validateAuth', () => {
   });
 
   it('reports ordinary field errors and unknown keys together', () => {
-    const error = failure(loginSchema, { username: '', password: 'x', extra: true });
+    const error = failure(loginSchema, { email: '', password: 'x', extra: true });
     expect(error.getResponse().fieldErrors).toMatchObject({ extra: ['Unexpected field.'] });
-    expect(Object.keys(error.getResponse().fieldErrors ?? {})).toContain('username');
+    expect(Object.keys(error.getResponse().fieldErrors ?? {})).toContain('email');
   });
 });

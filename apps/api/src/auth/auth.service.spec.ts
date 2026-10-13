@@ -50,14 +50,14 @@ describe('Auth dependency failure boundaries', () => {
     const { service, request, signUpEmail, findUser } = harness();
     signUpEmail.mockRejectedValue(new APIError('UNPROCESSABLE_ENTITY', { code: 'FAILED_TO_CREATE_USER', message: 'Creation failed' }));
     findUser.mockResolvedValue(exists ? { id: 'unit-user' } : undefined);
-    await expect(service.signup({ displayName: 'Unit User', username: 'unit_user', password: 'unit-password-123' }, request))
+    await expect(service.signup({ displayName: 'Unit User', email: 'unit@example.invalid', password: 'unit-password-123' }, request))
       .rejects.toMatchObject({ status: exists ? 409 : 503 });
   });
 });
 
 describe('Auth failure logging', () => {
   const cookie = 'secret-cookie-value-123';
-  const username = 'logged_username';
+  const email = 'logged@example.invalid';
 
   function captureLogs() {
     const lines: string[] = [];
@@ -65,7 +65,7 @@ describe('Auth failure logging', () => {
     return { lines, restore: () => spy.mockRestore() };
   }
 
-  const leaky = () => Object.assign(new Error(`insert ${username} ${cookie}`), { code: '08006' });
+  const leaky = () => Object.assign(new Error(`insert ${email} ${cookie}`), { code: '08006' });
 
   it('logs the guard storage failure with a session-guard label and no sensitive text', async () => {
     const { service, request, getSession } = harness();
@@ -79,7 +79,7 @@ describe('Auth failure logging', () => {
       expect(logs.lines[0]).toContain('Error');
       expect(logs.lines[0]).toContain('08006');
       expect(logs.lines[0]).not.toContain(cookie);
-      expect(logs.lines[0]).not.toContain(username);
+      expect(logs.lines[0]).not.toContain(email);
     } finally { logs.restore(); }
   });
 
@@ -93,7 +93,7 @@ describe('Auth failure logging', () => {
       expect(logs.lines).toHaveLength(1);
       expect(logs.lines[0]).toContain('logout-confirm');
       expect(logs.lines[0]).not.toContain(cookie);
-      expect(logs.lines[0]).not.toContain(username);
+      expect(logs.lines[0]).not.toContain(email);
     } finally { logs.restore(); }
   });
 });

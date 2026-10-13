@@ -12,7 +12,7 @@ function validationFailure(error: ZodError): AuthFailure {
 	const fieldErrors: Record<string, string[]> = {}
 	for (const issue of error.issues) {
 		const field = issue.path[0]
-		if (typeof field === 'string' && ['displayName', 'username', 'password'].includes(field)) (fieldErrors[field] ??= []).push(issue.message)
+		if (typeof field === 'string' && ['displayName', 'email', 'password'].includes(field)) (fieldErrors[field] ??= []).push(issue.message)
 	}
 	return { ok: false, code: 'VALIDATION_FAILED', message: 'Check your details and try again.', fieldErrors }
 }

@@ -24,8 +24,8 @@ type WorkerData = {
   address: string;
   owner: TestAccount;
   other: TestAccount;
-  usernames: string[];
-  newUsername: () => string;
+  emails: string[];
+  newEmail: () => string;
   newPassword: () => string;
   /** A fresh, empty account signed up from its own client address, so the five-per-hour signup limit is never shared. */
   signupFreshAccount: () => Promise<TestAccount>;
@@ -48,10 +48,10 @@ async function addSession(context: BrowserContext, cookie: string) {
  * Deletes the stored photos of every recipe and write attempt owned by the temporary users, then the users themselves
  * (cascading recipes, attempts and sessions). Only counts are reported: object keys never leave the helper.
  */
-async function removeWorkerData(db: DrizzleDb, usernames: string[], addresses: string[]) {
+async function removeWorkerData(db: DrizzleDb, emails: string[], addresses: string[]) {
   const { removeTestData } = await loadAuthHarness();
   const { openStorageCleanup: open } = await loadStorageCleanup();
-  const ids = usernames.length ? (await db.select({ id: schema.users.id }).from(schema.users).where(inArray(schema.users.username, usernames))).map(({ id }) => id) : [];
+  const ids = emails.length ? (await db.select({ id: schema.users.id }).from(schema.users).where(inArray(schema.users.email, emails))).map(({ id }) => id) : [];
   const cleanup: Awaited<ReturnType<typeof openStorageCleanup>> = await open(resolve('apps/api/.env'));
   let objects = { found: 0, deleted: 0, failed: 0, remaining: 0 };
   try {
@@ -71,7 +71,7 @@ async function removeWorkerData(db: DrizzleDb, usernames: string[], addresses: s
   };
   const { recipes } = await ownedRows();
   if (ids.length) await db.delete(schema.authRateLimits).where(inArray(schema.authRateLimits.key, ids.flatMap((id) => [`wrapper:recipe-write:user:${id}`, `wrapper:recipe-favorite:user:${id}`])));
-  await removeTestData(db, { usernames, addresses });
+  await removeTestData(db, { emails, addresses });
   const rows = Object.values(await ownedRows()).reduce((total, n) => total + n, 0);
   console.log(`E2E cleanup: users=${ids.length} recipes=${recipes} objects(found=${objects.found} deleted=${objects.deleted} failed=${objects.failed} remaining=${objects.remaining}) rows-remaining=${rows}`);
   if (objects.failed || objects.remaining || rows) throw new Error('Temporary E2E data was not fully removed.');
@@ -79,7 +79,7 @@ async function removeWorkerData(db: DrizzleDb, usernames: string[], addresses: s
 
 export const authTest = base.extend<Record<never, never>, { workerData: WorkerData }>({
   workerData: [async ({}, use) => {
-    const { apiClient, signupUser, insertOwnedRecipes, testAddress, testUsername, testPassword } = await loadAuthHarness();
+    const { apiClient, signupUser, insertOwnedRecipes, testAddress, testEmail, testPassword } = await loadAuthHarness();
     let connection: string;
     try { connection = await getDevDatabaseUrl(); } catch { throw new Error('Could not resolve the approved Neon dev target for E2E.'); }
     const pool = new pg.Pool({ connectionString: connection, ssl: { rejectUnauthorized: true }, max: 2, connectionTimeoutMillis: 10_000 });
@@ -87,8 +87,8 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
     const address = testAddress();
     const addresses = [address];
     const client = apiClient(API_URL, address, WEB_URL);
-    const usernames: string[] = [];
-    const newUsername = () => { const username = testUsername(); usernames.push(username); return username; };
+    const emails: string[] = [];
+    const newEmail = () => { const email = testEmail(); emails.push(email); return email; };
     let storage: Awaited<ReturnType<typeof openStorageCleanup>> | undefined;
     const countStoredObjects = async (keys: string[]) => {
       storage ??= await (await loadStorageCleanup()).openStorageCleanup(resolve('apps/api/.env'));
@@ -97,16 +97,16 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
     const signupFreshAccount = async () => {
       const freshAddress = testAddress();
       addresses.push(freshAddress);
-      return { ...await signupUser(apiClient(API_URL, freshAddress, WEB_URL), newUsername()), tag: `e2e-${randomUUID()}` };
+      return { ...await signupUser(apiClient(API_URL, freshAddress, WEB_URL), newEmail()), tag: `e2e-${randomUUID()}` };
     };
     try {
-      const owner = { ...await signupUser(client, newUsername()), tag: `e2e-${randomUUID()}` };
+      const owner = { ...await signupUser(client, newEmail()), tag: `e2e-${randomUUID()}` };
       await insertOwnedRecipes(db, owner.user, owner.tag);
-      const other = { ...await signupUser(client, newUsername()), tag: `e2e-${randomUUID()}` };
+      const other = { ...await signupUser(client, newEmail()), tag: `e2e-${randomUUID()}` };
       await insertOwnedRecipes(db, other.user, other.tag, seedRecipes.slice(0, 25).map((recipe) => ({ ...recipe, title: `Other kitchen: ${recipe.title}` })));
-      await use({ db, client, address, owner, other, usernames, newUsername, newPassword: testPassword, signupFreshAccount, countStoredObjects });
+      await use({ db, client, address, owner, other, emails, newEmail, newPassword: testPassword, signupFreshAccount, countStoredObjects });
     } finally {
-      try { await storage?.close(); await removeWorkerData(db, usernames, addresses); }
+      try { await storage?.close(); await removeWorkerData(db, emails, addresses); }
       catch { throw new Error('Temporary E2E user/counter/storage cleanup failed on the approved dev database.'); }
       finally { await pool.end(); }
     }
