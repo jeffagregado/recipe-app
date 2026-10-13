@@ -38,6 +38,7 @@
     "drizzle-orm": "0.45.3",
     "pg": "8.23.1",
     "reflect-metadata": "^0.2.2",
+    "resend": "6.32.1",
     "rxjs": "^7.8.2",
     "sharp": "0.35.5",
     "zod": "^4.6.5"

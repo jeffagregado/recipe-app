@@ -10,6 +10,7 @@ import { validateEnvironment } from './config/environment.js';
 import { DatabaseModule } from './database/database.module.js';
 import { StorageModule } from './storage/storage.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { MailModule } from './mail/mail.module.js';
 import { recipeResiliencePresets } from './recipes/recipes.resilience.js';
 import { authResiliencePresets } from './auth/auth.resilience.js';
 
@@ -24,6 +25,7 @@ import { authResiliencePresets } from './auth/auth.resilience.js';
     ResilienceModule.forRoot({ presets: { ...recipeResiliencePresets, ...authResiliencePresets } }),
     DatabaseModule,
     StorageModule,
+    MailModule,
     AuthModule,
     RecipesModule,
     CategoriesModule,

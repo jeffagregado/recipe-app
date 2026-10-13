@@ -1,0 +1,23 @@
+import type { Type } from '@nestjs/common';
+import type { NestApplicationOptions } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { Test } from '@nestjs/testing';
+import { MAIL_TRANSPORT } from '../src/mail/mail.transport.js';
+import type { MailMessage, MailTransport } from '../src/mail/mail.transport.js';
+
+/** Keeps every message in send order and delivers none. */
+export class RecordingMailTransport implements MailTransport {
+  readonly messages: MailMessage[] = [];
+
+  send(message: MailMessage): Promise<void> {
+    this.messages.push(message);
+    return Promise.resolve();
+  }
+}
+
+/** Builds the application with its mail transport replaced, so a suite never reaches Resend even when the env file holds a key. */
+export async function createAppWithRecordedMail(module: Type<unknown>, options: NestApplicationOptions): Promise<{ app: NestExpressApplication; mail: RecordingMailTransport }> {
+  const mail = new RecordingMailTransport();
+  const compiled = await Test.createTestingModule({ imports: [module] }).overrideProvider(MAIL_TRANSPORT).useValue(mail).compile();
+  return { app: compiled.createNestApplication<NestExpressApplication>(options), mail };
+}
