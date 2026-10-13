@@ -1,8 +1,8 @@
 import type { Locator, Page } from '@playwright/test';
 import { addSession, creatorTest as test, expect, WEB_URL } from './fixtures.js';
-import { noOverflow, toast, waitHydrated, watchConsole } from './create-recipe-helpers.js';
+import { logIn, logOut, noOverflow, toast, waitHydrated, watchConsole } from './create-recipe-helpers.js';
 
-// Settings: the page shell and its cards, Display name (#49) and Password (#50).
+// Settings: the page shell and its cards, Display name (#49), Email (#51) and Password (#50).
 const card = (page: Page) => page.getByRole('region', { name: 'Display name', exact: true });
 const nameInput = (page: Page) => card(page).getByRole('textbox', { name: 'Display name', exact: true });
 const save = (page: Page) => card(page).getByRole('button', { name: 'Save name', exact: true });
@@ -10,6 +10,13 @@ const passwordCard = (page: Page) => page.getByRole('region', { name: 'Password'
 const currentPassword = (page: Page) => passwordCard(page).getByLabel('Current password', { exact: true });
 const newPassword = (page: Page) => passwordCard(page).getByLabel('New password', { exact: true });
 const changePassword = (page: Page) => passwordCard(page).getByRole('button', { name: 'Change password', exact: true });
+const emailCard = (page: Page) => page.getByRole('region', { name: 'Email', exact: true });
+const currentEmail = (page: Page) => emailCard(page).getByLabel('Current email', { exact: true });
+const newEmail = (page: Page) => emailCard(page).getByLabel('New email', { exact: true });
+const emailPassword = (page: Page) => emailCard(page).getByLabel('Current password', { exact: true });
+const sendLink = (page: Page) => emailCard(page).getByRole('button', { name: 'Send verification link', exact: true });
+/** The pending-change banner. Toasts are statuses too, but they sit outside the card. */
+const pendingBanner = (page: Page) => emailCard(page).getByRole('status');
 const sidebar = (page: Page) => page.getByRole('complementary');
 const mainNav = (page: Page) => page.getByRole('navigation', { name: 'Main', exact: true });
 const box = async (locator: Locator) => (await locator.boundingBox())!;
@@ -103,6 +110,94 @@ test('password journey: changing the password keeps this browser signed in and s
   } finally { await elsewhere.close(); }
 });
 
+test('email journey: a link to the new address is confirmed with one button, Settings shows the new email and it signs in', async ({ page, context, creator, workerData }) => {
+  const sessionStatus = async () => (await context.request.get('/backend/auth/session')).status();
+  const address = workerData.newEmail();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openSettings(page);
+  await expect(currentEmail(page)).toHaveValue(creator.email);
+  await expect(emailCard(page).getByText('Verified', { exact: true })).toBeVisible();
+  await expect(pendingBanner(page)).toHaveCount(0);
+  await expect(sendLink(page)).toBeDisabled();
+
+  await newEmail(page).fill(address);
+  await emailPassword(page).fill(creator.password);
+  // Sent from the keyboard: Enter in the last field.
+  await emailPassword(page).press('Enter');
+  const sent = toast.success(page, 'Verification link sent');
+  await expect(sent).toBeVisible();
+  await toast.dismiss(sent).click();
+  // The banner names the new address; the Account still has its old one and the form is empty again.
+  await expect(pendingBanner(page)).toContainText(`We sent a link to ${address}. Your email changes once you open it.`);
+  await expect(currentEmail(page)).toHaveValue(creator.email);
+  await expect(newEmail(page)).toHaveValue('');
+  await expect(emailPassword(page)).toHaveValue('');
+
+  // Counts only: a failed assertion must not print a link.
+  const tokens = await workerData.emailChangeTokens(creator.email);
+  expect(tokens.length).toBe(1);
+  await page.goto(`/confirm-email-change?token=${tokens[0]}`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Confirm your new email' })).toBeVisible();
+  expect(await page.locator('meta[name="referrer"]').getAttribute('content')).toBe('no-referrer');
+  // Opening the page used nothing up: the link is still stored, as it would be after a mail scanner opened it.
+  expect((await workerData.emailChangeTokens(creator.email)).length).toBe(1);
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await noOverflow(page)).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  const confirm = page.getByRole('button', { name: 'Confirm email change', exact: true });
+  await waitHydrated(confirm);
+  await confirm.click();
+  // Signed in as the Account, so the person returns to Settings, still signed in, with the new address in place.
+  await expect(page).toHaveURL(`${WEB_URL}/settings`);
+  await expect(toast.success(page, 'Email changed')).toBeVisible();
+  await expect(currentEmail(page)).toHaveValue(address);
+  await expect(pendingBanner(page)).toHaveCount(0);
+  expect(await sessionStatus()).toBe(200);
+  expect((await workerData.emailChangeTokens(address)).length).toBe(0);
+
+  // The link works once: pressing its button again shows the expired state with the way back to Settings.
+  await page.goto(`/confirm-email-change?token=${tokens[0]}`);
+  await waitHydrated(confirm);
+  await confirm.click();
+  await expect(page.getByText('This link has expired or was already used.', { exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Back to Settings', exact: true }).click();
+  await expect(page).toHaveURL(`${WEB_URL}/settings`);
+  await expect(currentEmail(page)).toHaveValue(address);
+
+  // The old address is no longer an Account; the new one signs in with the same password.
+  await logOut(page);
+  await page.getByLabel('Email', { exact: true }).fill(creator.email);
+  await page.getByLabel('Password', { exact: true }).fill(creator.password);
+  await page.getByRole('button', { name: 'Log in', exact: true }).click();
+  await expect(page.locator('form').getByRole('alert')).toHaveText('Invalid email or password');
+  await logIn(page, { email: address, password: creator.password });
+  await page.goto('/settings');
+  await expect(currentEmail(page)).toHaveValue(address);
+});
+
+test('at 320px a pending change shows its banner inside the card, and Cancel removes it', async ({ page, creator, workerData }) => {
+  const address = workerData.newEmail();
+  const started = await workerData.client.post('/account/email-change', { newEmail: address, currentPassword: creator.password }, { cookie: creator.cookie });
+  expect(started.status).toBe(200);
+  await page.setViewportSize({ width: 320, height: 844 });
+  await openSettings(page);
+  await expect(pendingBanner(page)).toContainText(`We sent a link to ${address}. Your email changes once you open it.`);
+  expect(await noOverflow(page)).toBe(true);
+  const [cardBox, bannerBox] = [await box(emailCard(page)), await box(pendingBanner(page))];
+  expect(bannerBox.x).toBeGreaterThanOrEqual(cardBox.x);
+  expect(bannerBox.x + bannerBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+  const cancel = pendingBanner(page).getByRole('button', { name: 'Cancel', exact: true });
+  for (const control of [pendingBanner(page).getByRole('button', { name: 'Resend', exact: true }), cancel]) expect((await box(control)).height).toBeGreaterThanOrEqual(44);
+
+  await cancel.click();
+  await expect(toast.success(page, 'Email change cancelled')).toBeVisible();
+  await expect(pendingBanner(page)).toHaveCount(0);
+  await expect(currentEmail(page)).toHaveValue(creator.email);
+  expect((await workerData.emailChangeTokens(creator.email)).length).toBe(0);
+  expect(await noOverflow(page)).toBe(true);
+});
+
 for (const width of [320, 390, 768]) {
   test(`at ${width}px the page fits, Settings is the current tab and the card saves above the tab bar`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
@@ -115,9 +210,15 @@ for (const width of [320, 390, 768]) {
     expect(cardBox.x).toBeGreaterThanOrEqual(0);
     expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(width);
     for (const control of [inputBox, saveBox]) expect(control.height).toBeGreaterThanOrEqual(44);
-    // The Password card stacks below with the same width and the same 44px controls.
+    // The Email card stacks below with the same width and the same 44px controls, and the Password card below that.
+    const emailBox = await box(emailCard(page));
+    expect(emailBox.y).toBeGreaterThanOrEqual(cardBox.y + cardBox.height);
+    expect(emailBox.x).toBe(cardBox.x);
+    expect(emailBox.width).toBe(cardBox.width);
+    for (const control of [currentEmail(page), newEmail(page), emailPassword(page), sendLink(page)]) expect((await box(control)).height).toBeGreaterThanOrEqual(44);
+    await expect(sendLink(page)).toBeDisabled();
     const passwordBox = await box(passwordCard(page));
-    expect(passwordBox.y).toBeGreaterThanOrEqual(cardBox.y + cardBox.height);
+    expect(passwordBox.y).toBeGreaterThanOrEqual(emailBox.y + emailBox.height);
     expect(passwordBox.x).toBe(cardBox.x);
     expect(passwordBox.width).toBe(cardBox.width);
     await expect(passwordCard(page).getByText('Changing it signs out your other devices.', { exact: true })).toBeVisible();
