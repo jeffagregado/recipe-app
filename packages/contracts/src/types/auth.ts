@@ -21,6 +21,13 @@ export type AuthUser = {
   pendingEmail: string | null;
   /** Whether a password is one of the Account's Sign-in methods. */
   hasPassword: boolean;
+  /** The Google identity attached as a Sign-in method, or null when none is. */
+  google: GoogleSignIn | null;
+};
+
+/** Google's address for the identity. Null for one attached before the address was kept, until its next Google sign-in. */
+export type GoogleSignIn = {
+  email: string | null;
 };
 
 export type SignupInput = {
@@ -63,6 +70,11 @@ export type GoogleStartResponse = {
   url: string;
 };
 
+/** Answered when the callback attached a Google identity to the signed-in Account. A sign-in answers a session cookie and no body. */
+export type GoogleCallbackResponse = {
+  connected: true;
+};
+
 /** Signup creates no session: the Account signs in only after its email is verified. */
 export type SignupResponse = {
   verificationRequired: true;
@@ -93,6 +105,9 @@ export const AUTH_ERROR_CODES = [
   "EMAIL_CHANGE_NOT_PENDING",
   "GOOGLE_EMAIL_NOT_VERIFIED",
   "GOOGLE_SIGN_IN_FAILED",
+  "GOOGLE_ALREADY_LINKED",
+  "GOOGLE_CONNECT_FAILED",
+  "GOOGLE_CONNECT_EMAIL_NOT_VERIFIED",
   "PAYLOAD_TOO_LARGE",
   "RATE_LIMITED",
   "SERVICE_UNAVAILABLE",

@@ -12,6 +12,7 @@ import type { GoogleEndpoints } from './auth.google.js';
 import { logAuthEvent } from './auth.logger.js';
 
 const SESSION_LIFETIME_SECONDS = 60 * 60 * 24 * 7;
+const NO_TOKENS = { accessToken: null, refreshToken: null, idToken: null, accessTokenExpiresAt: null, refreshTokenExpiresAt: null, scope: null };
 
 type Transaction = Parameters<Parameters<DrizzleDb['transaction']>[0]>[0];
 type Transact = DrizzleDb['transaction'];
@@ -52,11 +53,11 @@ export function createAuth(db: DrizzleDb, config: AuthConfig, endpoints: GoogleE
               await insertDefaultCategories(tx, account.userId);
             }
             // Google's tokens are spent once the profile is read; only the identity is kept.
-            if (account.providerId === GOOGLE_PROVIDER_ID) {
-              return { data: { ...account, accessToken: null, refreshToken: null, idToken: null, accessTokenExpiresAt: null, refreshTokenExpiresAt: null, scope: null } };
-            }
+            if (account.providerId === GOOGLE_PROVIDER_ID) return { data: { ...account, ...NO_TOKENS } };
           },
         },
+        // Connecting an identity the Account already holds updates its record; that write keeps no token either.
+        update: { before: async (account) => (account.providerId === GOOGLE_PROVIDER_ID ? { data: { ...account, ...NO_TOKENS } } : undefined) },
       },
     },
     trustedOrigins: config.AUTH_TRUSTED_ORIGINS,
@@ -75,9 +76,12 @@ export function createAuth(db: DrizzleDb, config: AuthConfig, endpoints: GoogleE
     // that Account's own email is Verified; over an unverified one Better Auth refuses before it writes anything, so the
     // sign-in can neither join the Account nor verify it. No provider is trusted by name: Google's word that it verified
     // the address is required on every sign-in. The Account's name and email are never overwritten from Google.
+    // `allowDifferentEmails` is not a sign-in rule: Better Auth 1.7.7 reads it only when a flow was started as a link for a
+    // signed-in Account (`linkOAuthAccount`), which here is the Settings connect wrapper alone. A sign-in still matches an
+    // Account by its Verified email and nothing else.
     account: {
       modelName: 'authAccounts',
-      accountLinking: { enabled: true, requireLocalEmailVerified: true, trustedProviders: [], allowDifferentEmails: false, updateUserInfoOnLink: false },
+      accountLinking: { enabled: true, requireLocalEmailVerified: true, trustedProviders: [], allowDifferentEmails: true, updateUserInfoOnLink: false },
       updateAccountOnSignIn: false,
     },
     // Without a client the provider is absent, and starting the flow fails like any other refused sign-in.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cancelEmailChangeSchema, changeEmailSchema, changePasswordSchema, confirmEmailChangeResponseSchema, confirmEmailChangeSchema, requestSetPasswordSchema, resendEmailChangeSchema, updateDisplayNameSchema } from "./account.schema.js";
+import { cancelEmailChangeSchema, changeEmailSchema, changePasswordSchema, confirmEmailChangeResponseSchema, confirmEmailChangeSchema, disconnectGoogleSchema, requestSetPasswordSchema, resendEmailChangeSchema, updateDisplayNameSchema } from "./account.schema.js";
 
 describe("update display name", () => {
   it("accepts exactly a display name and trims it", () => {
@@ -157,6 +157,15 @@ describe.each([
     expect(schema.parse({})).toEqual({});
     for (const body of [{ newEmail: "ana.new@example.invalid" }, { userId: "user-1" }, undefined, null, []]) {
       expect(schema.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
+  });
+});
+
+describe("disconnect Google", () => {
+  it("takes no input: the API removes the signed-in Account's own Google identity", () => {
+    expect(disconnectGoogleSchema.parse({})).toEqual({});
+    for (const body of [{ accountId: "1" }, { userId: "user-1" }, undefined, null, []]) {
+      expect(disconnectGoogleSchema.safeParse(body).success, JSON.stringify(body)).toBe(false);
     }
   });
 });

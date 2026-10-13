@@ -3,7 +3,7 @@ import { NOTICE_MESSAGES, noticeIsError, noticeMessage, urlWithoutNotice, withNo
 
 describe('noticeMessage', () => {
 	it('maps every known code to its toast text', () => {
-		expect(NOTICE_MESSAGES).toEqual({ 'recipe-saved': 'Recipe saved', 'recipe-updated': 'Recipe updated', 'recipe-deleted': 'Recipe deleted', 'email-verified': 'Email verified. Log in to continue.', 'password-reset': 'Password updated. Log in with your new password.', 'email-changed': 'Email changed', 'email-changed-login': 'Email changed. Log in with your new email.', 'google-sign-in-failed': 'Google sign-in did not complete. Try again.', 'google-email-not-verified': 'Google has not verified this email address. Verify it with Google, or sign up with a password.', 'google-account-not-verified': 'This email has an account that is not verified yet. Use "Forgot password?" to set a new password, which verifies it, then sign in with Google again.' })
+		expect(NOTICE_MESSAGES).toEqual({ 'recipe-saved': 'Recipe saved', 'recipe-updated': 'Recipe updated', 'recipe-deleted': 'Recipe deleted', 'email-verified': 'Email verified. Log in to continue.', 'password-reset': 'Password updated. Log in with your new password.', 'email-changed': 'Email changed', 'email-changed-login': 'Email changed. Log in with your new email.', 'google-sign-in-failed': 'Google sign-in did not complete. Try again.', 'google-email-not-verified': 'Google has not verified this email address. Verify it with Google, or sign up with a password.', 'google-account-not-verified': 'This email has an account that is not verified yet. Use "Forgot password?" to set a new password, which verifies it, then sign in with Google again.', 'google-connected': 'Google connected', 'google-connect-failed': 'Google was not connected. Try again.', 'google-already-linked': 'That Google account is already connected to another account.', 'google-connect-email-not-verified': 'Google has not verified that email address. Verify it with Google, then connect again.' })
 		expect(noticeMessage('recipe-saved')).toBe('Recipe saved')
 	})
 
@@ -13,7 +13,7 @@ describe('noticeMessage', () => {
 })
 
 describe('noticeIsError', () => {
-	it.each([['google-sign-in-failed', true], ['google-email-not-verified', true], ['google-account-not-verified', true], ['email-verified', false], ['recipe-saved', false], ['unknown', false], [null, false]])('answers %j with %j', (code, expected) => {
+	it.each([['google-sign-in-failed', true], ['google-email-not-verified', true], ['google-account-not-verified', true], ['google-connect-failed', true], ['google-already-linked', true], ['google-connect-email-not-verified', true], ['google-connected', false], ['email-verified', false], ['recipe-saved', false], ['unknown', false], [null, false]])('answers %j with %j', (code, expected) => {
 		expect(noticeIsError(code)).toBe(expected)
 	})
 })

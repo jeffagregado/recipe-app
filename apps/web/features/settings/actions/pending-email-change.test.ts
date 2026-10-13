@@ -11,7 +11,7 @@ vi.mock('next/cache', () => cache)
 import { cancelEmailChange, resendEmailChange } from './pending-email-change'
 
 const fetchMock = vi.fn<typeof fetch>()
-const user = { id: 'user-1', displayName: 'Ana', email: 'ana@example.com', pendingEmail: null, hasPassword: true }
+const user = { id: 'user-1', displayName: 'Ana', email: 'ana@example.com', pendingEmail: null, hasPassword: true, google: null }
 const SESSION_EXPIRED = 'Your session has expired. Sign in again in another tab, then come back here and try again.'
 const UNVERIFIED = 'This request could not be verified. Refresh the page and try again.'
 

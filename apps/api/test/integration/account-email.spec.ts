@@ -116,7 +116,7 @@ describe('Account email HTTP', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(response.headers.getSetCookie()).toEqual([]);
-    const pending = { id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: newEmail, hasPassword: true };
+    const pending = { id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: newEmail, hasPassword: true, google: null };
     expect(authUserResponseSchema.parse(await response.json())).toEqual({ user: pending });
 
     expect(mail.messages.filter(({ to }) => to === newEmail).map(({ kind }) => kind)).toEqual(['email-change']);
@@ -159,7 +159,7 @@ describe('Account email HTTP', () => {
     }
     expect(changeMailTo(emails.slice(-3)).length).toBe(0);
     expect((await emailChangeTokens(db, owner.email)).length).toBe(0);
-    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true });
+    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
   }, 60_000);
 
   it('refuses an Account without a password with PASSWORD_REQUIRED, whatever password is sent', async () => {
@@ -170,7 +170,7 @@ describe('Account email HTTP', () => {
     expect(error).toEqual({ code: 'PASSWORD_REQUIRED', message: 'Set a password before changing your email.' });
     expect(changeMailTo([newEmail, googleOnly.email]).length).toBe(0);
     expect((await emailChangeTokens(db, googleOnly.email)).length).toBe(0);
-    expect(await sessionOf(client, googleOnly.cookie)).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', email: googleOnly.email, pendingEmail: null, hasPassword: false });
+    expect(await sessionOf(client, googleOnly.cookie)).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', email: googleOnly.email, pendingEmail: null, hasPassword: false, google: { email: googleOnly.email } });
   }, 60_000);
 
   it('rejects the Account\'s own email on the new email field and mails nobody', async () => {
@@ -191,7 +191,7 @@ describe('Account email HTTP', () => {
     const error = await expectError(await changeEmail({ newEmail: other.email.toUpperCase(), currentPassword: owner.password }, { cookie: owner.cookie }), 409, 'EMAIL_ALREADY_EXISTS');
     expect(error).toEqual({ code: 'EMAIL_ALREADY_EXISTS', message: 'Email already exists.' });
     expect(changeMailTo([owner.email, other.email]).length).toBe(0);
-    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true });
+    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
   }, 60_000);
 
   it('requires a session and a trusted origin, and applies the strict schema to the change', async () => {
@@ -221,7 +221,7 @@ describe('Account email HTTP', () => {
     const native = await fetch(`${baseUrl}/api/auth/change-email`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN, Cookie: owner.cookie }, body: JSON.stringify({ newEmail: valid.newEmail }) });
     expect(native.status).toBe(404);
     expect(changeMailTo([valid.newEmail, owner.email]).length).toBe(0);
-    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true });
+    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
   }, 60_000);
 
   it('counts current-password guesses together with the Password card, per Account', async () => {
@@ -318,23 +318,23 @@ describe('Account email HTTP', () => {
     const { owner, newEmail: first, token: firstToken } = await pendingChange(client);
     const second = track();
     const response = await changeEmail({ newEmail: second, currentPassword: owner.password }, { cookie: owner.cookie });
-    expect(authUserResponseSchema.parse(await response.json())).toEqual({ user: { id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: second, hasPassword: true } });
+    expect(authUserResponseSchema.parse(await response.json())).toEqual({ user: { id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: second, hasPassword: true, google: null } });
     const tokens = await emailChangeTokens(db, owner.email);
     expect(tokens.length).toBe(1);
     expect(linksSentTo(second).length).toBe(1);
 
     // The first address's link can no longer move the Account anywhere.
     await expectError(await confirm({ token: firstToken }), 400, 'EMAIL_CHANGE_LINK_INVALID');
-    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: second, hasPassword: true });
+    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: second, hasPassword: true, google: null });
     expect(await confirmed(await confirm({ token: tokens[0] }, { cookie: owner.cookie }))).toEqual({ signedIn: true });
-    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: second, pendingEmail: null, hasPassword: true });
+    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: second, pendingEmail: null, hasPassword: true, google: null });
     expect(await loginStatus(client, first, owner.password)).toBe(401);
   }, 60_000);
 
   it('cancels a pending change: the address clears and its link is retired', async () => {
     const client = newClient();
     const { owner, newEmail, token } = await pendingChange(client);
-    const unchanged = { id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true };
+    const unchanged = { id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null };
 
     const response = await cancel({ cookie: owner.cookie });
     expect(response.status).toBe(200);
@@ -369,7 +369,7 @@ describe('Account email HTTP', () => {
     expect(response.headers.getSetCookie()).toEqual([]);
     expect(await response.json()).toEqual({ signedIn: true });
 
-    const moved = { id: owner.user.id, displayName: 'Temporary verification', email: newEmail, pendingEmail: null, hasPassword: true };
+    const moved = { id: owner.user.id, displayName: 'Temporary verification', email: newEmail, pendingEmail: null, hasPassword: true, google: null };
     expect(await sessionOf(client, owner.cookie)).toEqual(moved);
     expect((await client.get('/auth/session', { cookie: elsewhere })).status).toBe(401);
     expect(await db.$count(authSessions, eq(authSessions.userId, owner.user.id))).toBe(1);
@@ -402,13 +402,13 @@ describe('Account email HTTP', () => {
     expect((await client.get('/auth/session', { cookie: owner.cookie })).status).toBe(401);
     expect(await db.$count(authSessions, eq(authSessions.userId, owner.user.id))).toBe(0);
     expect(await loginStatus(client, newEmail, owner.password)).toBe(200);
-    if (stranger) expect(await sessionOf(client, stranger.cookie)).toEqual({ id: stranger.user.id, displayName: 'Temporary verification', email: stranger.email, pendingEmail: null, hasPassword: true });
+    if (stranger) expect(await sessionOf(client, stranger.cookie)).toEqual({ id: stranger.user.id, displayName: 'Temporary verification', email: stranger.email, pendingEmail: null, hasPassword: true, google: null });
   }, 60_000);
 
   it('refuses an expired and an unknown token alike, and leaves the change waiting for a fresh link', async () => {
     const client = newClient();
     const { owner, newEmail, token } = await pendingChange(client);
-    const pending = { id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: newEmail, hasPassword: true };
+    const pending = { id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: newEmail, hasPassword: true, google: null };
     // One second past its 24 hours.
     await db.update(authVerifications).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(authVerifications.value, owner.user.id));
     const expired = await expectError(await confirm({ token }, { cookie: owner.cookie }), 400, 'EMAIL_CHANGE_LINK_INVALID');
@@ -430,9 +430,9 @@ describe('Account email HTTP', () => {
     const taker = await signupUser(client, db, newEmail);
 
     await expectError(await confirm({ token }, { cookie: owner.cookie }), 400, 'EMAIL_CHANGE_LINK_INVALID');
-    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true });
+    expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
     expect((await emailChangeTokens(db, owner.email)).length).toBe(0);
-    expect(await sessionOf(client, taker.cookie)).toEqual({ id: taker.user.id, displayName: 'Temporary verification', email: newEmail, pendingEmail: null, hasPassword: true });
+    expect(await sessionOf(client, taker.cookie)).toEqual({ id: taker.user.id, displayName: 'Temporary verification', email: newEmail, pendingEmail: null, hasPassword: true, google: null });
     expect(await loginStatus(client, owner.email, owner.password)).toBe(200);
   }, 60_000);
 
@@ -464,7 +464,7 @@ describe('Account email HTTP', () => {
     expect(methods.sort((a, b) => a.providerId.localeCompare(b.providerId))).toEqual([{ providerId: 'credential', accountId: owner.user.id }, { providerId: 'google', accountId: person.sub }]);
     // Google still reports the old address; the identity, not the email, finds the Account.
     const cookie = await googleSignIn(client, person);
-    expect(await sessionOf(client, cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: newEmail, pendingEmail: null, hasPassword: true });
+    expect(await sessionOf(client, cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: newEmail, pendingEmail: null, hasPassword: true, google: { email: person.email } });
     expect(await db.$count(users, eq(users.email, owner.email))).toBe(0);
   }, 60_000);
 
@@ -483,7 +483,7 @@ describe('Account email HTTP', () => {
     const client = newClient();
     const { owner, newEmail, token } = await pendingChange(client);
     const cookie = await secure(client, owner);
-    expect(await sessionOf(client, cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true });
+    expect(await sessionOf(client, cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
     expect((await emailChangeTokens(db, owner.email)).length).toBe(0);
     await expectError(await confirm({ token }), 400, 'EMAIL_CHANGE_LINK_INVALID');
     expect(await db.$count(users, eq(users.email, newEmail))).toBe(0);

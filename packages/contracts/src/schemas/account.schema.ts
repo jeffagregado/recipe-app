@@ -39,3 +39,6 @@ export const confirmEmailChangeResponseSchema: z.ZodType<ConfirmEmailChangeRespo
 // Resending and cancelling take no input: the API acts on the signed-in Account's own pending address.
 export const resendEmailChangeSchema = z.strictObject({});
 export const cancelEmailChangeSchema = z.strictObject({});
+
+// Disconnecting takes no input: the API removes the signed-in Account's own Google identity.
+export const disconnectGoogleSchema = z.strictObject({});

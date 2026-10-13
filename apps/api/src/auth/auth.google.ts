@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { APIError } from 'better-auth/api';
 import { genericOAuth } from 'better-auth/plugins/generic-oauth';
 import { z } from 'zod';
@@ -8,6 +9,9 @@ export const GOOGLE_PROVIDER_ID = 'google';
 
 /** Raised inside the exchange and read back by the wrapper, so an unproven address is told apart from every other failure. */
 export const GOOGLE_EMAIL_NOT_VERIFIED = 'GOOGLE_EMAIL_NOT_VERIFIED';
+
+/** The verified identity one callback read from Google, handed from the profile read below to the wrapper that ran the exchange. */
+export const googleExchange = new AsyncLocalStorage<{ identity?: { sub: string; email: string } }>();
 
 export type GoogleEndpoints = { authorizationUrl: string; tokenUrl: string; userInfoUrl: string };
 
@@ -67,6 +71,8 @@ export function googleSignIn(client: GoogleClient, endpoints: GoogleEndpoints) {
           throw new APIError('FORBIDDEN', { code: GOOGLE_EMAIL_NOT_VERIFIED, message: 'Google has not verified this email address.' });
         }
         const { sub, email } = profile.data;
+        const exchange = googleExchange.getStore();
+        if (exchange) exchange.identity = { sub, email };
         return { id: sub, sub, email, emailVerified: true, name: googleDisplayName(profile.data.name, email) };
       },
     }],

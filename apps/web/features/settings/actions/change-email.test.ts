@@ -12,7 +12,7 @@ import { changeEmail } from './change-email'
 
 const fetchMock = vi.fn<typeof fetch>()
 const input = { newEmail: ' Ana.New@Example.com ', currentPassword: ' old password ' }
-const user = { id: 'user-1', displayName: 'Ana', email: 'ana@example.com', pendingEmail: 'ana.new@example.com', hasPassword: true }
+const user = { id: 'user-1', displayName: 'Ana', email: 'ana@example.com', pendingEmail: 'ana.new@example.com', hasPassword: true, google: null }
 const rejection = (status: number, code: string, fieldErrors?: Record<string, readonly string[]>) => new Response(JSON.stringify({ code, message: 'SELECT secrets', ...(fieldErrors ? { fieldErrors } : {}) }), { status })
 
 beforeEach(() => {
