@@ -173,12 +173,13 @@ describe("Google sign-in", () => {
 });
 
 describe("public auth responses", () => {
-  const user = { id: "user-1", displayName: "Ana", hasPassword: true };
+  const user = { id: "user-1", displayName: "Ana", email: "ana@example.invalid", pendingEmail: null, hasPassword: true };
 
-  it("exposes only id, display name and whether a password is set", () => {
+  it("exposes only id, display name, email, any pending new email and whether a password is set", () => {
     expect(authUserSchema.parse(user)).toEqual(user);
     expect(authUserSchema.parse({ ...user, hasPassword: false })).toEqual({ ...user, hasPassword: false });
-    for (const extra of ["username", "email", "emailVerified", "token", "password"]) {
+    expect(authUserSchema.parse({ ...user, pendingEmail: "ana.new@example.invalid" })).toEqual({ ...user, pendingEmail: "ana.new@example.invalid" });
+    for (const extra of ["username", "emailVerified", "token", "password", "googleEmail"]) {
       expect(authUserSchema.safeParse({ ...user, [extra]: "x" }).success, extra).toBe(false);
     }
     expect(authSessionResponseSchema.safeParse({ user, expiresAt: "2026-10-16T00:00:00.000Z" }).success).toBe(true);
@@ -186,13 +187,25 @@ describe("public auth responses", () => {
   });
 
   it.each([undefined, null, "true", 1])("rejects a user whose password flag is %j", (hasPassword) => {
-    expect(authUserSchema.safeParse({ id: "user-1", displayName: "Ana", hasPassword }).success).toBe(false);
+    expect(authUserSchema.safeParse({ ...user, hasPassword }).success).toBe(false);
+  });
+
+  // No pending change is null, never absent, so the page can tell the two apart from a missing field.
+  it.each([
+    ["no email", { email: undefined }],
+    ["a null email", { email: null }],
+    ["an email that is not an address", { email: "ana" }],
+    ["no pending email field", { pendingEmail: undefined }],
+    ["an empty pending email", { pendingEmail: "" }],
+    ["a pending email that is not an address", { pendingEmail: "ana.new" }],
+  ])("rejects a user with %s", (_case, change) => {
+    expect(authUserSchema.safeParse({ ...user, ...change }).success).toBe(false);
   });
 
   it("describes errors by code, message and optional field errors", () => {
     expect(authErrorResponseSchema.safeParse({ code: "EMAIL_ALREADY_EXISTS", message: "Email already exists." }).success).toBe(true);
     expect(authErrorResponseSchema.safeParse({ code: "VALIDATION_FAILED", message: "Invalid", fieldErrors: { email: ["Too long"] } }).success).toBe(true);
-    for (const code of ["EMAIL_NOT_VERIFIED", "VERIFICATION_LINK_INVALID", "RESET_LINK_INVALID", "GOOGLE_EMAIL_NOT_VERIFIED", "GOOGLE_SIGN_IN_FAILED", "INVALID_CURRENT_PASSWORD", "PASSWORD_ALREADY_SET"]) {
+    for (const code of ["EMAIL_NOT_VERIFIED", "VERIFICATION_LINK_INVALID", "RESET_LINK_INVALID", "GOOGLE_EMAIL_NOT_VERIFIED", "GOOGLE_SIGN_IN_FAILED", "INVALID_CURRENT_PASSWORD", "PASSWORD_ALREADY_SET", "PASSWORD_REQUIRED", "EMAIL_CHANGE_LINK_INVALID", "EMAIL_CHANGE_NOT_PENDING"]) {
       expect(authErrorResponseSchema.safeParse({ code, message: "x" }).success, code).toBe(true);
     }
     for (const code of ["USERNAME_UNAVAILABLE", "FAILED_TO_CREATE_USER"]) {

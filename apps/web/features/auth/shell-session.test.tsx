@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 
-vi.mock('./queries', () => ({ requireSession: async () => ({ user: { id: 'user-1', displayName: 'Temporary verification', hasPassword: true } }) }))
+vi.mock('./queries', () => ({ requireSession: async () => ({ user: { id: 'user-1', displayName: 'Temporary verification', email: 'owner@example.invalid', pendingEmail: null, hasPassword: true } }) }))
 vi.mock('./session-freshness', () => ({ SessionFreshness: () => <span data-testid="session-freshness" /> }))
 
 import { ShellSession } from './shell-session'

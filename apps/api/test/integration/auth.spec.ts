@@ -237,7 +237,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     const body = await response.json() as { user: { id: string } };
-    expect(body).toEqual({ user: { id: expect.stringMatching(/^[0-9a-f-]{36}$/), displayName: 'Temporary verification', hasPassword: true } });
+    expect(body).toEqual({ user: { id: expect.stringMatching(/^[0-9a-f-]{36}$/), displayName: 'Temporary verification', email, pendingEmail: null, hasPassword: true } });
     const cookies = response.headers.getSetCookie();
     expect(cookies).toHaveLength(1);
     expect(cookies[0]).toMatch(/^better-auth\.session_token=[^;]+; Max-Age=604800; Path=\/; HttpOnly; SameSite=Lax$/i);
@@ -300,7 +300,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(signedIn.status).toBe(200);
     const body = await signedIn.json() as Record<string, unknown>;
     expect(Object.keys(body)).toEqual(['user']);
-    expect(body.user).toEqual({ id: expect.any(String), displayName: 'Temporary verification', hasPassword: true });
+    expect(body.user).toEqual({ id: expect.any(String), displayName: 'Temporary verification', email, pendingEmail: null, hasPassword: true });
     expect(signedIn.headers.getSetCookie()).toHaveLength(1);
     const fresh = cookiePair(signedIn);
     expect(fresh).not.toBe(cookie);

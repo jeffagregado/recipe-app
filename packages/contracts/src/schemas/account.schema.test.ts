@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { changePasswordSchema, requestSetPasswordSchema, updateDisplayNameSchema } from "./account.schema.js";
+import { cancelEmailChangeSchema, changeEmailSchema, changePasswordSchema, confirmEmailChangeResponseSchema, confirmEmailChangeSchema, requestSetPasswordSchema, resendEmailChangeSchema, updateDisplayNameSchema } from "./account.schema.js";
 
 describe("update display name", () => {
   it("accepts exactly a display name and trims it", () => {
@@ -85,6 +85,78 @@ describe("request set password", () => {
     expect(requestSetPasswordSchema.parse({})).toEqual({});
     for (const body of [{ email: "ana@example.invalid" }, { userId: "user-1" }, undefined, null, []]) {
       expect(requestSetPasswordSchema.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
+  });
+});
+
+describe("change email", () => {
+  const newEmail = "ana.new@example.invalid";
+  const currentPassword = "old password";
+
+  it("accepts exactly the new email and the current password, normalizing the email and leaving the password alone", () => {
+    expect(changeEmailSchema.parse({ newEmail: "  Ana.New@Example.INVALID ", currentPassword: "  old password  " }))
+      .toEqual({ newEmail: "ana.new@example.invalid", currentPassword: "  old password  " });
+  });
+
+  it("rejects unknown fields including identity and ownership claims", () => {
+    for (const extra of ["email", "id", "userId", "token", "callbackURL", "password"]) {
+      expect(changeEmailSchema.safeParse({ newEmail, currentPassword, [extra]: "x" }).success, extra).toBe(false);
+    }
+  });
+
+  // The same rule as sign-up: one shared schema, so an address accepted there is accepted here.
+  it.each([
+    ["an empty email", "", "Enter your email."],
+    ["a blank email", "   ", "Enter your email."],
+    ["text that is not an address", "ana.new", "Enter a valid email address."],
+    ["255 characters", `${"a".repeat(239)}@example.invalid`, "Use at most 254 characters."],
+  ])("rejects %s on the new email field", (_case, value, message) => {
+    const result = changeEmailSchema.safeParse({ newEmail: value, currentPassword });
+    expect(result.error?.issues.map((issue) => [issue.path.join("."), issue.message])[0]).toEqual(["newEmail", message]);
+  });
+
+  // Any non-empty current password reaches verification, as at login.
+  it.each([
+    ["an empty current password", "", "Enter your current password."],
+    ["a current password of 129 characters", "x".repeat(129), "Use at most 128 characters."],
+  ])("rejects %s on its own field", (_case, value, message) => {
+    const result = changeEmailSchema.safeParse({ newEmail, currentPassword: value });
+    expect(result.error?.issues.map((issue) => [issue.path.join("."), issue.message])).toEqual([["currentPassword", message]]);
+  });
+
+  it("accepts a one-character current password", () => {
+    expect(changeEmailSchema.safeParse({ newEmail, currentPassword: "x" }).success).toBe(true);
+  });
+
+  it.each([undefined, null, "ana.new@example.invalid", [], {}, { newEmail }, { currentPassword }, { newEmail: 7, currentPassword }])("rejects the malformed body %j", (body) => {
+    expect(changeEmailSchema.safeParse(body).success).toBe(false);
+  });
+});
+
+describe("confirm email change", () => {
+  it("accepts exactly an opaque token of 1 to 128 characters", () => {
+    for (const token of ["t", "t".repeat(128)]) expect(confirmEmailChangeSchema.parse({ token })).toEqual({ token });
+    for (const body of [{ token: "" }, { token: "t".repeat(129) }, { token: 7 }, { token: "t", email: "ana@example.invalid" }, { token: "t", userId: "user-1" }, {}, undefined, null, []]) {
+      expect(confirmEmailChangeSchema.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
+  });
+
+  it("answers only whether the caller is still signed in to the Account", () => {
+    for (const signedIn of [true, false]) expect(confirmEmailChangeResponseSchema.parse({ signedIn })).toEqual({ signedIn });
+    for (const body of [{}, { signedIn: "true" }, { signedIn: true, email: "ana@example.invalid" }]) {
+      expect(confirmEmailChangeResponseSchema.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
+  });
+});
+
+describe.each([
+  ["resend email change", resendEmailChangeSchema],
+  ["cancel email change", cancelEmailChangeSchema],
+])("%s", (_name, schema) => {
+  it("takes no input: the API acts on the signed-in Account's own pending address", () => {
+    expect(schema.parse({})).toEqual({});
+    for (const body of [{ newEmail: "ana.new@example.invalid" }, { userId: "user-1" }, undefined, null, []]) {
+      expect(schema.safeParse(body).success, JSON.stringify(body)).toBe(false);
     }
   });
 });

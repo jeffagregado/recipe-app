@@ -9,12 +9,15 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   email: text('email').notNull(),
   emailVerified: boolean('email_verified').default(false).notNull(),
+  // The address an email change is waiting on. Not unique: the address is claimed only when its link is confirmed.
+  pendingEmail: text('pending_email'),
   image: text('image'),
   ...timestamps(),
 }, (t) => [
   primaryKey({ name: 'users_pkey', columns: [t.id] }),
   unique('users_email_key').on(t.email),
   check('users_email_normalized_check', sql`${t.email} = lower(btrim(${t.email})) AND length(${t.email}) > 0`),
+  check('users_pending_email_normalized_check', sql`${t.pendingEmail} = lower(btrim(${t.pendingEmail})) AND length(${t.pendingEmail}) > 0`),
 ]);
 
 export const authSessions = pgTable('auth_sessions', {

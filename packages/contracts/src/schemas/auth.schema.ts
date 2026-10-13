@@ -95,6 +95,8 @@ export const signupResponseSchema: z.ZodType<SignupResponse> = z.strictObject({
 export const authUserSchema: z.ZodType<AuthUser> = z.strictObject({
   id: entityIdSchema,
   displayName: z.string().min(1).max(DISPLAY_NAME_MAX_LENGTH),
+  email: z.email().max(EMAIL_MAX_LENGTH),
+  pendingEmail: z.email().max(EMAIL_MAX_LENGTH).nullable(),
   hasPassword: z.boolean(),
 });
 
