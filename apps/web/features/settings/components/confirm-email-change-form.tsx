@@ -1,12 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { unstable_rethrow } from 'next/navigation'
-import { useRef, useState, useTransition, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { confirmEmailChange } from '../actions/confirm-email-change'
 import { CONFIRM_EMAIL_MESSAGES, type ConfirmEmailChangeResult } from '../actions/results'
+import { useSingleFlight } from '../lib/use-single-flight'
 
 type ConfirmEmailChangeFormProps = {
 	token?: string
@@ -19,10 +19,13 @@ type ConfirmEmailChangeFormProps = {
  * a token, or one the API refuses, shows the expired state with the way back to Settings.
  */
 export function ConfirmEmailChangeForm({ token, onConfirm = confirmEmailChange }: ConfirmEmailChangeFormProps) {
-	const [pending, startTransition] = useTransition()
-	const inFlight = useRef(false)
 	const [expired, setExpired] = useState(false)
 	const [message, setMessage] = useState<string>()
+	// A confirmed change redirects, so only refusals ever settle here.
+	const { pending, run } = useSingleFlight(onConfirm, (): ConfirmEmailChangeResult => ({ status: 'failed', message: CONFIRM_EMAIL_MESSAGES.failed }), (result) => {
+		if (result.status === 'invalid') setExpired(true)
+		else setMessage(result.message)
+	})
 
 	if (!token || expired) {
 		return (
@@ -36,20 +39,8 @@ export function ConfirmEmailChangeForm({ token, onConfirm = confirmEmailChange }
 
 	function submit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault()
-		if (inFlight.current) return
-		inFlight.current = true
 		setMessage(undefined)
-		startTransition(async () => {
-			let result: ConfirmEmailChangeResult
-			try { result = await onConfirm({ token: link }) } catch (error) {
-				// A confirmed change redirects, which rejects the action's promise: that is the framework's control flow.
-				unstable_rethrow(error)
-				result = { status: 'failed', message: CONFIRM_EMAIL_MESSAGES.failed }
-			}
-			inFlight.current = false
-			if (result.status === 'invalid') setExpired(true)
-			else setMessage(result.message)
-		})
+		run({ token: link })
 	}
 
 	return (

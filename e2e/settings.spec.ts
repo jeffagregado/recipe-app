@@ -15,8 +15,9 @@ const currentEmail = (page: Page) => emailCard(page).getByLabel('Current email',
 const newEmail = (page: Page) => emailCard(page).getByLabel('New email', { exact: true });
 const emailPassword = (page: Page) => emailCard(page).getByLabel('Current password', { exact: true });
 const sendLink = (page: Page) => emailCard(page).getByRole('button', { name: 'Send verification link', exact: true });
-/** The pending-change banner. Toasts are statuses too, but they sit outside the card. */
-const pendingBanner = (page: Page) => emailCard(page).getByRole('status');
+const pendingBanner = (page: Page) => emailCard(page).getByRole('group', { name: 'Pending email change', exact: true });
+/** Where the browser is, without its query: a failed assertion on the whole URL would print the link's token. */
+const pathOf = (page: Page) => new URL(page.url()).pathname;
 const sidebar = (page: Page) => page.getByRole('complementary');
 const mainNav = (page: Page) => page.getByRole('navigation', { name: 'Main', exact: true });
 const box = async (locator: Locator) => (await locator.boundingBox())!;
@@ -149,7 +150,7 @@ test('email journey: a link to the new address is confirmed with one button, Set
   await waitHydrated(confirm);
   await confirm.click();
   // Signed in as the Account, so the person returns to Settings, still signed in, with the new address in place.
-  await expect(page).toHaveURL(`${WEB_URL}/settings`);
+  await expect.poll(() => pathOf(page)).toBe('/settings');
   await expect(toast.success(page, 'Email changed')).toBeVisible();
   await expect(currentEmail(page)).toHaveValue(address);
   await expect(pendingBanner(page)).toHaveCount(0);
@@ -162,7 +163,7 @@ test('email journey: a link to the new address is confirmed with one button, Set
   await confirm.click();
   await expect(page.getByText('This link has expired or was already used.', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Back to Settings', exact: true }).click();
-  await expect(page).toHaveURL(`${WEB_URL}/settings`);
+  await expect.poll(() => pathOf(page)).toBe('/settings');
   await expect(currentEmail(page)).toHaveValue(address);
 
   // The old address is no longer an Account; the new one signs in with the same password.
@@ -196,6 +197,33 @@ test('at 320px a pending change shows its banner inside the card, and Cancel rem
   await expect(currentEmail(page)).toHaveValue(creator.email);
   expect((await workerData.emailChangeTokens(creator.email)).length).toBe(0);
   expect(await noOverflow(page)).toBe(true);
+});
+
+test('at 320px a link opened in a browser that is not signed in confirms the change and lands on the login page with a notice', async ({ browser, creator, workerData }) => {
+  const address = workerData.newEmail();
+  const started = await workerData.client.post('/account/email-change', { newEmail: address, currentPassword: creator.password }, { cookie: creator.cookie });
+  expect(started.status).toBe(200);
+  const [token] = await workerData.emailChangeTokens(creator.email);
+  // Another browser, as when the mail is read on a phone: it holds no session.
+  const phone = await browser.newContext({ baseURL: WEB_URL, extraHTTPHeaders: { 'X-Forwarded-For': workerData.address }, viewport: { width: 320, height: 720 } });
+  try {
+    const page = await phone.newPage();
+    const consoleIssues = watchConsole(page);
+    await page.goto(`/confirm-email-change?token=${token}`);
+    const confirm = page.getByRole('button', { name: 'Confirm email change', exact: true });
+    await waitHydrated(confirm);
+    expect((await box(confirm)).height).toBeGreaterThanOrEqual(44);
+    expect(await noOverflow(page)).toBe(true);
+    await confirm.click();
+    await expect(page.getByText('Email changed. Log in with your new email.', { exact: true })).toBeVisible();
+    expect(pathOf(page)).toBe('/');
+    expect((await phone.cookies()).filter(({ name }) => name.endsWith('session_token'))).toEqual([]);
+    expect(await noOverflow(page)).toBe(true);
+    // Every session of the Account ended with the change, the one that started it included.
+    expect((await workerData.client.get('/auth/session', { cookie: creator.cookie })).status).toBe(401);
+    await logIn(page, { email: address, password: creator.password });
+    expect(consoleIssues).toEqual([]);
+  } finally { await phone.close(); }
 });
 
 for (const width of [320, 390, 768]) {

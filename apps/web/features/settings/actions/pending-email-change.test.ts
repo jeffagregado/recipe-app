@@ -26,9 +26,10 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
 describe.each([
-	['resend', resendEmailChange, '/account/email-change/resend', () => new Response(null, { status: 204 }), 'resent', 'Couldn’t send the verification link. Try again.'],
-	['cancel', cancelEmailChange, '/account/email-change/cancel', () => new Response(JSON.stringify({ user }), { status: 200 }), 'cancelled', 'Couldn’t cancel the change. Try again.'],
-] as const)('%s', (name, action, path, success, done, failure) => {
+	// Resending leaves the page as it is; cancelling removes the banner, which only a fresh session read shows.
+	['resend', resendEmailChange, '/account/email-change/resend', () => new Response(null, { status: 204 }), 'resent', 0, 'Couldn’t send the verification link. Try again.'],
+	['cancel', cancelEmailChange, '/account/email-change/cancel', () => new Response(JSON.stringify({ user }), { status: 200 }), 'cancelled', 1, 'Couldn’t cancel the change. Try again.'],
+] as const)('%s', (_name, action, path, success, done, refreshes, failure) => {
 	it('asks with an empty body and only the session cookie, origin and client address', async () => {
 		fetchMock.mockResolvedValue(success())
 		expect(await action()).toEqual({ status: done })
@@ -38,8 +39,7 @@ describe.each([
 		expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
 			cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json',
 		})
-		// Resending leaves the page as it is; cancelling removes the banner, which only a fresh session read shows.
-		expect(cache.refresh).toHaveBeenCalledTimes(name === 'cancel' ? 1 : 0)
+		expect(cache.refresh).toHaveBeenCalledTimes(refreshes)
 	})
 
 	it.each([

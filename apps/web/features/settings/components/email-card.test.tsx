@@ -38,7 +38,7 @@ const currentEmail = () => within(card()).getByLabelText('Current email')
 const newEmail = () => within(card()).getByLabelText('New email')
 const password = () => within(card()).getByLabelText('Current password')
 const send = () => within(card()).getByRole('button', { name: /^Send verification link$|^Sending/ })
-const banner = () => within(card()).getByRole('status')
+const banner = () => within(card()).getByRole('group', { name: 'Pending email change' })
 const resend = () => within(banner()).getByRole('button', { name: /^Resend$|^Sending/ })
 const cancel = () => within(banner()).getByRole('button', { name: /^Cancel$|^Cancelling/ })
 async function fill(user: ReturnType<typeof userEvent.setup>, email = NEW, currentPassword = PASSWORD) {
@@ -58,7 +58,7 @@ it('shows the current email read-only with its Verified mark, and an Account wit
 	expect(password()).toHaveAttribute('type', 'password')
 	expect(password()).toHaveAttribute('autocomplete', 'current-password')
 	expect(send()).toBeDisabled()
-	expect(within(card()).queryByRole('status')).not.toBeInTheDocument()
+	expect(within(card()).queryByRole('group')).not.toBeInTheDocument()
 	expect(within(card()).queryByText('Set a password before changing your email.')).not.toBeInTheDocument()
 })
 
@@ -81,7 +81,10 @@ it('unlocks the form once the Account has a password', () => {
 
 it('names the pending address in a banner with Resend and Cancel, above a form that can start a different change', () => {
 	renderCard({ pendingEmail: NEW })
-	expect(banner()).toHaveTextContent(`We sent a link to ${NEW}. Your email changes once you open it.`)
+	// Only the sentence is announced; the two buttons sit beside it in the same group.
+	const announced = within(banner()).getByRole('status')
+	expect(announced.textContent).toBe('We sent a link to ana.new@example.com. Your email changes once you open it.')
+	expect(within(announced).queryByRole('button')).not.toBeInTheDocument()
 	expect(resend()).toBeEnabled()
 	expect(cancel()).toBeEnabled()
 	// The Account's email has not changed.
@@ -100,14 +103,11 @@ it('enables Send verification link only when both fields hold something', async 
 })
 
 // The email rule belongs to the contract's tests; one rejected value shows where its message goes.
-it.each([
-	['text that is not an address', 'ana.new', 'Enter a valid email address.'],
-	['the current email, however it is typed', ` ${EMAIL.toUpperCase()} `, 'This is already your email.'],
-])('puts the error for %s on the new email field, focuses it and does not send', async (_case, value, message) => {
+it('puts the error for a rejected new email on that field, focuses it and does not send', async () => {
 	const user = renderCard()
-	await fill(user, value)
+	await fill(user, 'ana.new')
 	await user.click(send())
-	await waitFor(() => expect(newEmail()).toHaveAccessibleDescription(message))
+	await waitFor(() => expect(newEmail()).toHaveAccessibleDescription('Enter a valid email address.'))
 	expect(newEmail()).toHaveAttribute('aria-invalid', 'true')
 	expect(newEmail()).toHaveFocus()
 	expect(password()).toHaveAttribute('aria-invalid', 'false')

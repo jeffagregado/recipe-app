@@ -91,7 +91,6 @@ export const EMAIL_MESSAGES = {
 	invalid: 'Check your new email and password and try again.',
 	wrongCurrent: 'Current password is incorrect.',
 	taken: 'Email already exists.',
-	unchanged: 'This is already your email.',
 	passwordRequired: 'Set a password before changing your email.',
 	notPending: 'No email change is waiting to be confirmed.',
 	...SHARED_MESSAGES,

@@ -57,7 +57,7 @@ export function EmailCard({ email, pendingEmail, hasPassword, onChange = changeE
 						</div>
 					</div>
 					{hasPassword
-						? <ChangeEmailForm email={email} onChange={onChange} />
+						? <ChangeEmailForm onChange={onChange} />
 						: <p className="text-sm text-muted-foreground">{EMAIL_MESSAGES.passwordRequired}</p>}
 				</CardContent>
 			</Card>
@@ -102,8 +102,9 @@ function PendingChange({ pendingEmail, onResend, onCancel }: PendingChangeProps)
 
 	return (
 		<div className="space-y-3">
-			<Alert role="status" aria-busy={running !== undefined} className="border-amber-300 bg-amber-50 text-foreground dark:border-amber-900 dark:bg-amber-950">
-				<AlertDescription className="text-foreground wrap-anywhere">
+			{/* A group, not the Alert's default role: the buttons are not part of what is announced. */}
+			<Alert role="group" aria-label="Pending email change" aria-busy={running !== undefined} className="border-warning/50 bg-warning/10">
+				<AlertDescription role="status" className="text-foreground wrap-anywhere">
 					We sent a link to <strong className="font-semibold">{pendingEmail}</strong>. Your email changes once you open it.
 				</AlertDescription>
 				<div className="-mx-1.5 flex flex-wrap gap-1">
@@ -120,7 +121,7 @@ function PendingChange({ pendingEmail, onResend, onCancel }: PendingChangeProps)
 	)
 }
 
-function ChangeEmailForm({ email, onChange }: { email: string; onChange: NonNullable<EmailCardProps['onChange']> }) {
+function ChangeEmailForm({ onChange }: { onChange: NonNullable<EmailCardProps['onChange']> }) {
 	const toast = useAppToast()
 	const newEmailId = useId()
 	const passwordId = useId()
@@ -143,12 +144,7 @@ function ChangeEmailForm({ email, onChange }: { email: string; onChange: NonNull
 	}
 	const { pending, run } = useSingleFlight(onChange, (): ChangeEmailResult => ({ status: 'failed', message: EMAIL_MESSAGES.failed }), showResult)
 
-	/** `values` come out of the shared schema, so the new email is already in its stored form. */
 	function send(values: ChangeEmailInput) {
-		if (values.newEmail === email) {
-			form.setError('newEmail', { type: 'validate', message: EMAIL_MESSAGES.unchanged }, { shouldFocus: true })
-			return
-		}
 		setAlert(undefined)
 		run(values)
 	}
