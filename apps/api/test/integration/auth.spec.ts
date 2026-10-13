@@ -67,12 +67,14 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
       ['update-user', { name: 'Changed' }],
       ['change-email', { newEmail: nativeEmail }],
       ['sign-out', {}],
+      // Google sign-in has its own wrappers; the native social route stays closed with or without a configured client.
+      ['sign-in/social', { provider: 'google', disableRedirect: true }],
     ] as const) {
       const response = await fetch(`${baseUrl}/api/auth/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN }, body: JSON.stringify(body) });
       expect(response.status, path).toBe(404);
       expect(response.headers.getSetCookie(), path).toEqual([]);
     }
-    for (const path of ['get-session', 'verify-email?token=x']) expect((await fetch(`${baseUrl}/api/auth/${path}`)).status, path).toBe(404);
+    for (const path of ['get-session', 'verify-email?token=x', 'callback/google?code=x&state=y']) expect((await fetch(`${baseUrl}/api/auth/${path}`)).status, path).toBe(404);
     expect(await db.$count(users, eq(users.email, nativeEmail))).toBe(0);
   });
 
