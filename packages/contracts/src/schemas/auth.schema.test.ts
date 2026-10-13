@@ -5,11 +5,13 @@ import {
   authSessionResponseSchema,
   authUserSchema,
   emailSchema,
+  forgotPasswordSchema,
   googleCallbackSchema,
   googleStartResponseSchema,
   loginSchema,
   logoutSchema,
   resendVerificationSchema,
+  resetPasswordSchema,
   signupResponseSchema,
   signupSchema,
   verifyEmailSchema,
@@ -114,6 +116,32 @@ describe("email verification", () => {
   });
 });
 
+describe("password reset", () => {
+  it("normalizes the forgot-password address and accepts nothing else", () => {
+    expect(forgotPasswordSchema.parse({ email: " ANA@Example.invalid " })).toEqual({ email });
+    expect(forgotPasswordSchema.safeParse({ email: "ana" }).success).toBe(false);
+    expect(forgotPasswordSchema.safeParse({}).success).toBe(false);
+    expect(forgotPasswordSchema.safeParse({ email, userId: "user-1" }).success).toBe(false);
+  });
+
+  it("accepts a token of 1 to 128 characters with an untrimmed 12-128 character password and nothing else", () => {
+    const padded = `  ${password}  `;
+    expect(resetPasswordSchema.parse({ token: "Ab_-9", password: padded })).toEqual({ token: "Ab_-9", password: padded });
+    expect(resetPasswordSchema.safeParse({ token: "x".repeat(128), password: "x".repeat(128) }).success).toBe(true);
+    for (const token of ["", "x".repeat(129), 7, null]) {
+      expect(resetPasswordSchema.safeParse({ token, password }).success, String(token)).toBe(false);
+    }
+    const bounds = [["x".repeat(11), "Use at least 12 characters."], ["x".repeat(129), "Use at most 128 characters."]] as const;
+    for (const [value, message] of bounds) {
+      const result = resetPasswordSchema.safeParse({ token: "x", password: value });
+      expect(result.success ? [] : result.error.issues.map((issue) => [issue.path.join("."), issue.message])).toEqual([["password", message]]);
+    }
+    for (const extra of ["email", "userId", "confirmPassword"]) {
+      expect(resetPasswordSchema.safeParse({ token: "x", password, [extra]: "x" }).success, extra).toBe(false);
+    }
+  });
+});
+
 describe("Google sign-in", () => {
   it("forwards only a code and a state from the callback", () => {
     expect(googleCallbackSchema.parse({ code: "4/0Ab", state: "s1" })).toEqual({ code: "4/0Ab", state: "s1" });
@@ -159,7 +187,7 @@ describe("public auth responses", () => {
   it("describes errors by code, message and optional field errors", () => {
     expect(authErrorResponseSchema.safeParse({ code: "EMAIL_ALREADY_EXISTS", message: "Email already exists." }).success).toBe(true);
     expect(authErrorResponseSchema.safeParse({ code: "VALIDATION_FAILED", message: "Invalid", fieldErrors: { email: ["Too long"] } }).success).toBe(true);
-    for (const code of ["EMAIL_NOT_VERIFIED", "VERIFICATION_LINK_INVALID", "GOOGLE_EMAIL_NOT_VERIFIED", "GOOGLE_SIGN_IN_FAILED"]) {
+    for (const code of ["EMAIL_NOT_VERIFIED", "VERIFICATION_LINK_INVALID", "RESET_LINK_INVALID", "GOOGLE_EMAIL_NOT_VERIFIED", "GOOGLE_SIGN_IN_FAILED"]) {
       expect(authErrorResponseSchema.safeParse({ code, message: "x" }).success, code).toBe(true);
     }
     for (const code of ["USERNAME_UNAVAILABLE", "FAILED_TO_CREATE_USER"]) {

@@ -1,11 +1,12 @@
 'use server'
 
-import { authUserResponseSchema, loginSchema, resendVerificationSchema, signupResponseSchema, signupSchema } from '@recipe-app/contracts/schemas'
+import { authUserResponseSchema, forgotPasswordSchema, loginSchema, resendVerificationSchema, resetPasswordSchema, signupResponseSchema, signupSchema } from '@recipe-app/contracts/schemas'
 import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import type { ZodError } from 'zod'
+import { withNotice } from '@/lib/notice'
 import { authFetch } from './api'
-import { mapAuthError, publicFailure, serviceFailure, type AuthFailure, type AuthMutation, type LogoutResult, type ResendVerificationResult } from './action-result'
+import { mapAuthError, publicFailure, RESET_LINK_INVALID, serviceFailure, type AuthFailure, type AuthMutation, type ForgotPasswordResult, type LogoutResult, type ResendVerificationResult } from './action-result'
 import { rememberPendingVerification } from './pending-verification'
 import { applySessionCookies, clearSessionCookies, sessionCookieHeader } from './session-cookie'
 
@@ -18,7 +19,7 @@ function validationFailure(error: ZodError): AuthFailure {
 	return { ok: false, code: 'VALIDATION_FAILED', message: 'Check your details and try again.', fieldErrors }
 }
 
-const EXPECTED_STATUS: Record<AuthMutation, number> = { signup: 201, login: 200, logout: 204, 'resend-verification': 204 }
+const EXPECTED_STATUS: Record<AuthMutation, number> = { signup: 201, login: 200, logout: 204, 'resend-verification': 204, 'forgot-password': 204, 'reset-password': 204 }
 const ORIGIN_REJECTED: AuthFailure = { ok: false, code: 'ORIGIN_REJECTED', message: 'This request could not be verified. Refresh the page and try again.' }
 
 /** Only the request Origin, client address and (logout) session cookie reach the API. */
@@ -41,7 +42,7 @@ async function applySuccess(operation: AuthMutation, response: Response, store: 
 		clearSessionCookies(store)
 		return
 	}
-	if (operation === 'resend-verification') return
+	if (operation === 'resend-verification' || operation === 'forgot-password' || operation === 'reset-password') return
 	// Signup creates no session: whatever cookie the response carries is ignored.
 	if (operation === 'signup') return signupResponseSchema.safeParse(await response.json().catch(() => undefined)).success ? undefined : logFailure(operation, serviceFailure(operation), response.status)
 	const parsed = authUserResponseSchema.safeParse(await response.json().catch(() => undefined))
@@ -93,4 +94,29 @@ export async function resendVerification(input: unknown): Promise<ResendVerifica
 export async function logout(): Promise<LogoutResult> {
 	const error = await mutate('logout', {})
 	return error ?? { ok: true }
+}
+
+/** The answer is the same whether or not the address has an Account. */
+export async function forgotPassword(input: unknown): Promise<ForgotPasswordResult> {
+	const parsed = forgotPasswordSchema.safeParse(input)
+	if (!parsed.success) return validationFailure(parsed.error)
+	const error = await mutate('forgot-password', parsed.data)
+	return error ?? { ok: true }
+}
+
+/**
+ * Sends the token from the emailed link with the new password. Every session of the Account ends, this browser's
+ * included, and none is created: the person lands on the login page.
+ */
+export async function resetPassword(input: unknown): Promise<AuthFailure> {
+	const parsed = resetPasswordSchema.safeParse(input)
+	if (!parsed.success) {
+		// The password is the only field a person typed. Anything else wrong means the link itself is unusable.
+		const failure = validationFailure(parsed.error)
+		return failure.fieldErrors?.password ? failure : RESET_LINK_INVALID
+	}
+	const error = await mutate('reset-password', parsed.data)
+	if (error) return error
+	clearSessionCookies(await cookies())
+	redirect(withNotice('/', 'password-reset'))
 }

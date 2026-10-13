@@ -33,12 +33,14 @@ type WorkerData = {
   signupUnverified: () => Promise<{ email: string; password: string }>;
   /** The tokens of the verification links stored for an address, newest first. */
   verificationTokens: (email: string) => Promise<string[]>;
+  /** The tokens of the password reset links stored for an address, newest first. */
+  resetTokens: (email: string) => Promise<string[]>;
   /** How many of these stored objects still answer 200. Keys stay inside the helper's callers; only counts leave. */
   countStoredObjects: (keys: string[]) => Promise<number>;
 };
 
 /** Cookie values stay in worker memory and the HttpOnly browser cookie jar. */
-async function addSession(context: BrowserContext, cookie: string) {
+export async function addSession(context: BrowserContext, cookie: string) {
   const allowed = new Set(['better-auth.session_token', '__Secure-better-auth.session_token']);
   const cookies = cookie.split(';').map((pair) => {
     const index = pair.indexOf('=');
@@ -83,7 +85,7 @@ async function removeWorkerData(db: DrizzleDb, emails: string[], addresses: stri
 
 export const authTest = base.extend<Record<never, never>, { workerData: WorkerData }>({
   workerData: [async ({}, use) => {
-    const { apiClient, signupUser, insertOwnedRecipes, testAddress, testEmail, testPassword, verificationTokens } = await loadAuthHarness();
+    const { apiClient, signupUser, insertOwnedRecipes, testAddress, testEmail, testPassword, verificationTokens, resetTokens } = await loadAuthHarness();
     let connection: string;
     try { connection = await getDevDatabaseUrl(); } catch { throw new Error('Could not resolve the approved Neon dev target for E2E.'); }
     const pool = new pg.Pool({ connectionString: connection, ssl: { rejectUnauthorized: true }, max: 2, connectionTimeoutMillis: 10_000 });
@@ -119,6 +121,7 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
       await use({
         db, client, address, owner, other, emails, newEmail, newPassword: testPassword, signupFreshAccount, signupUnverified, countStoredObjects,
         verificationTokens: (email) => verificationTokens(db, email),
+        resetTokens: (email) => resetTokens(db, email),
       });
     } finally {
       try { await storage?.close(); await removeWorkerData(db, emails, addresses); }

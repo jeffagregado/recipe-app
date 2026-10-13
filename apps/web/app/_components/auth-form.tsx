@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { AuthField } from '@/features/auth/auth-field'
 import { GoogleMark } from '@/features/auth/google-mark'
@@ -31,6 +32,7 @@ export function AuthForm() {
 			<AuthField id="password" label="Password" type={showPassword ? 'text' : 'password'} autoComplete={isSignup ? 'new-password' : 'current-password'} className="min-h-11 pr-20" error={errors.password?.message} guidance={isSignup ? '12-128 characters' : undefined} {...register('password')}>
 				<Button type="button" variant="ghost" className="absolute inset-y-0 right-0 min-h-11 min-w-16" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onClick={() => setShowPassword((current) => !current)}>{showPassword ? 'Hide' : 'Show'}</Button>
 			</AuthField>
+			{!isSignup && <Link href="/forgot-password" className="inline-flex min-h-11 items-center text-sm underline underline-offset-4">Forgot password?</Link>}
 			{message && <p role="alert" className="text-sm text-destructive wrap-break-word">{message}</p>}
 			{unverifiedEmail && <ResendVerification key={unverifiedEmail} email={unverifiedEmail} />}
 			<Button type="submit" className="min-h-11 w-full" disabled={pending}><span aria-live="polite">{label}</span></Button>

@@ -3,7 +3,7 @@ import { Resend } from 'resend';
 import type { Environment } from '../config/environment.js';
 
 /** A closed list, so the one thing the logging transport prints can never carry caller data. */
-export type MailKind = 'verification' | 'account-exists';
+export type MailKind = 'verification' | 'account-exists' | 'password-reset';
 
 export type MailMessage = { kind: MailKind; to: string; subject: string; html: string };
 

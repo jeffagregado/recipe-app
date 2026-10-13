@@ -33,6 +33,16 @@ export type VerifyEmailInput = {
   token: string;
 };
 
+export type ForgotPasswordInput = {
+  email: string;
+};
+
+/** The token from the reset link and the password that replaces the old one. */
+export type ResetPasswordInput = {
+  token: string;
+  password: string;
+};
+
 /** What Google appends to the callback after consent. A cancelled consent carries no code and is never forwarded. */
 export type GoogleCallbackInput = {
   code: string;
@@ -66,6 +76,7 @@ export const AUTH_ERROR_CODES = [
   "EMAIL_ALREADY_EXISTS",
   "EMAIL_NOT_VERIFIED",
   "VERIFICATION_LINK_INVALID",
+  "RESET_LINK_INVALID",
   "GOOGLE_EMAIL_NOT_VERIFIED",
   "GOOGLE_SIGN_IN_FAILED",
   "PAYLOAD_TOO_LARGE",

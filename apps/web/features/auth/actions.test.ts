@@ -7,7 +7,7 @@ vi.mock('next/headers', () => ({
 }))
 vi.mock('next/navigation', () => ({ redirect: (path: string) => { throw new Error(`NEXT_REDIRECT:${path}`) } }))
 
-import { login, logout, resendVerification, signup } from './actions'
+import { forgotPassword, login, logout, resendVerification, resetPassword, signup } from './actions'
 
 const credentials = { email: 'owner@example.invalid', password: 'x'.repeat(16) }
 const user = { user: { id: 'user-1', displayName: 'Test Owner' } }
@@ -158,5 +158,92 @@ it('forwards the session cookie on logout, clears it on 204 and reports a failed
 	next.set.mockReset()
 	fetchMock.mockResolvedValueOnce(json({ code: 'SERVICE_UNAVAILABLE', message: 'raw upstream text' }, 503))
 	expect(await logout()).toMatchObject({ ok: false, code: 'SERVICE_UNAVAILABLE', message: 'Could not confirm logout. Please try again.' })
+	expect(next.set).not.toHaveBeenCalled()
+})
+
+it.each([undefined, '', 'x'.repeat(129)])('rejects malformed reset token locally without logging it', async (token) => {
+	expect(await resetPassword({ token, password: credentials.password })).toEqual({ ok: false, code: 'RESET_LINK_INVALID', message: 'This link has expired or was already used.' })
+	expect(fetchMock).not.toHaveBeenCalled()
+	expect(warn).not.toHaveBeenCalled()
+})
+
+it('links an invalid reset password to its field without contacting the API', async () => {
+	expect(await resetPassword({ token: 'test-only-link-value', password: 'short' })).toEqual({ ok: false, code: 'VALIDATION_FAILED', message: 'Check your details and try again.', fieldErrors: { password: ['Use at least 12 characters.'] } })
+	expect(fetchMock).not.toHaveBeenCalled()
+	expect(warn).not.toHaveBeenCalled()
+})
+
+it.each([
+	[400, 'RESET_LINK_INVALID', 'This link has expired or was already used.'],
+	[400, 'VALIDATION_FAILED', 'Check your details and try again.'],
+	[429, 'RATE_LIMITED', 'Too many attempts. Please wait and try again.'],
+	[403, 'ORIGIN_REJECTED', 'This request could not be verified. Refresh the page and try again.'],
+	[503, 'SERVICE_UNAVAILABLE', 'We could not update your password. Please try again.'],
+	[200, 'SERVICE_UNAVAILABLE', 'We could not update your password. Please try again.'],
+] as const)('maps reset status %i with code %s and logs one safe line', async (status, code, message) => {
+	fetchMock.mockResolvedValue(json({ code, message: 'raw upstream text' }, status))
+	expect(await resetPassword({ token: 'test-only-link-value', password: credentials.password })).toEqual({ ok: false, code, message })
+	expect(warn).toHaveBeenCalledExactlyOnceWith(`Auth: reset-password failed with ${code} (upstream ${status}).`)
+	for (const secret of [credentials.email, credentials.password, 'test-only-link-value', 'raw upstream text']) expect(JSON.stringify(warn.mock.calls)).not.toContain(secret)
+	expect(next.set).not.toHaveBeenCalled()
+})
+
+it('reports a thrown reset fetch once without leaking details or replaying', async () => {
+	fetchMock.mockRejectedValue(new Error('raw upstream text'))
+	expect(await resetPassword({ token: 'test-only-link-value', password: credentials.password })).toEqual({ ok: false, code: 'SERVICE_UNAVAILABLE', message: 'We could not update your password. Please try again.' })
+	expect(warn).toHaveBeenCalledExactlyOnceWith('Auth: reset-password failed with SERVICE_UNAVAILABLE.')
+	expect(fetchMock).toHaveBeenCalledOnce()
+})
+
+it('resets with exact body and allowed headers, clears both cookies and redirects without applying a session', async () => {
+	fetchMock.mockResolvedValue(new Response(null, { status: 204, headers: { 'Set-Cookie': 'better-auth.session_token=test-only; Path=/' } }))
+	await expect(resetPassword({ token: 'test-only-link-value', password: credentials.password })).rejects.toThrow('NEXT_REDIRECT:/?notice=password-reset')
+	const [url, init] = fetchMock.mock.calls[0]
+	expect(url).toBe('http://api.example/auth/reset-password')
+	expect(init?.method).toBe('POST')
+	expect(init?.body).toBe(JSON.stringify({ token: 'test-only-link-value', password: 'x'.repeat(16) }))
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9' })
+	expect(next.set.mock.calls).toEqual([
+		['better-auth.session_token', '', { httpOnly: true, sameSite: 'lax', path: '/', secure: false, maxAge: 0 }],
+		['__Secure-better-auth.session_token', '', { httpOnly: true, sameSite: 'lax', path: '/', secure: true, maxAge: 0 }],
+	])
+	expect(warn).not.toHaveBeenCalled()
+})
+
+it.each([
+	[429, 'RATE_LIMITED', 'You asked for too many emails. Please try again later.'],
+	[503, 'SERVICE_UNAVAILABLE', 'We could not send the email. Please try again.'],
+	[403, 'ORIGIN_REJECTED', 'This request could not be verified. Refresh the page and try again.'],
+	[400, 'VALIDATION_FAILED', 'Check your details and try again.'],
+	[200, 'SERVICE_UNAVAILABLE', 'We could not send the email. Please try again.'],
+] as const)('maps forgot status %i and logs one safe line', async (status, code, message) => {
+	fetchMock.mockResolvedValue(json({ code, message: 'raw upstream text' }, status))
+	expect(await forgotPassword({ email: credentials.email })).toEqual({ ok: false, code, message })
+	expect(warn).toHaveBeenCalledExactlyOnceWith(`Auth: forgot-password failed with ${code} (upstream ${status}).`)
+	for (const secret of [credentials.email, credentials.password, 'test-only-link-value', 'raw upstream text']) expect(JSON.stringify(warn.mock.calls)).not.toContain(secret)
+	expect(next.set).not.toHaveBeenCalled()
+})
+
+it('reports a thrown forgot fetch once without leaking details or replaying', async () => {
+	fetchMock.mockRejectedValue(new Error('raw upstream text'))
+	expect(await forgotPassword({ email: credentials.email })).toEqual({ ok: false, code: 'SERVICE_UNAVAILABLE', message: 'We could not send the email. Please try again.' })
+	expect(warn).toHaveBeenCalledExactlyOnceWith('Auth: forgot-password failed with SERVICE_UNAVAILABLE.')
+	expect(fetchMock).toHaveBeenCalledOnce()
+})
+
+it('rejects an invalid forgot address locally', async () => {
+	expect(await forgotPassword({ email: 'invalid' })).toEqual({ ok: false, code: 'VALIDATION_FAILED', message: 'Check your details and try again.', fieldErrors: { email: ['Enter a valid email address.'] } })
+	expect(fetchMock).not.toHaveBeenCalled()
+	expect(warn).not.toHaveBeenCalled()
+})
+
+it('sends a forgot request with only the normalised address, origin and client address', async () => {
+	fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+	expect(await forgotPassword({ email: ' Owner@Example.invalid ' })).toEqual({ ok: true })
+	const [url, init] = fetchMock.mock.calls[0]
+	expect(url).toBe('http://api.example/auth/forgot-password')
+	expect(init?.method).toBe('POST')
+	expect(init?.body).toBe('{"email":"owner@example.invalid"}')
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9' })
 	expect(next.set).not.toHaveBeenCalled()
 })

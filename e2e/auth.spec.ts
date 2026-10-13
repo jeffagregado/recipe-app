@@ -139,6 +139,8 @@ test('anonymous routes redirect, keyboard login works, toggle/error focus and 32
   await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute('type', 'password');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.keyboard.press('Tab');
+  await expect(page.getByRole('link', { name: 'Forgot password?', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(page.getByRole('button', { name: 'Log in', exact: true })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(`${WEB_URL}/recipes`);

@@ -14,7 +14,7 @@ export function getApiOrigin(): string {
 	return url.origin
 }
 
-export async function authFetch(path: '/auth/session' | '/auth/signup' | '/auth/login' | '/auth/logout' | '/auth/resend-verification' | '/auth/verify-email' | '/auth/google/start' | '/auth/google/callback', init: RequestInit = {}) {
+export async function authFetch(path: '/auth/session' | '/auth/signup' | '/auth/login' | '/auth/logout' | '/auth/resend-verification' | '/auth/verify-email' | '/auth/google/start' | '/auth/google/callback' | '/auth/forgot-password' | '/auth/reset-password', init: RequestInit = {}) {
 	try {
 		return await fetch(`${getApiOrigin()}${path}`, { ...init, cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(20_000) })
 	} catch (cause) {

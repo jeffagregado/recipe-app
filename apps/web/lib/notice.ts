@@ -6,6 +6,7 @@ export const NOTICE_MESSAGES = {
 	'recipe-updated': 'Recipe updated',
 	'recipe-deleted': 'Recipe deleted',
 	'email-verified': 'Email verified. Log in to continue.',
+	'password-reset': 'Password updated. Log in with your new password.',
 	'google-sign-in-failed': 'Google sign-in did not complete. Try again.',
 	'google-email-not-verified': 'Google has not verified this email address. Verify it with Google, or sign up with a password.',
 } as const

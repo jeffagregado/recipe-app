@@ -15,12 +15,14 @@ import { AuthService } from './auth.service.js';
 import { AuthRateLimiter } from './auth.rate-limit.js';
 import { SessionGuard } from './session.guard.js';
 import { OriginGuard } from './origin.guard.js';
+import { PasswordResetController } from './password-reset.controller.js';
+import { PasswordResetService } from './password-reset.service.js';
 
 export { AUTH } from './auth.tokens.js';
 
 @Module({
   imports: [DatabaseModule, MailModule],
-  controllers: [AuthController, GoogleController],
+  controllers: [AuthController, GoogleController, PasswordResetController],
   providers: [{ provide: GOOGLE_ENDPOINTS, useValue: googleEndpoints }, {
     provide: AUTH,
     inject: [DRIZZLE_DB, ConfigService, GOOGLE_ENDPOINTS],
@@ -32,7 +34,7 @@ export { AUTH } from './auth.tokens.js';
       GOOGLE_CLIENT_SECRET: config.get('GOOGLE_CLIENT_SECRET', { infer: true }),
       GOOGLE_REDIRECT_URI: config.get('GOOGLE_REDIRECT_URI', { infer: true }),
     }, endpoints),
-  }, AuthService, GoogleSignInService, AuthRateLimiter, SessionGuard, OriginGuard],
+  }, AuthService, GoogleSignInService, PasswordResetService, AuthRateLimiter, SessionGuard, OriginGuard],
   exports: [AUTH, AuthService, SessionGuard, OriginGuard, AuthRateLimiter],
 })
 export class AuthModule {}
