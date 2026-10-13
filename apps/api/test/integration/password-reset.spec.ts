@@ -147,8 +147,9 @@ describe('Forgot and reset password HTTP', () => {
     const submitted = await Promise.all(passwords.map((password) => client.post('/auth/reset-password', { token, password })));
     expect(submitted.map(({ status }) => status).sort()).toEqual([204, 400]);
     // Exactly the password of the submission that won is the password now.
-    const logins = await Promise.all(passwords.map((password) => client.post('/auth/login', { email: owner.email, password })));
-    expect(logins.map(({ status }, index) => status === (submitted[index].status === 204 ? 200 : 401))).toEqual([true, true]);
+    const winner = submitted.findIndex(({ status }) => status === 204);
+    expect((await client.post('/auth/login', { email: owner.email, password: passwords[winner] })).status).toBe(200);
+    expect((await client.post('/auth/login', { email: owner.email, password: passwords[1 - winner] })).status).toBe(401);
   }, 60_000);
 
   it('retires every older link when a new one is requested, also for two requests at once', async () => {
@@ -172,6 +173,7 @@ describe('Forgot and reset password HTTP', () => {
     const racing = [newClient(), newClient()];
     expect((await Promise.all(racing.map((each) => each.post('/auth/forgot-password', { email: racer.email })))).map(({ status }) => status)).toEqual([204, 204]);
     expect((await resetTokens(db, racer.email)).length).toBe(1);
+    // Two sign-ups and ten more requests: measured at 43 s over the local link to Neon, so the usual 60 s leaves too little room.
   }, 90_000);
 
   it('gives an Account that has no password its first one and keeps its other Sign-in method', async () => {
@@ -227,7 +229,8 @@ describe('Forgot and reset password HTTP', () => {
     expect(retryAfter).toBeLessThanOrEqual(60 * 60);
     // The counter is stored under a digest, never under the address itself.
     expect(await db.$count(authRateLimits, like(authRateLimits.key, `%${known}%`))).toBe(0);
-  }, 120_000);
+    // One sign-up and 23 more requests: measured at 46 s over the local link to Neon, so the usual 60 s leaves too little room.
+  }, 90_000);
 
   it('answers the same when the mail cannot be sent, and the next request sends again', async () => {
     const client = newClient();
@@ -279,5 +282,5 @@ describe('Forgot and reset password HTTP', () => {
     expect(resetsSentTo(owner.email).length).toBe(1);
     expect((await client.post('/auth/login', { email: owner.email, password: owner.password })).status).toBe(200);
     expect((await client.post('/auth/reset-password', { token, password })).status).toBe(204);
-  }, 90_000);
+  }, 60_000);
 });

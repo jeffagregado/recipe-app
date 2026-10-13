@@ -3,6 +3,7 @@ import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { LoginLink } from './login-link'
 
+/** What the reset page shows in place of its form when the link cannot be used: a way to ask for another one. */
 export function ResetLinkExpired() {
 	return (
 		<div className="space-y-4">

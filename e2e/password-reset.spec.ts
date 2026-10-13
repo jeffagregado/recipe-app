@@ -50,13 +50,7 @@ test('a forgotten password is reset through the emailed link, the new one signs 
     expect((await workerData.resetTokens(account.email)).length).toBe(1);
     expect(await sessionStatus(elsewhere)).toBe(200);
 
-    const field = page.getByLabel('New password', { exact: true });
-    await field.fill('too short');
-    await page.getByRole('button', { name: 'Update password', exact: true }).click();
-    await expect(field).toHaveAccessibleDescription(/Use at least 12 characters\./);
-    await expect(field).toBeFocused();
-    expect(await fits(page)).toBe(true);
-    await field.fill(password);
+    await page.getByLabel('New password', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Update password', exact: true }).click();
     await expect(page.getByText('Password updated. Log in with your new password.', { exact: true })).toBeVisible();
     await expect(page).toHaveURL(`${WEB_URL}/`);

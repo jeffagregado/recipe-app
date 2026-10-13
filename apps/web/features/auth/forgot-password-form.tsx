@@ -6,6 +6,7 @@ import { serviceFailure, type AuthFailure, type ForgotPasswordResult } from './a
 import { forgotPassword } from './actions'
 import { AuthField } from './auth-field'
 
+/** Asks for a reset link. The confirmation is the same for every address, so it never says whether an Account exists. */
 export function ForgotPasswordForm() {
 	const fieldId = `${useId()}-email`
 	const input = useRef<HTMLInputElement>(null)

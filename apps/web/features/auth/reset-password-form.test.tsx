@@ -56,7 +56,7 @@ it.each([
 	expect(screen.getByRole('button', { name: 'Update password' })).toBeEnabled()
 })
 
-it.each([undefined, '', 'x'.repeat(129)])('shows the expired state for a malformed token without calling the action', (token) => {
+it.each([undefined, ''])('shows the expired state for a link without a token (%j) without calling the action', (token) => {
 	render(<ResetPasswordForm token={token} />)
 	expect(screen.getByText('This link has expired or was already used.')).toBeInTheDocument()
 	expect(screen.getByRole('link', { name: 'Request a new link' })).toHaveAttribute('href', '/forgot-password')

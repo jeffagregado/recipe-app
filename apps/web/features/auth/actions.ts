@@ -6,7 +6,7 @@ import { redirect } from 'next/navigation'
 import type { ZodError } from 'zod'
 import { withNotice } from '@/lib/notice'
 import { authFetch } from './api'
-import { mapAuthError, publicFailure, serviceFailure, type AuthFailure, type AuthMutation, type ForgotPasswordResult, type LogoutResult, type ResendVerificationResult } from './action-result'
+import { mapAuthError, publicFailure, RESET_LINK_INVALID, serviceFailure, type AuthFailure, type AuthMutation, type ForgotPasswordResult, type LogoutResult, type ResendVerificationResult } from './action-result'
 import { rememberPendingVerification } from './pending-verification'
 import { applySessionCookies, clearSessionCookies, sessionCookieHeader } from './session-cookie'
 
@@ -104,11 +104,16 @@ export async function forgotPassword(input: unknown): Promise<ForgotPasswordResu
 	return error ?? { ok: true }
 }
 
+/**
+ * Sends the token from the emailed link with the new password. Every session of the Account ends, this browser's
+ * included, and none is created: the person lands on the login page.
+ */
 export async function resetPassword(input: unknown): Promise<AuthFailure> {
 	const parsed = resetPasswordSchema.safeParse(input)
 	if (!parsed.success) {
-		if (parsed.error.issues.some((issue) => issue.path[0] === 'token' || issue.path.length === 0 && issue.code === 'invalid_type')) return { ok: false, code: 'RESET_LINK_INVALID', message: 'This link has expired or was already used.' }
-		return validationFailure(parsed.error)
+		// The password is the only field a person typed. Anything else wrong means the link itself is unusable.
+		const failure = validationFailure(parsed.error)
+		return failure.fieldErrors?.password ? failure : RESET_LINK_INVALID
 	}
 	const error = await mutate('reset-password', parsed.data)
 	if (error) return error

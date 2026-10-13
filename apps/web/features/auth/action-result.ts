@@ -8,6 +8,8 @@ export type ForgotPasswordResult = { ok: true } | AuthFailure
 export type AuthMutation = 'signup' | 'login' | 'logout' | 'resend-verification' | 'forgot-password' | 'reset-password'
 
 const INVALID_LOGIN: AuthFailure = { ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' }
+/** One answer for an expired, used, unknown and malformed reset token. */
+export const RESET_LINK_INVALID: AuthFailure = { ok: false, code: 'RESET_LINK_INVALID', message: 'This link has expired or was already used.' }
 
 const SERVICE_MESSAGES: Record<AuthMutation, string> = {
 	signup: 'We could not confirm signup. Your account may have been created; try logging in with your email. Do not submit signup again automatically.',
@@ -37,7 +39,7 @@ function rateLimitMessage(operation: AuthMutation): string {
 export function mapAuthError(status: number, payload: unknown, operation: AuthMutation = 'login'): AuthFailure {
 	const parsed = authErrorResponseSchema.safeParse(payload)
 	if (!parsed.success) return serviceFailure(operation)
-	if (status === 400 && parsed.data.code === 'RESET_LINK_INVALID') return { ok: false, code: 'RESET_LINK_INVALID', message: 'This link has expired or was already used.' }
+	if (status === 400 && parsed.data.code === 'RESET_LINK_INVALID') return RESET_LINK_INVALID
 	if (status === 401 && parsed.data.code === 'INVALID_CREDENTIALS') return INVALID_LOGIN
 	if (status === 409 && parsed.data.code === 'EMAIL_ALREADY_EXISTS') return { ok: false, code: 'EMAIL_ALREADY_EXISTS', message: 'Email already exists.', fieldErrors: { email: ['Email already exists.'] } }
 	if (status === 429) return { ok: false, code: 'RATE_LIMITED', message: rateLimitMessage(operation) }

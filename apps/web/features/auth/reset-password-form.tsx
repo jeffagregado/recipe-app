@@ -1,6 +1,6 @@
 'use client'
 
-import { passwordSchema, resetPasswordSchema } from '@recipe-app/contracts/schemas'
+import { passwordSchema } from '@recipe-app/contracts/schemas'
 import { useId, useRef, useState, useTransition, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { resetPassword } from './actions'
@@ -8,6 +8,10 @@ import { AuthField } from './auth-field'
 import { ResetLinkExpired } from './reset-link-expired'
 import { submitAuth } from './submit-auth'
 
+/**
+ * The form behind the emailed reset link. Rendering it calls nothing: the token is sent, and used up, only on submit. A
+ * link without a token, or one the API refuses, shows the expired state instead.
+ */
 export function ResetPasswordForm({ token }: { token?: string }) {
 	const fieldId = `${useId()}-password`
 	const input = useRef<HTMLInputElement>(null)
@@ -18,9 +22,7 @@ export function ResetPasswordForm({ token }: { token?: string }) {
 	const [pending, startTransition] = useTransition()
 	const [expired, setExpired] = useState(false)
 	const toggleText = showPassword ? 'Hide' : 'Show'
-	const parsedInput = resetPasswordSchema.safeParse({ token, password })
-	const invalidToken = !parsedInput.success && parsedInput.error.issues.some((issue) => issue.path[0] === 'token')
-	if (invalidToken || expired) return <ResetLinkExpired />
+	if (!token || expired) return <ResetLinkExpired />
 
 	async function update() {
 		const result = await submitAuth(() => resetPassword({ token, password }), 'reset-password', () => setPassword(''))
