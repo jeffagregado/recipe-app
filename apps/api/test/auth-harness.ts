@@ -127,7 +127,7 @@ export async function removeTestData(db: DrizzleDb, data: { emails: string[]; ad
   if (data.emails.length > 0) {
     // Verification links name their Account without a foreign key, so they go before the users they belong to.
     const owners = db.select({ id: users.id }).from(users).where(inArray(users.email, data.emails));
-    accountKeys = (await owners).map(({ id }) => rateLimitKey('change-password:user', id));
+    accountKeys = (await owners).flatMap(({ id }) => ['change-password:user', 'sign-in-methods:user'].map((scope) => rateLimitKey(scope, id)));
     await db.delete(authVerifications).where(inArray(authVerifications.value, owners));
     await db.delete(users).where(inArray(users.email, data.emails));
   }

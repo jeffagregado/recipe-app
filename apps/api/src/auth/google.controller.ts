@@ -1,7 +1,7 @@
 import type { ServerResponse } from 'node:http';
 import { Body, Controller, HttpCode, Post, Req, Res, UseFilters, UseGuards } from '@nestjs/common';
 import { googleCallbackSchema, googleStartSchema } from '@recipe-app/contracts/schemas';
-import type { GoogleStartResponse } from '@recipe-app/contracts/types';
+import type { GoogleCallbackResponse, GoogleStartResponse } from '@recipe-app/contracts/types';
 import { AuthFilter } from './auth.filter.js';
 import { AuthRateLimiter, rateLimitKey } from './auth.rate-limit.js';
 import { clientAddress } from './auth.request.js';
@@ -29,12 +29,20 @@ export class GoogleController {
     return { url };
   }
 
-  /** No origin check: Google sends the browser here by a cross-site redirect, and the state with its cookie is the proof. */
+  /**
+   * No origin check: Google sends the browser here by a cross-site redirect, and the state with its cookie is the proof.
+   * A sign-in answers 204 with the session cookie; a connect answers 200 with a body and no cookie, so the web can tell
+   * which one it forwarded. The status differs by outcome, which is why the response is written here.
+   */
   @Post('callback')
-  @HttpCode(204)
-  async callback(@Body() body: unknown, @Req() request: AuthRequest, @Res({ passthrough: true }) response: ServerResponse): Promise<void> {
+  async callback(@Body() body: unknown, @Req() request: AuthRequest, @Res() response: ServerResponse): Promise<void> {
     const input = validateAuth(googleCallbackSchema, body);
     await this.limiter.consume(rateLimitKey('google-callback:address', clientAddress(request)), { limit: 30, windowMs: WINDOW_MS });
-    response.setHeader('Set-Cookie', await this.google.complete(input, request));
+    const completion = await this.google.complete(input, request);
+    if (completion.flow === 'sign-in') {
+      response.writeHead(204, { 'Set-Cookie': completion.cookie }).end();
+      return;
+    }
+    response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify({ connected: true } satisfies GoogleCallbackResponse));
   }
 }

@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, like, ne } from 'drizzle-orm';
 import type { AuthUser, ChangePasswordInput, UpdateDisplayNameInput } from '@recipe-app/contracts/types';
-import { AuthError, invalidCurrentPassword, passwordAlreadySet, unauthenticated, unavailable } from '../auth/auth.errors.js';
+import { AuthError, invalidCurrentPassword, passwordAlreadySet, passwordRequired, unauthenticated, unavailable } from '../auth/auth.errors.js';
+import { GOOGLE_PROVIDER_ID } from '../auth/auth.google.js';
 import type { RecipeAuth } from '../auth/auth.js';
 import { AuthRateLimiter, rateLimitKey } from '../auth/auth.rate-limit.js';
 import { RESET_IDENTIFIERS, RESET_LINKS_PER_EMAIL } from '../auth/auth.reset.js';
@@ -86,5 +87,24 @@ export class AccountService {
     const { scope, ...limit } = RESET_LINKS_PER_EMAIL;
     await this.limiter.consume(rateLimitKey(scope, account.email), limit);
     try { await this.reset.sendLink(account, origin); } catch (cause) { throw unavailable('request-set-password', cause); }
+  }
+
+  /**
+   * Removes the Account's Google identity while a password remains, and keeps every session. The password record is
+   * locked for the length of the check and the delete, so nothing can take the password away between the two and leave
+   * the Account without a Sign-in method. An Account with no Google identity is already where this ends.
+   */
+  async disconnectGoogle(userId: string): Promise<void> {
+    let allowed: boolean;
+    try {
+      allowed = await this.db.transaction(async (tx) => {
+        const [credential] = await tx.select({ hasPassword }).from(authAccounts)
+          .where(and(eq(authAccounts.userId, userId), eq(authAccounts.providerId, CREDENTIAL_PROVIDER))).limit(1).for('update');
+        if (!credential?.hasPassword) return false;
+        await tx.delete(authAccounts).where(and(eq(authAccounts.userId, userId), eq(authAccounts.providerId, GOOGLE_PROVIDER_ID)));
+        return true;
+      });
+    } catch (cause) { throw unavailable('disconnect-google', cause); }
+    if (!allowed) throw passwordRequired();
   }
 }

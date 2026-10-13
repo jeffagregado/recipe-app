@@ -115,7 +115,7 @@ describe('Sign in with Google', () => {
 
     const session = await client.get('/auth/session', { cookie: cookiePair(response) });
     expect(session.status).toBe(200);
-    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: row!.id, displayName: 'Ana Google', hasPassword: false });
+    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: row!.id, displayName: 'Ana Google', hasPassword: false, google: { email: person.email } });
 
     // Compared without printing either side: a failure must not put the verifier in the log.
     // The exchange named the web callback and proved possession of the verifier behind the challenge Google was shown.
@@ -210,7 +210,7 @@ describe('Sign in with Google', () => {
     expect(cookies[0].startsWith('better-auth.session_token=')).toBe(true);
     const session = await client.get('/auth/session', { cookie: cookiePair(response) });
     // Signed in through Google, and the password chosen at sign-up is still one of the Account's two Sign-in methods.
-    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: user.id, displayName: 'Temporary verification', hasPassword: true });
+    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: user.id, displayName: 'Temporary verification', hasPassword: true, google: { email } });
 
     expect(await db.$count(users, eq(users.email, email))).toBe(1);
     expect(await db.$count(authAccounts, eq(authAccounts.accountId, person.sub))).toBe(1);
@@ -309,7 +309,7 @@ describe('Sign in with Google', () => {
     expect(response.status).toBe(204);
     const session = await client.get('/auth/session', { cookie: cookiePair(response) });
     // Created by Google and never given a password: moving its email adds no Sign-in method.
-    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: row!.id, displayName: 'Ana Google', hasPassword: false });
+    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: row!.id, displayName: 'Ana Google', hasPassword: false, google: { email: person.email } });
     // No Account was created for the Google address, and the changed address was left as it is.
     expect(await db.$count(users, eq(users.email, person.email))).toBe(0);
     expect(await db.$count(authAccounts, eq(authAccounts.accountId, person.sub))).toBe(1);
@@ -327,7 +327,7 @@ describe('Sign in with Google', () => {
     const session = await client.get('/auth/session', { cookie: cookiePair(response) });
     const created = await userOf(person.email);
     // The new Account is Google-created and has no password; the password belongs to the other Account.
-    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: created!.id, displayName: 'Ana Google', hasPassword: false });
+    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: created!.id, displayName: 'Ana Google', hasPassword: false, google: { email: person.email } });
     expect(created!.id).not.toBe(signedIn.user.id);
     expect(created?.accounts.map(({ providerId, accountId }) => ({ providerId, accountId }))).toEqual([{ providerId: 'google', accountId: person.sub }]);
     expect((await userOf(signedIn.email))?.accounts.map(({ providerId }) => providerId)).toEqual(['credential']);

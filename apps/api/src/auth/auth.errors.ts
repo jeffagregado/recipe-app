@@ -29,3 +29,16 @@ export const verificationLinkInvalid = () => new AuthError(400, 'VERIFICATION_LI
 /** Answered only to the signed-in Account itself, and named on the field so the form can show it there. */
 export const invalidCurrentPassword = () => new AuthError(400, 'INVALID_CURRENT_PASSWORD', 'Current password is incorrect.', { fieldErrors: { currentPassword: ['Current password is incorrect.'] } });
 export const passwordAlreadySet = () => new AuthError(409, 'PASSWORD_ALREADY_SET', 'This Account already has a password.');
+/** The sign-in refusal of ADR 0003 under a code of its own, so the web returns a connect to Settings and a sign-in to login. */
+export const googleConnectEmailNotVerified = () => new AuthError(403, 'GOOGLE_CONNECT_EMAIL_NOT_VERIFIED', 'Google has not verified this email address.');
+/** A Google identity is a Sign-in method of one Account only. */
+export const googleAlreadyLinked = () => new AuthError(409, 'GOOGLE_ALREADY_LINKED', 'This Google account is already connected to another Account.');
+/** An Account holds at most one Google identity. */
+export const googleAlreadyConnected = () => new AuthError(409, 'GOOGLE_ALREADY_LINKED', 'Google is already connected to this Account.');
+/** One answer for a connect that cannot start or finish, a missing starting session included; the log keeps the cause. */
+export function googleConnectFailed(operation: string, cause: unknown): AuthError {
+  logAuthFailure(operation, cause);
+  return new AuthError(400, 'GOOGLE_CONNECT_FAILED', 'Could not connect Google. Try again.', { cause });
+}
+/** The last Sign-in method is never removed: Google goes only while a password remains. */
+export const passwordRequired = () => new AuthError(409, 'PASSWORD_REQUIRED', 'Set a password first.');

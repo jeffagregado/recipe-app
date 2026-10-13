@@ -86,12 +86,12 @@ export class AuthService {
   }
 
   async login(input: LoginInput, request: AuthRequest): Promise<{ user: AuthUser; cookie: string }> {
+    let signedIn: { userId: string; cookie: string };
     try {
       const { response, headers } = await this.credentialPolicy.execute(() => this.auth.api.signInEmail({
         body: { email: input.email, password: input.password }, headers: authHeaders(request), returnHeaders: true,
       }));
-      // Signed in with a password, so the Account has one.
-      return { user: { id: response.user.id, displayName: response.user.name, hasPassword: true }, cookie: await this.sessionCookie(headers) };
+      signedIn = { userId: response.user.id, cookie: await this.sessionCookie(headers) };
     } catch (cause) {
       // Better Auth checks the password first, so this code is only ever given to someone who knows it.
       if (cause instanceof APIError && cause.body?.code === 'EMAIL_NOT_VERIFIED') throw emailNotVerified(cause);
@@ -100,13 +100,16 @@ export class AuthService {
       }
       throw unavailable('login', cause);
     }
+    // The Settings fields are read like every other public user, so login and the session read cannot disagree.
+    const user = await this.publicUser(signedIn.userId, 'login');
+    if (!user) throw unavailable('login', new Error('Account missing after login.'));
+    return { user, cookie: signedIn.cookie };
   }
 
   async session(request: AuthRequest): Promise<AuthSessionResponse> {
     const session = await this.readSession(request, 'session');
     if (!session) throw unauthenticated();
-    let user: AuthUser | undefined;
-    try { user = await readPublicUser(this.db, session.user.id); } catch (cause) { throw unavailable('session', cause); }
+    const user = await this.publicUser(session.user.id, 'session');
     // The Account was deleted between the two reads.
     if (!user) throw unauthenticated();
     return { user, expiresAt: session.session.expiresAt.toISOString() };
@@ -132,6 +135,10 @@ export class AuthService {
       }
       return await this.sessionCookie(headers);
     } catch (cause) { throw unavailable('logout-confirm', cause); }
+  }
+
+  private async publicUser(userId: string, operation: string): Promise<AuthUser | undefined> {
+    try { return await readPublicUser(this.db, userId); } catch (cause) { throw unavailable(operation, cause); }
   }
 
   private async readSession(request: AuthRequest, operation: string) {

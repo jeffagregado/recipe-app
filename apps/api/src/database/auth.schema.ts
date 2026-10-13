@@ -44,10 +44,14 @@ export const authAccounts = pgTable('auth_accounts', {
   refreshTokenExpiresAt: time('refresh_token_expires_at'),
   scope: text('scope'),
   password: text('password'),
+  // Not a Better Auth field: the address Google reported for the identity, kept so Settings can name it (issue #52).
+  providerEmail: text('provider_email'),
   ...timestamps(),
 }, (t) => [
   primaryKey({ name: 'auth_accounts_pkey', columns: [t.id] }),
   unique('auth_accounts_provider_account_key').on(t.providerId, t.accountId),
+  // An Account has at most one password and at most one Google identity, whatever two requests do at once.
+  unique('auth_accounts_user_provider_key').on(t.userId, t.providerId),
   foreignKey({ name: 'auth_accounts_user_id_fkey', columns: [t.userId], foreignColumns: [users.id] }).onDelete('cascade'),
   index('auth_accounts_user_id_idx').on(t.userId),
 ]);
