@@ -17,4 +17,4 @@ export function unavailable(operation: string, cause: unknown): AuthError {
   return new AuthError(503, 'SERVICE_UNAVAILABLE', 'Authentication service unavailable. Try again.', { cause });
 }
 export const unauthenticated = () => new AuthError(401, 'UNAUTHENTICATED', 'Log in to continue.');
-export const usernameUnavailable = () => new AuthError(409, 'USERNAME_UNAVAILABLE', 'Username is unavailable.');
+export const emailAlreadyExists = () => new AuthError(409, 'EMAIL_ALREADY_EXISTS', 'Email already exists.');

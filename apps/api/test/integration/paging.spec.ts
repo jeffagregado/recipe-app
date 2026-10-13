@@ -12,7 +12,7 @@ import { DatabaseService } from '../../src/database/database.service.js';
 import { favorites, recipes } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
 import { createReadDeadline } from '../../src/recipes/recipe-read-deadline.js';
-import { apiClient, insertOwnedRecipes, ownedId, removeTestData, signupUser, startApi, testAddress, testUsername } from '../auth-harness.js';
+import { apiClient, insertOwnedRecipes, ownedId, removeTestData, signupUser, startApi, testAddress, testEmail } from '../auth-harness.js';
 
 describe('Owner-scoped SQL recipe pagination', () => {
   let app: NestExpressApplication;
@@ -33,24 +33,24 @@ describe('Owner-scoped SQL recipe pagination', () => {
     return category.id;
   }
   const address = testAddress();
-  const username = testUsername();
-  const otherUsername = testUsername();
+  const email = testEmail();
+  const otherEmail = testEmail();
   const tag = `verify-paging-${randomUUID()}`;
   beforeAll(async () => {
     const started = await startApi();
     app = started.app;
     baseUrl = started.baseUrl;
-    ({ user, cookie } = await signupUser(apiClient(baseUrl, address), username));
+    ({ user, cookie } = await signupUser(apiClient(baseUrl, address), email));
     const fetched = await fetchCategories(cookie);
     expect(fetched.map(({ name }) => name)).toEqual(DEFAULT_CATEGORY_NAMES);
     categories = fetched.map((category, index) => ({ ...category, name: DEFAULT_CATEGORY_NAMES[index] }));
-    other = await signupUser(apiClient(baseUrl, address), otherUsername);
+    other = await signupUser(apiClient(baseUrl, address), otherEmail);
     otherCategories = await fetchCategories(other.cookie);
     await insertOwnedRecipes(started.db, user, tag);
   }, 60_000);
   afterAll(async () => {
     if (!app) return;
-    try { await removeTestData(app.get(DatabaseService).db, { usernames: [username, otherUsername], addresses: [address] }); }
+    try { await removeTestData(app.get(DatabaseService).db, { emails: [email, otherEmail], addresses: [address] }); }
     finally { await app.close(); }
   });
 

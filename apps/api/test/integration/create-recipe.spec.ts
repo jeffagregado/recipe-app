@@ -14,7 +14,7 @@ import { reconcileRecipeWrites } from '../../src/recipes/recipe-reconcile.js';
 import { RECIPE_WRITE_LIMIT, RecipeUploadSlots } from '../../src/recipes/recipe-upload.js';
 import { RecipeWriteGuard } from '../../src/recipes/recipe-upload.js';
 import type { RecipeUploadRequest } from '../../src/recipes/recipe-upload.js';
-import { apiClient, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testUsername } from '../auth-harness.js';
+import { apiClient, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
 import { rawRecipeRequest } from '../recipe-http.js';
 import { describePhoto, jpeg as photo, storedPhoto } from '../recipe-photos.js';
 import { recipeRequestHash } from '../../src/recipes/recipe-metadata.js';
@@ -42,7 +42,7 @@ describe('Create recipe and private detail HTTP', () => {
     return category.id;
   });
   const addresses = [testAddress()];
-  const usernames = [testUsername(), testUsername()];
+  const emails = [testEmail(), testEmail()];
   const objectKeys = new Set<string>();
   const canonicalNames = new Set<string>();
   const name = `verification-${randomUUID()}`;
@@ -94,7 +94,7 @@ describe('Create recipe and private detail HTTP', () => {
       objectKeys.add(key); uploaded++; return upload(key, bytes, mime);
     });
     const client = apiClient(baseUrl, addresses[0]);
-    owner = await signupUser(client, usernames[0]); other = await signupUser(client, usernames[1]);
+    owner = await signupUser(client, emails[0]); other = await signupUser(client, emails[1]);
     for (const [who, user] of [['owner', owner], ['other', other]] as const) {
       const response = await fetch(`${baseUrl}/categories`, { headers: { Cookie: user.cookie } });
       expect(response.status).toBe(200);
@@ -117,9 +117,9 @@ describe('Create recipe and private detail HTTP', () => {
       }
       const ids = [owner?.user.id, other?.user.id].filter((id): id is string => Boolean(id));
       if (ids.length) await db.delete(authRateLimits).where(inArray(authRateLimits.key, ids.map((id) => `wrapper:recipe-write:user:${id}`)));
-      await removeTestData(db, { usernames, addresses });
+      await removeTestData(db, { emails, addresses });
       for (const canonical of canonicalNames) await db.delete(ingredients).where(sql`lower(btrim(${ingredients.name})) = ${canonical}`);
-      expect(await db.$count(users, inArray(users.username, usernames))).toBe(0);
+      expect(await db.$count(users, inArray(users.email, emails))).toBe(0);
       if (ids.length) {
         expect(await db.$count(recipes, inArray(recipes.userId, ids))).toBe(0);
         expect(await db.$count(recipeWriteAttempts, inArray(recipeWriteAttempts.userId, ids))).toBe(0);
