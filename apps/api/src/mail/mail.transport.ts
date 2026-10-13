@@ -41,6 +41,7 @@ class ResendMailTransport implements MailTransport {
   constructor(apiKey: string, private readonly from: string) {
     this.client = new Resend(apiKey);
     // The SDK prints every provider error to the console outside production, and a refusal can quote the recipient.
+    // `logError` is private to the SDK: the exact version pin and the unit test that expects no log output guard this override.
     Object.defineProperty(this.client, 'logError', { value: () => undefined });
   }
 

@@ -8,7 +8,7 @@ describe('Mail in the test harness', () => {
   beforeAll(async () => { api = await startApi(); }, 60_000);
   afterAll(async () => { await api?.app.close(); }, 60_000);
 
-  it('records the messages the API sends, whatever the env file configures', async () => {
+  it('records the messages the API sends in order', async () => {
     if (!api) throw new Error('The API did not start.');
     const transport = api.app.get<MailTransport>(MAIL_TRANSPORT);
 

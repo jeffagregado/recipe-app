@@ -42,8 +42,8 @@ const authTrustedOriginsSchema = z.string().optional().transform((value, context
 /** Resend's shared sender; it delivers only to the account owner until a verified domain replaces it. */
 const defaultMailSender = 'Recipe App <onboarding@resend.dev>';
 const mailAddress = String.raw`[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+`;
-/** One address, bare or as `Name <address>`; separators and line breaks would add recipients or headers. */
-const mailSender = new RegExp(String.raw`^(?:${mailAddress}|[^<>,;\r\n]+ <${mailAddress}>)$`);
+/** One address, bare or as `Name <address>`; the name holds no separator, quote, `@` or control character, so it cannot add a recipient or a header. */
+const mailSender = new RegExp(String.raw`^(?:${mailAddress}|[^<>,;"@\p{Cc}]+ <${mailAddress}>)$`, 'u');
 /** An env example line left empty means "not set". */
 const blankAsUnset = (value: unknown) => (typeof value === 'string' && !value.trim() ? undefined : value);
 
@@ -87,7 +87,7 @@ export function validateEnvironment(input: Record<string, unknown>): Environment
   const result = environmentSchema.safeParse(input);
   if (!result.success) {
     const keys = [...new Set(result.error.issues.map((issue) => issue.path[0]))];
-    throw new ConfigurationError(`Invalid API configuration: ${keys.join(', ')}. Check required values and URL formats; PORT must be an integer between 1 and 65535; AUTH_TRUSTED_ORIGINS must list exact http(s) origins and is required in production; MAIL_FROM must be one address, bare or as Name <address>.`);
+    throw new ConfigurationError(`Invalid API configuration: ${keys.join(', ')}. Check required values and URL formats; PORT must be an integer between 1 and 65535; AUTH_TRUSTED_ORIGINS must list exact http(s) origins and is required in production; MAIL_FROM must be one address, bare or as Name <address>; RESEND_API_KEY must not contain whitespace.`);
   }
   return result.data;
 }

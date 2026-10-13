@@ -105,6 +105,9 @@ describe('mail configuration', () => {
     ['a sender without an address', 'MAIL_FROM', 'Kitchen marker-value'],
     ['a sender with two addresses', 'MAIL_FROM', 'a@marker-value.example, b@marker-value.example'],
     ['a sender with a line break', 'MAIL_FROM', 'Kitchen <mail@marker-value.example>\nBcc: x@marker-value.example'],
+    ['a sender whose name holds an address', 'MAIL_FROM', 'a@marker-value.example <mail@marker-value.example>'],
+    ['a sender with an unbalanced quote', 'MAIL_FROM', '"marker-value <mail@marker-value.example>'],
+    ['a sender with a tab in its name', 'MAIL_FROM', 'marker-value	Kitchen <mail@marker-value.example>'],
     ['a key with inner whitespace', 'RESEND_API_KEY', 're_marker-value other'],
   ])('rejects %s with a key-only error that never echoes values', (_name, key, value) => {
     const message = messageOf({ [key]: value });
