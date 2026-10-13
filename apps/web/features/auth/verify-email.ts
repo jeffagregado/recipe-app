@@ -46,7 +46,9 @@ async function verifyEmail(token: string | null, address: string | null): Promis
 export async function handleVerifyEmail(request: Request): Promise<Response> {
 	const url = new URL(request.url)
 	const outcome = await verifyEmail(url.searchParams.get('token'), request.headers.get('x-forwarded-for'))
-	const response = NextResponse.redirect(new URL(DESTINATIONS[outcome], url), { headers: { 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer' } })
+	// A relative Location: the browser resolves it against the address it asked for. The server's view of its own host
+	// can differ (a proxy, or `localhost` for 127.0.0.1), and an absolute redirect there would change origin.
+	const response = new NextResponse(null, { status: 307, headers: { Location: DESTINATIONS[outcome], 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer' } })
 	if (outcome === 'verified') response.cookies.set(PENDING_VERIFICATION_COOKIE, '', pendingVerificationCookie(url.protocol === 'https:', 0))
 	return response
 }

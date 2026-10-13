@@ -14,16 +14,16 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
 const json = (body: unknown, status: number) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Set-Cookie': 'better-auth.session_token=abc; Max-Age=604800; Path=/' } })
-const open = (query: string, headers: Record<string, string> = {}) => GET(new Request(`http://localhost:3000/verify-email${query}`, { headers }))
+const open = (query: string, headers: Record<string, string> = {}) => GET(new Request(`http://internal-host.invalid:3000/verify-email${query}`, { headers }))
 
 it.each([
-	['a verified link', () => new Response(null, { status: 204, headers: { 'Set-Cookie': 'better-auth.session_token=abc; Max-Age=604800; Path=/' } }), 'http://localhost:3000/?notice=email-verified'],
-	['an expired, used or unknown link', () => json({ code: 'VERIFICATION_LINK_INVALID', message: 'raw upstream text' }, 400), 'http://localhost:3000/verify-email/invalid'],
-	['a link the API calls malformed', () => json({ code: 'VALIDATION_FAILED', message: 'raw upstream text' }, 400), 'http://localhost:3000/verify-email/invalid'],
-	['rate limiting', () => json({ code: 'RATE_LIMITED', message: 'raw upstream text' }, 429), 'http://localhost:3000/verify-email/unavailable'],
-	['an unavailable service', () => json({ code: 'SERVICE_UNAVAILABLE', message: 'raw upstream text' }, 503), 'http://localhost:3000/verify-email/unavailable'],
-	['an unparseable response', () => new Response('<html>raw upstream text</html>', { status: 502 }), 'http://localhost:3000/verify-email/unavailable'],
-	['a failed or timed out request', () => Promise.reject(new TypeError('Test transport failed')), 'http://localhost:3000/verify-email/unavailable'],
+	['a verified link', () => new Response(null, { status: 204, headers: { 'Set-Cookie': 'better-auth.session_token=abc; Max-Age=604800; Path=/' } }), '/?notice=email-verified'],
+	['an expired, used or unknown link', () => json({ code: 'VERIFICATION_LINK_INVALID', message: 'raw upstream text' }, 400), '/verify-email/invalid'],
+	['a link the API calls malformed', () => json({ code: 'VALIDATION_FAILED', message: 'raw upstream text' }, 400), '/verify-email/invalid'],
+	['rate limiting', () => json({ code: 'RATE_LIMITED', message: 'raw upstream text' }, 429), '/verify-email/unavailable'],
+	['an unavailable service', () => json({ code: 'SERVICE_UNAVAILABLE', message: 'raw upstream text' }, 503), '/verify-email/unavailable'],
+	['an unparseable response', () => new Response('<html>raw upstream text</html>', { status: 502 }), '/verify-email/unavailable'],
+	['a failed or timed out request', () => Promise.reject(new TypeError('Test transport failed')), '/verify-email/unavailable'],
 ])('redirects after %s without caching, a session cookie or the link value in the log', async (_cause, respond, location) => {
 	fetchMock.mockImplementation(async () => respond())
 	const response = await open(`?token=${TOKEN}`, { 'x-forwarded-for': '203.0.113.9' })
@@ -54,7 +54,7 @@ it.each([
 	['a token longer than 128 characters', `?token=${'a'.repeat(129)}`],
 ])('sends a link with %s to the invalid page without contacting the API', async (_case, query) => {
 	const response = await open(query)
-	expect(response.headers.get('location')).toBe('http://localhost:3000/verify-email/invalid')
+	expect(response.headers.get('location')).toBe('/verify-email/invalid')
 	expect(response.headers.get('cache-control')).toBe('private, no-store')
 	expect(response.headers.getSetCookie()).toEqual([])
 	expect(fetchMock).not.toHaveBeenCalled()
