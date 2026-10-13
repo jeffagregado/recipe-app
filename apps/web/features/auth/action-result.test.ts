@@ -18,6 +18,19 @@ describe('safe action errors', () => {
 		const cause = mapAuthError(413, { code: 'PAYLOAD_TOO_LARGE', message: 'unsafe' }, operation)
 		expect(publicFailure(operation, cause)).toEqual({ ok: false, code: 'PAYLOAD_TOO_LARGE', message: 'This request is too large. Check the form and try again.' })
 	})
+	it('lets an unverified email through login with its own message, ahead of the generic 403', () => {
+		const cause = mapAuthError(403, { code: 'EMAIL_NOT_VERIFIED', message: 'unsafe' }, 'login')
+		expect(cause).toEqual({ ok: false, code: 'EMAIL_NOT_VERIFIED', message: 'Verify your email before logging in.' })
+		expect(publicFailure('login', cause)).toEqual({ ok: false, code: 'EMAIL_NOT_VERIFIED', message: 'Verify your email before logging in.' })
+		expect(publicFailure('login', mapAuthError(403, { code: 'ORIGIN_REJECTED', message: 'unsafe' }, 'login'))).toEqual({ ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' })
+	})
+	it.each([
+		[429, { code: 'RATE_LIMITED', message: 'unsafe' }, { ok: false, code: 'RATE_LIMITED', message: 'You asked for too many emails. Please try again later.' }],
+		[503, { code: 'SERVICE_UNAVAILABLE', message: 'unsafe' }, { ok: false, code: 'SERVICE_UNAVAILABLE', message: 'We could not send the email. Please try again.' }],
+		[500, '<html>unsafe</html>', { ok: false, code: 'SERVICE_UNAVAILABLE', message: 'We could not send the email. Please try again.' }],
+	])('maps a resend answer of %i to its own message', (status, payload, expected) => {
+		expect(mapAuthError(status, payload, 'resend-verification')).toEqual(expected)
+	})
 	it('never suggests replaying an unknown signup outcome', () => {
 		expect(serviceFailure('signup').message).toContain('try logging in with your email')
 	})

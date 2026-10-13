@@ -1,12 +1,22 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { redirect } from 'next/navigation'
+import { Component, type ReactNode } from 'react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AuthForm } from './auth-form'
 
-const actions = vi.hoisted(() => ({ login: vi.fn(), signup: vi.fn() }))
+const actions = vi.hoisted(() => ({ login: vi.fn(), signup: vi.fn(), resendVerification: vi.fn() }))
 vi.mock('@/features/auth/actions', () => actions)
 const testSecret = () => 'x'.repeat(16)
 beforeEach(() => { vi.resetAllMocks() })
+afterEach(() => { vi.unstubAllGlobals() })
+
+/** Stands in for the Next router, which receives the redirect a successful action throws. */
+class Redirected extends Component<{ children: ReactNode }, { done: boolean }> {
+	state = { done: false }
+	static getDerivedStateFromError() { return { done: true } }
+	render() { return this.state.done ? <p>Redirected</p> : this.props.children }
+}
 
 it('validates and focuses the first invalid input without calling the action', async () => {
 	const user = userEvent.setup()
@@ -43,8 +53,51 @@ it('offers the email keyboard and autofill, and submits the email with the passw
 	await user.type(email, 'owner@example.invalid')
 	await user.type(screen.getByLabelText('Password'), testSecret())
 	await user.click(screen.getByRole('button', { name: 'Log in' }))
-	await screen.findByRole('alert')
+	expect(await screen.findByRole('alert')).toHaveTextContent('Invalid email or password')
 	expect(actions.login).toHaveBeenCalledExactlyOnceWith({ email: 'owner@example.invalid', password: testSecret() })
+	expect(screen.queryByRole('button', { name: 'Resend verification email' })).not.toBeInTheDocument()
+})
+
+it('tells an unverified login to verify and resends to the submitted email, until the next attempt', async () => {
+	const user = userEvent.setup()
+	actions.login.mockResolvedValueOnce({ ok: false, code: 'EMAIL_NOT_VERIFIED', message: 'Verify your email before logging in.' })
+	actions.resendVerification.mockResolvedValue({ ok: true })
+	render(<AuthForm />)
+	await user.type(screen.getByLabelText('Email'), ' Owner@Example.invalid')
+	await user.type(screen.getByLabelText('Password'), testSecret())
+	await user.click(screen.getByRole('button', { name: 'Log in' }))
+	expect(await screen.findByRole('alert')).toHaveTextContent('Verify your email before logging in.')
+	await user.click(screen.getByRole('button', { name: 'Resend verification email' }))
+	expect(await screen.findByRole('status')).toHaveTextContent('If that address needs verifying, we sent a new link.')
+	expect(actions.resendVerification).toHaveBeenCalledExactlyOnceWith({ email: 'owner@example.invalid' })
+	expect(actions.login).toHaveBeenCalledOnce()
+	actions.login.mockResolvedValueOnce({ ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' })
+	await user.click(screen.getByRole('button', { name: 'Log in' }))
+	expect(await screen.findByRole('alert')).toHaveTextContent('Invalid email or password')
+	expect(screen.queryByRole('button', { name: 'Resend verification email' })).not.toBeInTheDocument()
+})
+
+// Signup creates no session, so only a login may tell other tabs that one started.
+it.each([
+	['Login', 'Log in', [{ type: 'login' }]],
+	['Sign up', 'Sign up', []],
+])('announces a new session to other tabs after %s only when one was created', async (mode, submit, expected) => {
+	const user = userEvent.setup()
+	const posted: unknown[] = []
+	vi.stubGlobal('BroadcastChannel', class { postMessage = (message: unknown) => { posted.push(message) }; close = () => {} })
+	let redirectError: unknown
+	try { redirect('/') } catch (error) { redirectError = error }
+	actions.login.mockRejectedValue(redirectError)
+	actions.signup.mockRejectedValue(redirectError)
+	vi.spyOn(console, 'error').mockImplementation(() => {})
+	render(<Redirected><AuthForm /></Redirected>)
+	await user.click(screen.getByRole('button', { name: mode }))
+	if (mode === 'Sign up') await user.type(screen.getByLabelText('Display Name'), 'My Kitchen')
+	await user.type(screen.getByLabelText('Email'), 'owner@example.invalid')
+	await user.type(screen.getByLabelText('Password'), testSecret())
+	await user.click(within(screen.getByLabelText('Password').closest('form')!).getByRole('button', { name: submit }))
+	await screen.findByText('Redirected')
+	expect(posted).toEqual(expected)
 })
 
 it('clears password, visibility and errors on mode switch while preserving non-secret fields', async () => {

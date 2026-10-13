@@ -1,7 +1,8 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import { AuthField } from './auth-field'
+import { AuthField } from '@/features/auth/auth-field'
+import { ResendVerification } from '@/features/auth/resend-verification'
 import { useAuthForm } from './use-auth-form'
 
 type ModeSwitchProps = { isSignup: boolean; pending: boolean; onSwitch: (mode: 'login' | 'signup') => void }
@@ -19,7 +20,7 @@ function submitLabel(isSignup: boolean, pending: boolean) {
 }
 
 export function AuthForm() {
-	const { isSignup, pending, showPassword, setShowPassword, message, errors, register, switchMode, submit } = useAuthForm()
+	const { isSignup, pending, showPassword, setShowPassword, message, unverifiedEmail, errors, register, switchMode, submit } = useAuthForm()
 	const label = submitLabel(isSignup, pending)
 	return <div className="space-y-6">
 		<ModeSwitch isSignup={isSignup} pending={pending} onSwitch={switchMode} />
@@ -30,6 +31,7 @@ export function AuthForm() {
 				<Button type="button" variant="ghost" className="absolute inset-y-0 right-0 min-h-11 min-w-16" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onClick={() => setShowPassword((current) => !current)}>{showPassword ? 'Hide' : 'Show'}</Button>
 			</AuthField>
 			{message && <p role="alert" className="text-sm text-destructive wrap-break-word">{message}</p>}
+			{unverifiedEmail && <ResendVerification key={unverifiedEmail} email={unverifiedEmail} />}
 			<Button type="submit" className="min-h-11 w-full" disabled={pending}><span aria-live="polite">{label}</span></Button>
 		</form>
 	</div>
