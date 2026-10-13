@@ -11,6 +11,14 @@ const testSecret = () => 'x'.repeat(16)
 beforeEach(() => { vi.resetAllMocks() })
 afterEach(() => { vi.unstubAllGlobals() })
 
+it('offers the forgot-password link in Login mode only', async () => {
+	const user = userEvent.setup()
+	render(<AuthForm />)
+	expect(screen.getByRole('link', { name: 'Forgot password?' })).toHaveAttribute('href', '/forgot-password')
+	await user.click(screen.getByRole('button', { name: 'Sign up' }))
+	expect(screen.queryByRole('link', { name: 'Forgot password?' })).not.toBeInTheDocument()
+})
+
 /** Stands in for the Next router, which receives the redirect a successful action throws. */
 class Redirected extends Component<{ children: ReactNode }, { done: boolean }> {
 	state = { done: false }

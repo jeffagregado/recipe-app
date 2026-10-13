@@ -3,7 +3,7 @@ import { NOTICE_MESSAGES, noticeMessage, urlWithoutNotice, withNotice } from './
 
 describe('noticeMessage', () => {
 	it('maps every known code to its toast text', () => {
-		expect(NOTICE_MESSAGES).toEqual({ 'recipe-saved': 'Recipe saved', 'recipe-updated': 'Recipe updated', 'recipe-deleted': 'Recipe deleted', 'email-verified': 'Email verified. Log in to continue.' })
+		expect(NOTICE_MESSAGES).toEqual({ 'recipe-saved': 'Recipe saved', 'recipe-updated': 'Recipe updated', 'recipe-deleted': 'Recipe deleted', 'email-verified': 'Email verified. Log in to continue.', 'password-reset': 'Password updated. Log in with your new password.' })
 		expect(noticeMessage('recipe-saved')).toBe('Recipe saved')
 	})
 
