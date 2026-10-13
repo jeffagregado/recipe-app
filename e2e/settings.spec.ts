@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import type { Locator, Page } from '@playwright/test';
+import { authAccounts } from '../apps/api/src/database/schema.js';
 import { addSession, creatorTest as test, expect, WEB_URL } from './fixtures.js';
 import { noOverflow, toast, waitHydrated, watchConsole } from './create-recipe-helpers.js';
 
-// Settings: the page shell and its cards, Display name (#49) and Password (#50).
+// Settings: the page shell and its cards, Display name (#49), Password (#50) and Sign-in methods (#52).
 const card = (page: Page) => page.getByRole('region', { name: 'Display name', exact: true });
 const nameInput = (page: Page) => card(page).getByRole('textbox', { name: 'Display name', exact: true });
 const save = (page: Page) => card(page).getByRole('button', { name: 'Save name', exact: true });
@@ -10,6 +12,9 @@ const passwordCard = (page: Page) => page.getByRole('region', { name: 'Password'
 const currentPassword = (page: Page) => passwordCard(page).getByLabel('Current password', { exact: true });
 const newPassword = (page: Page) => passwordCard(page).getByLabel('New password', { exact: true });
 const changePassword = (page: Page) => passwordCard(page).getByRole('button', { name: 'Change password', exact: true });
+const methodsCard = (page: Page) => page.getByRole('region', { name: 'Sign-in methods', exact: true });
+const connectGoogle = (page: Page) => methodsCard(page).getByRole('button', { name: 'Connect Google', exact: true });
+const disconnectGoogle = (page: Page) => methodsCard(page).getByRole('button', { name: 'Disconnect Google', exact: true });
 const sidebar = (page: Page) => page.getByRole('complementary');
 const mainNav = (page: Page) => page.getByRole('navigation', { name: 'Main', exact: true });
 const box = async (locator: Locator) => (await locator.boundingBox())!;
@@ -103,6 +108,49 @@ test('password journey: changing the password keeps this browser signed in and s
   } finally { await elsewhere.close(); }
 });
 
+test('sign-in methods journey: a connected Google account is disconnected after the confirm dialog and this browser stays signed in', async ({ page, context, creator, workerData }) => {
+  // The Google flow itself needs Google, or the stand-in that only the API integration suite can inject; that suite owns
+  // connecting. Here the identity is attached the way a completed connect leaves it.
+  const address = `ana.${randomUUID().slice(0, 8)}@gmail.example`;
+  await workerData.db.insert(authAccounts).values({ accountId: randomUUID(), providerId: 'google', userId: creator.user.id, providerEmail: address });
+  // The narrowest phone, where the design draws the connected row and the dialog.
+  await page.setViewportSize({ width: 320, height: 844 });
+  await openSettings(page);
+  await expect(methodsCard(page).getByText('You always keep at least one way in.', { exact: true })).toBeVisible();
+  await expect(methodsCard(page).getByRole('listitem').filter({ hasText: 'Password' })).toContainText('Set');
+  await expect(methodsCard(page).getByRole('listitem').filter({ hasText: 'Google' })).toContainText(`Google · ${address}`);
+  // The last card on the page.
+  const [methodsBox, buttonBox] = [await box(methodsCard(page)), await box(disconnectGoogle(page))];
+  expect(methodsBox.y).toBeGreaterThan((await box(passwordCard(page))).y);
+  // The address wraps inside its row: the button keeps its 44px and stays in the card, and the page does not scroll sideways.
+  expect(buttonBox.height).toBeGreaterThanOrEqual(44);
+  expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(methodsBox.x + methodsBox.width);
+  expect(await noOverflow(page)).toBe(true);
+
+  // Declined from the keyboard: Escape keeps Google and hands focus back.
+  await disconnectGoogle(page).focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('alertdialog', { name: 'Disconnect Google?', exact: true });
+  await expect(dialog.getByText('You’ll sign in with your email and password from now on.', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(disconnectGoogle(page)).toBeFocused();
+
+  await disconnectGoogle(page).click();
+  await dialog.getByRole('button', { name: 'Disconnect', exact: true }).click();
+  const notice = toast.success(page, 'Google disconnected');
+  await expect(notice).toBeVisible();
+  // The card now offers to connect, without a reload, and the address is gone.
+  await expect(connectGoogle(page)).toBeVisible();
+  await expect(methodsCard(page).getByText(address)).toHaveCount(0);
+  await toast.dismiss(notice).click();
+
+  expect((await context.request.get('/backend/auth/session')).status()).toBe(200);
+  await page.reload();
+  await expect(page).toHaveURL(`${WEB_URL}/settings`);
+  await expect(connectGoogle(page)).toBeVisible();
+});
+
 for (const width of [320, 390, 768]) {
   test(`at ${width}px the page fits, Settings is the current tab and the card saves above the tab bar`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
@@ -124,6 +172,15 @@ for (const width of [320, 390, 768]) {
     for (const control of [currentPassword(page), newPassword(page), changePassword(page)]) expect((await box(control)).height).toBeGreaterThanOrEqual(44);
     await expect(changePassword(page)).toBeDisabled();
     expect(saveBox.y + saveBox.height).toBeLessThanOrEqual(barBox.y);
+    // The Sign-in methods card is last, with the same width; its one control is 44px and its rows stay inside the card.
+    const methodsBox = await box(methodsCard(page));
+    expect(methodsBox.y).toBeGreaterThanOrEqual(passwordBox.y + passwordBox.height);
+    expect(methodsBox.x).toBe(cardBox.x);
+    expect(methodsBox.width).toBe(cardBox.width);
+    await expect(methodsCard(page).getByRole('listitem').filter({ hasText: 'Password' })).toContainText('Set');
+    const connectBox = await box(connectGoogle(page));
+    expect(connectBox.height).toBeGreaterThanOrEqual(44);
+    expect(connectBox.x + connectBox.width).toBeLessThanOrEqual(methodsBox.x + methodsBox.width);
 
     await nameInput(page).fill(`Narrow ${width}`);
     await save(page).click();
