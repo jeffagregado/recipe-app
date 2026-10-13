@@ -3,10 +3,9 @@ import { z } from "zod";
 import {
   AUTH_ERROR_CODES,
   DISPLAY_NAME_MAX_LENGTH,
+  EMAIL_MAX_LENGTH,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
-  USERNAME_MAX_LENGTH,
-  USERNAME_MIN_LENGTH,
   type AuthErrorResponse,
   type AuthSessionResponse,
   type AuthUser,
@@ -17,18 +16,11 @@ import {
 
 import { entityIdSchema, isoDateStringSchema } from "./common.schema.js";
 
-// Dot-separated runs keep leading, trailing and consecutive dots out of the internal email local part.
-const USERNAME_PATTERN = /^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/;
-
-/** Validates an already trimmed and lowercased username. */
-export function isNormalizedUsername(value: string): boolean {
-  return value.length >= USERNAME_MIN_LENGTH && value.length <= USERNAME_MAX_LENGTH && USERNAME_PATTERN.test(value);
-}
-
-export const usernameSchema: z.ZodType<string, string> = z.string().trim().toLowerCase()
-  .min(USERNAME_MIN_LENGTH, `Use at least ${USERNAME_MIN_LENGTH} characters.`)
-  .max(USERNAME_MAX_LENGTH, `Use at most ${USERNAME_MAX_LENGTH} characters.`)
-  .regex(USERNAME_PATTERN, "Use letters, digits, underscores or single dots between characters.");
+// Trimmed and lowercased before validation, so one address has one stored form.
+export const emailSchema: z.ZodType<string, string> = z.string().trim().toLowerCase()
+  .min(1, "Enter your email.")
+  .max(EMAIL_MAX_LENGTH, `Use at most ${EMAIL_MAX_LENGTH} characters.`)
+  .regex(z.regexes.email, "Enter a valid email address.");
 
 export const displayNameSchema: z.ZodType<string, string> = z.string().trim()
   .min(1, "Enter a display name.")
@@ -42,13 +34,13 @@ export const passwordSchema: z.ZodType<string, string> = z.string()
 
 export const signupSchema: z.ZodType<SignupInput, SignupInput> = z.strictObject({
   displayName: displayNameSchema,
-  username: usernameSchema,
+  email: emailSchema,
   password: passwordSchema,
 });
 
 // Any non-empty password reaches verification so wrong and unknown credentials fail identically.
 export const loginSchema: z.ZodType<LoginInput, LoginInput> = z.strictObject({
-  username: usernameSchema,
+  email: emailSchema,
   password: z.string().min(1, "Enter your password.").max(PASSWORD_MAX_LENGTH, `Use at most ${PASSWORD_MAX_LENGTH} characters.`),
 });
 
@@ -57,7 +49,6 @@ export const logoutSchema = z.strictObject({});
 export const authUserSchema: z.ZodType<AuthUser> = z.strictObject({
   id: entityIdSchema,
   displayName: z.string().min(1).max(DISPLAY_NAME_MAX_LENGTH),
-  username: z.string().refine(isNormalizedUsername),
 });
 
 export const authUserResponseSchema: z.ZodType<AuthUserResponse> = z.strictObject({
