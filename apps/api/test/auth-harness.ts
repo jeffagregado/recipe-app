@@ -1,14 +1,15 @@
 import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { eq, inArray, like, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, like, or } from 'drizzle-orm';
 import { authUserResponseSchema } from '@recipe-app/contracts/schemas';
 import type { AuthUser } from '@recipe-app/contracts/types';
 import { mountAuth } from '../src/auth/auth.http.js';
 import { rateLimitKey } from '../src/auth/auth.rate-limit.js';
+import { tokenOfIdentifier, VERIFICATION_IDENTIFIERS } from '../src/auth/auth.verification.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import type { DrizzleDb } from '../src/database/database.service.js';
-import { authRateLimits, categories, recipeCategories, recipes, users } from '../src/database/schema.js';
+import { authRateLimits, authVerifications, categories, recipeCategories, recipes, users } from '../src/database/schema.js';
 import type { SeedRecipe } from '../src/recipes/fixtures/fixture.js';
 import { seedRecipes } from '../src/recipes/seed-recipes.js';
 import { getDevDatabaseUrl } from './neon-dev.js';
@@ -66,11 +67,31 @@ export function apiClient(baseUrl: string, defaultAddress: string, defaultOrigin
 /** Name=value pairs for a Cookie header; attributes stay on the response under test. */
 export const cookiePair = (response: Response) => response.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ');
 
-export async function signupUser(client: ReturnType<typeof apiClient>, email = testEmail(), password = testPassword()) {
-  const response = await client.post('/auth/signup', { displayName: 'Temporary verification', email, password });
-  if (response.status !== 201) throw new Error(`Temporary signup failed with HTTP ${response.status}.`);
-  const { user } = authUserResponseSchema.parse(await response.json());
-  return { user, email, password, cookie: cookiePair(response) };
+/** The tokens of the links still stored for an address, newest first. The verifications table is the agreed seam for links. */
+export async function verificationTokens(db: DrizzleDb, email: string): Promise<string[]> {
+  const rows = await db.select({ identifier: authVerifications.identifier }).from(authVerifications)
+    .innerJoin(users, eq(users.id, authVerifications.value))
+    .where(and(eq(users.email, email), like(authVerifications.identifier, VERIFICATION_IDENTIFIERS)))
+    .orderBy(desc(authVerifications.createdAt));
+  return rows.map(({ identifier }) => tokenOfIdentifier(identifier));
+}
+
+export async function latestVerificationToken(db: DrizzleDb, email: string): Promise<string> {
+  const [token] = await verificationTokens(db, email);
+  if (!token) throw new Error('No verification link is stored for the temporary account.');
+  return token;
+}
+
+/** Signs up, opens the stored verification link and logs in: the one place a suite gets a session for a new Account. */
+export async function signupUser(client: ReturnType<typeof apiClient>, db: DrizzleDb, email = testEmail(), password = testPassword()) {
+  const signup = await client.post('/auth/signup', { displayName: 'Temporary verification', email, password });
+  if (signup.status !== 201) throw new Error(`Temporary signup failed with HTTP ${signup.status}.`);
+  const verification = await client.post('/auth/verify-email', { token: await latestVerificationToken(db, email) });
+  if (verification.status !== 204) throw new Error(`Temporary verification failed with HTTP ${verification.status}.`);
+  const login = await client.post('/auth/login', { email, password });
+  if (login.status !== 200) throw new Error(`Temporary login failed with HTTP ${login.status}.`);
+  const { user } = authUserResponseSchema.parse(await login.json());
+  return { user, email, password, cookie: cookiePair(login) };
 }
 
 export const ownedId = (tag: string, id: string) => `${tag}-${id}`;
@@ -92,10 +113,15 @@ export async function insertOwnedRecipes(db: DrizzleDb, user: Pick<AuthUser, 'id
 
 /** Removes temporary users (cascading sessions, accounts and recipes) and their wrapper counters. */
 export async function removeTestData(db: DrizzleDb, data: { emails: string[]; addresses: string[] }): Promise<void> {
-  if (data.emails.length > 0) await db.delete(users).where(inArray(users.email, data.emails));
+  if (data.emails.length > 0) {
+    // Verification links name their Account without a foreign key, so they go before the users they belong to.
+    const owners = db.select({ id: users.id }).from(users).where(inArray(users.email, data.emails));
+    await db.delete(authVerifications).where(inArray(authVerifications.value, owners));
+    await db.delete(users).where(inArray(users.email, data.emails));
+  }
   const keys = [
-    ...data.emails.map((email) => rateLimitKey('login:email', email)),
-    ...data.addresses.flatMap((address) => [rateLimitKey('login:address', address), rateLimitKey('signup:address', address)]),
+    ...data.emails.flatMap((email) => ['login:email', 'resend:email'].map((scope) => rateLimitKey(scope, email))),
+    ...data.addresses.flatMap((address) => ['login:address', 'signup:address', 'resend:address', 'verify:address'].map((scope) => rateLimitKey(scope, address))),
   ];
   await db.delete(authRateLimits).where(or(inArray(authRateLimits.key, keys), ...data.addresses.map((address) => like(authRateLimits.key, `${address}%`))));
 }

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../config/environment.js';
 import { DatabaseModule, DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
+import { MailModule } from '../mail/mail.module.js';
 import { createAuth } from './auth.js';
 import { AUTH } from './auth.tokens.js';
 import { AuthController } from './auth.controller.js';
@@ -14,7 +15,7 @@ import { OriginGuard } from './origin.guard.js';
 export { AUTH } from './auth.tokens.js';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, MailModule],
   controllers: [AuthController],
   providers: [{
     provide: AUTH,

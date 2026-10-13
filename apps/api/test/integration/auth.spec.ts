@@ -9,14 +9,19 @@ import { createAuth } from '../../src/auth/auth.js';
 import { AuthRateLimiter, rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import { validateEnvironment } from '../../src/config/environment.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
-import { authAccounts, authRateLimits, authSessions, recipeImages, recipes, users } from '../../src/database/schema.js';
+import { verificationIdentifier } from '../../src/auth/auth.verification.js';
+import { authAccounts, authRateLimits, authSessions, authVerifications, recipeImages, recipes, users } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
-import { apiClient, cookiePair, insertOwnedRecipes, ownedId, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { apiClient, cookiePair, insertOwnedRecipes, latestVerificationToken, ownedId, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword, verificationTokens } from '../auth-harness.js';
+import type { RecordingMailTransport } from '../recording-mail.js';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 describe('Wrapper authentication and owner-only recipe HTTP', () => {
   let app: NestExpressApplication;
   let baseUrl: string;
   let db: DrizzleDb;
+  let mail: RecordingMailTransport;
   let client: ReturnType<typeof apiClient>;
   const addresses = [testAddress()];
   const emails: string[] = [];
@@ -25,10 +30,11 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
   let cookie = '';
 
   const track = (tracked = testEmail()) => { emails.push(tracked); return tracked; };
+  const sentTo = (address: string) => mail.messages.filter(({ to }) => to === address);
   const errorOf = async (response: Response) => authErrorResponseSchema.parse(await response.json());
 
   beforeAll(async () => {
-    ({ app, baseUrl, db } = await startApi());
+    ({ app, baseUrl, db, mail } = await startApi());
     client = apiClient(baseUrl, addresses[0]);
     emails.push(email);
   }, 60_000);
@@ -66,13 +72,166 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
       expect(response.status, path).toBe(404);
       expect(response.headers.getSetCookie(), path).toEqual([]);
     }
-    expect((await fetch(`${baseUrl}/api/auth/get-session`)).status).toBe(404);
+    for (const path of ['get-session', 'verify-email?token=x']) expect((await fetch(`${baseUrl}/api/auth/${path}`)).status, path).toBe(404);
     expect(await db.$count(users, eq(users.email, nativeEmail))).toBe(0);
   });
 
-  it('signs up by email as a verified Account with a safe DTO and cookie, persisted session, then logs out', async () => {
+  it('signs up an unverified Account, mails one link to the web origin and creates no session', async () => {
     const response = await client.post('/auth/signup', { displayName: '  Temporary verification  ', email: `  ${email.toUpperCase()} `, password });
     expect(response.status).toBe(201);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(await response.json()).toEqual({ verificationRequired: true });
+    expect(response.headers.getSetCookie()).toEqual([]);
+    const row = await db.query.users.findFirst({ where: eq(users.email, email), with: { accounts: { columns: { providerId: true, password: true } }, sessions: { columns: { id: true } } } });
+    expect(row?.name).toBe('Temporary verification');
+    expect(row?.emailVerified).toBe(false);
+    expect(row?.accounts.map(({ providerId }) => providerId)).toEqual(['credential']);
+    // Better Auth owns hashing; the stored credential is never the submitted password.
+    expect(row?.accounts[0].password?.includes(password.trim())).toBe(false);
+    expect(row?.sessions).toEqual([]);
+
+    const token = await latestVerificationToken(db, email);
+    expect(token.length).toBe(43);
+    const sent = sentTo(email);
+    expect(sent.map(({ kind, subject }) => ({ kind, subject }))).toEqual([{ kind: 'verification', subject: 'Verify your email' }]);
+    // Compared without printing either side: a failure must not put a token or an address in the log.
+    expect(sent[0].html.includes(`<a href="${TEST_ORIGIN}/verify-email?token=${token}">`)).toBe(true);
+    // The link opens the web app; the API's own address never reaches a mailbox.
+    expect(sent[0].html.includes('127.0.0.1')).toBe(false);
+    const [link] = await db.select({ createdAt: authVerifications.createdAt, expiresAt: authVerifications.expiresAt })
+      .from(authVerifications).where(eq(authVerifications.identifier, verificationIdentifier(token)));
+    // The row is stamped by the database and its expiry by the API, so allow for the two clocks.
+    expect(Math.abs(link.expiresAt.getTime() - link.createdAt.getTime() - DAY_MS)).toBeLessThan(5 * 60_000);
+  }, 30_000);
+
+  it('refuses the right password until the email is verified, keeps a wrong one generic and mails nothing', async () => {
+    const refused = await client.post('/auth/login', { email, password });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ code: 'EMAIL_NOT_VERIFIED', message: 'Verify your email to log in.' });
+    expect(refused.headers.getSetCookie()).toEqual([]);
+    const wrong = await client.post('/auth/login', { email, password: testPassword() });
+    expect(wrong.status).toBe(401);
+    expect(await wrong.json()).toEqual({ code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' });
+    // Only sign-up and resend send: a refused login leaves the one message and the one link.
+    expect(sentTo(email)).toHaveLength(1);
+    expect(await verificationTokens(db, email)).toHaveLength(1);
+    const owner = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
+    expect(await db.$count(authSessions, eq(authSessions.userId, owner!.id))).toBe(0);
+  }, 30_000);
+
+  it('verifies the email once through the link without a session and rejects unknown, used and malformed tokens', async () => {
+    const invalid = { code: 'VERIFICATION_LINK_INVALID', message: 'This verification link has expired or was already used.' };
+    const token = await latestVerificationToken(db, email);
+    const verified = () => db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true, emailVerified: true } });
+    // A mail client opens the link, so the web route calls without a browser origin.
+    const unknown = await client.post('/auth/verify-email', { token: `${token.slice(0, -1)}${token.endsWith('A') ? 'B' : 'A'}` }, { origin: null });
+    expect(unknown.status).toBe(400);
+    expect(await unknown.json()).toEqual(invalid);
+    expect((await verified())?.emailVerified).toBe(false);
+
+    const opened = await client.post('/auth/verify-email', { token }, { origin: null });
+    expect(opened.status).toBe(204);
+    expect(await opened.text()).toBe('');
+    expect(opened.headers.getSetCookie()).toEqual([]);
+    const owner = await verified();
+    expect(owner?.emailVerified).toBe(true);
+    expect(await db.$count(authSessions, eq(authSessions.userId, owner!.id))).toBe(0);
+    expect(await verificationTokens(db, email)).toEqual([]);
+
+    const again = await client.post('/auth/verify-email', { token }, { origin: null });
+    expect(again.status).toBe(400);
+    expect(await again.json()).toEqual(invalid);
+    for (const body of [{ token: '' }, { token: 'x'.repeat(129) }, { token, email }, {}]) {
+      const malformed = await client.post('/auth/verify-email', body, { origin: null });
+      expect(malformed.status).toBe(400);
+      expect((await errorOf(malformed)).code).toBe('VALIDATION_FAILED');
+    }
+  }, 30_000);
+
+  it('expires a link 24 hours after it was issued', async () => {
+    const aged = track();
+    const agedClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
+    expect((await agedClient.post('/auth/signup', { displayName: 'Aged link', email: aged, password: testPassword() })).status).toBe(201);
+    const token = await latestVerificationToken(db, aged);
+    const issuedAgo = (ms: number) => db.update(authVerifications).set({ expiresAt: new Date(Date.now() - ms + DAY_MS) })
+      .where(eq(authVerifications.identifier, verificationIdentifier(token)));
+
+    await issuedAgo(DAY_MS + 1_000);
+    const expired = await agedClient.post('/auth/verify-email', { token });
+    expect(expired.status).toBe(400);
+    expect((await errorOf(expired)).code).toBe('VERIFICATION_LINK_INVALID');
+    expect((await db.query.users.findFirst({ where: eq(users.email, aged), columns: { emailVerified: true } }))?.emailVerified).toBe(false);
+
+    // The same link an hour younger still works: the refusal above was its age, not the token.
+    await issuedAgo(DAY_MS - 3_600_000);
+    expect((await agedClient.post('/auth/verify-email', { token })).status).toBe(204);
+    expect((await db.query.users.findFirst({ where: eq(users.email, aged), columns: { emailVerified: true } }))?.emailVerified).toBe(true);
+  }, 30_000);
+
+  it('resends only to a known unverified Account and answers every address alike', async () => {
+    const pending = track();
+    const unknown = track();
+    const resendClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
+    expect((await resendClient.post('/auth/signup', { displayName: 'Pending', email: pending, password: testPassword() })).status).toBe(201);
+    const first = await latestVerificationToken(db, pending);
+    const verifiedMail = sentTo(email).length;
+
+    // `email` was verified above; `unknown` has no Account.
+    for (const target of [pending, email, unknown]) {
+      const response = await resendClient.post('/auth/resend-verification', { email: ` ${target.toUpperCase()} ` });
+      expect(response.status).toBe(204);
+      expect(await response.text()).toBe('');
+      expect(response.headers.getSetCookie()).toEqual([]);
+    }
+    expect(sentTo(pending).map(({ kind }) => kind)).toEqual(['verification', 'verification']);
+    expect(sentTo(email)).toHaveLength(verifiedMail);
+    expect(sentTo(unknown)).toEqual([]);
+    expect(await db.$count(users, eq(users.email, unknown))).toBe(0);
+
+    const tokens = await verificationTokens(db, pending);
+    expect(tokens).toHaveLength(2);
+    expect(tokens[1] === first).toBe(true);
+    expect(sentTo(pending)[1].html.includes(`<a href="${TEST_ORIGIN}/verify-email?token=${tokens[0]}">`)).toBe(true);
+    // Either link verifies, and verifying retires the other one.
+    expect((await resendClient.post('/auth/verify-email', { token: first })).status).toBe(204);
+    expect((await resendClient.post('/auth/verify-email', { token: tokens[0] })).status).toBe(400);
+    expect((await resendClient.post('/auth/resend-verification', { email: pending })).status).toBe(204);
+    expect(sentTo(pending)).toHaveLength(2);
+  }, 60_000);
+
+  it('limits resends to 3 an hour per address and 10 an hour per client, with the same answers for an unknown address', async () => {
+    const known = track();
+    expect((await apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]).post('/auth/signup', { displayName: 'Limited', email: known, password: testPassword() })).status).toBe(201);
+    for (const target of [known, track()]) {
+      const targetClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        expect((await targetClient.post('/auth/resend-verification', { email: target })).status, `attempt ${attempt}`).toBe(204);
+      }
+      // The limit follows the normalised address, also from another client.
+      const limited = await apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]).post('/auth/resend-verification', { email: ` ${target.toUpperCase()} ` });
+      expect(limited.status).toBe(429);
+      expect((await errorOf(limited)).code).toBe('RATE_LIMITED');
+      const retryAfter = Number(limited.headers.get('retry-after'));
+      expect(retryAfter).toBeGreaterThan(0);
+      expect(retryAfter).toBeLessThanOrEqual(60 * 60);
+    }
+    // One message from sign-up and three resends; the refused request sent nothing.
+    expect(sentTo(known)).toHaveLength(4);
+
+    const floodClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      expect((await floodClient.post('/auth/resend-verification', { email: track() })).status, `attempt ${attempt}`).toBe(204);
+    }
+    const blocked = await floodClient.post('/auth/resend-verification', { email: track() });
+    expect(blocked.status).toBe(429);
+    expect(Number(blocked.headers.get('retry-after'))).toBeLessThanOrEqual(60 * 60);
+    // The counter is stored under a digest, never under the address itself.
+    expect(await db.$count(authRateLimits, like(authRateLimits.key, `%${known}%`))).toBe(0);
+  }, 120_000);
+
+  it('logs in a verified Account with a safe DTO and cookie, a persisted session, then logs out', async () => {
+    const response = await client.post('/auth/login', { email, password });
+    expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     const body = await response.json() as { user: { id: string } };
     expect(body).toEqual({ user: { id: expect.stringMatching(/^[0-9a-f-]{36}$/), displayName: 'Temporary verification' } });
@@ -80,14 +239,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(cookies).toHaveLength(1);
     expect(cookies[0]).toMatch(/^better-auth\.session_token=[^;]+; Max-Age=604800; Path=\/; HttpOnly; SameSite=Lax$/i);
     cookie = cookiePair(response);
-    const row = await db.query.users.findFirst({ where: eq(users.id, body.user.id), with: { accounts: { columns: { providerId: true, password: true } }, sessions: { columns: { id: true, expiresAt: true } } } });
-    // Compared without printing either side: a failure must not put an address in the log.
-    expect(row?.email === email).toBe(true);
-    expect(row?.emailVerified).toBe(true);
-    expect(row?.accounts.map(({ providerId }) => providerId)).toEqual(['credential']);
-    // Better Auth owns hashing; the stored credential is never the submitted password.
-    expect(row?.accounts[0].password?.includes(password.trim())).toBe(false);
-    expect(row?.sessions).toHaveLength(1);
+    expect(await db.$count(authSessions, eq(authSessions.userId, body.user.id))).toBe(1);
 
     const session = await client.get('/auth/session', { cookie });
     expect(session.status).toBe(200);
@@ -196,7 +348,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
   it('rejects absent, null and untrusted origins on every mutation', async () => {
     const body = { displayName: 'Temporary verification', email: track(), password: testPassword() };
     for (const origin of [null, 'null', 'https://untrusted.example.invalid', `${TEST_ORIGIN}.evil.example.invalid`, 'http://127.0.0.1:4100', 'http://127.0.0.1:3000']) {
-      for (const [path, payload] of [['/auth/signup', body], ['/auth/login', { email, password }], ['/auth/logout', {}]] as const) {
+      for (const [path, payload] of [['/auth/signup', body], ['/auth/login', { email, password }], ['/auth/logout', {}], ['/auth/resend-verification', { email }]] as const) {
         const response = await client.post(path, payload, { origin, cookie });
         expect(response.status, `${path} ${origin}`).toBe(403);
         expect((await errorOf(response)).code).toBe('ORIGIN_REJECTED');
@@ -302,7 +454,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(empty.counts).toEqual({ total: 0, favorites: 0, categories: categoriesA.map(({ id, name }) => ({ id, name, total: 0 })) });
 
     const first = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
-    const other = await signupUser(apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]), track());
+    const other = await signupUser(apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]), db, track());
     const categoriesB = await categoriesFor(other.cookie);
     if (!first) throw new Error('Temporary auth verification user missing.');
     const tagA = `verify-a-${randomUUID()}`, tagB = `verify-b-${randomUUID()}`;
