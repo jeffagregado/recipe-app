@@ -9,9 +9,9 @@ vi.mock('next/navigation', () => ({ redirect: (path: string) => { throw new Erro
 
 import { login, logout, signup } from './actions'
 
-const credentials = { username: 'test_owner', password: 'x'.repeat(16) }
-const user = { user: { id: 'user-1', displayName: 'Test Owner', username: 'test_owner' } }
-const invalidLogin = { ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid username or password' }
+const credentials = { email: 'owner@example.invalid', password: 'x'.repeat(16) }
+const user = { user: { id: 'user-1', displayName: 'Test Owner' } }
+const invalidLogin = { ok: false, code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' }
 const fetchMock = vi.fn<typeof fetch>()
 const warn = vi.spyOn(console, 'warn')
 
@@ -33,9 +33,15 @@ function json(body: unknown, status: number, cookie?: string) {
 }
 
 it('rejects invalid input before any upstream call', async () => {
-	const result = await login({ username: 'a', password: 'short' })
-	expect(result).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+	const result = await login({ email: 'not-an-address', password: 'short' })
+	expect(result).toEqual({ ok: false, code: 'VALIDATION_FAILED', message: 'Check your details and try again.', fieldErrors: { email: ['Enter a valid email address.'] } })
 	expect(fetchMock).not.toHaveBeenCalled()
+})
+
+it('sends the normalised email upstream', async () => {
+	fetchMock.mockResolvedValue(json(user, 201, 'better-auth.session_token=abc; Max-Age=604800; Path=/'))
+	await expect(signup({ displayName: ' Owner ', email: '  Owner@Example.INVALID ', password: credentials.password })).rejects.toThrow('NEXT_REDIRECT:/recipes')
+	expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ displayName: 'Owner', ...credentials })
 })
 
 it.each([undefined, 'null'])('refuses the Origin %s without contacting the API', async (origin) => {
@@ -71,7 +77,7 @@ it('logs signup and logout failures without the credentials, the session cookie 
 	await logout()
 	expect(warn.mock.calls).toEqual([['Auth: signup failed with RATE_LIMITED (upstream 429).'], ['Auth: logout failed with SERVICE_UNAVAILABLE (upstream 503).']])
 	const logged = JSON.stringify(warn.mock.calls)
-	for (const secret of [credentials.username, credentials.password, 'Owner', 'abc', 'raw upstream text']) expect(logged).not.toContain(secret)
+	for (const secret of [credentials.email, credentials.password, 'Owner', 'abc', 'raw upstream text']) expect(logged).not.toContain(secret)
 })
 
 it('forwards only origin and client address, applies the session cookie and redirects to /recipes', async () => {
@@ -83,9 +89,9 @@ it('forwards only origin and client address, applies the session cookie and redi
 	expect(next.set).toHaveBeenCalledExactlyOnceWith('better-auth.session_token', 'abc', { httpOnly: true, sameSite: 'lax', path: '/', secure: false, maxAge: 604800 })
 })
 
-it('maps a username conflict to the exact message', async () => {
-	fetchMock.mockResolvedValueOnce(json({ code: 'USERNAME_UNAVAILABLE', message: 'raw upstream text' }, 409))
-	expect(await signup({ displayName: 'Owner', ...credentials })).toMatchObject({ ok: false, message: 'Username is unavailable.' })
+it('maps an email conflict to the exact message on the email field', async () => {
+	fetchMock.mockResolvedValueOnce(json({ code: 'EMAIL_ALREADY_EXISTS', message: 'raw upstream text' }, 409))
+	expect(await signup({ displayName: 'Owner', ...credentials })).toEqual({ ok: false, code: 'EMAIL_ALREADY_EXISTS', message: 'Email already exists.', fieldErrors: { email: ['Email already exists.'] } })
 })
 
 it('treats a success without a session cookie as a failure and never replays signup', async () => {
@@ -94,7 +100,7 @@ it('treats a success without a session cookie as a failure and never replays sig
 	expect(next.set).not.toHaveBeenCalled()
 	fetchMock.mockReset()
 	fetchMock.mockRejectedValue(new TypeError('Test transport failed'))
-	expect(await signup({ displayName: 'Owner', ...credentials })).toMatchObject({ ok: false, message: expect.stringContaining('try logging in with your chosen username') })
+	expect(await signup({ displayName: 'Owner', ...credentials })).toMatchObject({ ok: false, message: expect.stringContaining('try logging in with your email') })
 	expect(fetchMock).toHaveBeenCalledOnce()
 })
 

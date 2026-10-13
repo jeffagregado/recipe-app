@@ -25,7 +25,7 @@ export function AuthForm() {
 		<ModeSwitch isSignup={isSignup} pending={pending} onSwitch={switchMode} />
 		<form method="post" noValidate onSubmit={submit} aria-busy={pending} className="space-y-5">
 			{isSignup && <AuthField id="displayName" label="Display Name" autoComplete="name" className="min-h-11" error={errors.displayName?.message} {...register('displayName')} />}
-			<AuthField id="username" label="Username" autoComplete="username" autoCapitalize="none" spellCheck={false} className="min-h-11" error={errors.username?.message} {...register('username')} />
+			<AuthField id="email" label="Email" type="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} className="min-h-11" error={errors.email?.message} {...register('email')} />
 			<AuthField id="password" label="Password" type={showPassword ? 'text' : 'password'} autoComplete={isSignup ? 'new-password' : 'current-password'} className="min-h-11 pr-20" error={errors.password?.message} guidance={isSignup ? '12-128 characters' : undefined} {...register('password')}>
 				<Button type="button" variant="ghost" className="absolute inset-y-0 right-0 min-h-11 min-w-16" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onClick={() => setShowPassword((current) => !current)}>{showPassword ? 'Hide' : 'Show'}</Button>
 			</AuthField>
