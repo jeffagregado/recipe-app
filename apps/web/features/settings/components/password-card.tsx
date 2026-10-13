@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { changePasswordSchema } from '@recipe-app/contracts/schemas'
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, type ChangePasswordInput } from '@recipe-app/contracts/types'
 import { Loader2 } from 'lucide-react'
-import { useId, useRef, useState, useTransition, type BaseSyntheticEvent } from 'react'
+import { useId, useRef, useState, useTransition, type BaseSyntheticEvent, type ComponentProps } from 'react'
 import { useForm, useFormState, useWatch } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -89,38 +89,25 @@ function ChangePasswordForm({ onChange }: { onChange: NonNullable<PasswordCardPr
 
 	return (
 		<form noValidate onSubmit={submit} aria-busy={pending} className="space-y-3">
-			<div className="space-y-1.5">
-				<label htmlFor={currentId} className="text-sm font-medium">Current password</label>
-				<Input
-					{...fieldA11y(currentId, errors.currentPassword?.message)}
-					{...form.register('currentPassword', clearAlert)}
-					type="password"
-					className={inputClass}
-					// A value typed while a change is in flight would be cleared with the one that was sent.
-					readOnly={pending}
-					autoComplete="current-password"
-				/>
-				{errors.currentPassword?.message && <FieldError id={`${currentId}-error`}>{errors.currentPassword.message}</FieldError>}
-			</div>
-			<div className="space-y-1.5">
-				<label htmlFor={newId} className="text-sm font-medium">New password</label>
-				<div className="relative">
-					<Input
-						{...fieldA11y(newId, errors.newPassword?.message, true)}
-						{...form.register('newPassword', clearAlert)}
-						type="password"
-						className={cn(inputClass, 'pr-20')}
-						readOnly={pending}
-						autoComplete="new-password"
-						enterKeyHint="done"
-					/>
-					<span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground tabular-nums">
-						{PASSWORD_MIN_LENGTH}–{PASSWORD_MAX_LENGTH}
-					</span>
-				</div>
-				<p id={`${newId}-hint`} className="sr-only">{PASSWORD_MIN_LENGTH} to {PASSWORD_MAX_LENGTH} characters</p>
-				{errors.newPassword?.message && <FieldError id={`${newId}-error`}>{errors.newPassword.message}</FieldError>}
-			</div>
+			<PasswordField
+				id={currentId}
+				label="Current password"
+				error={errors.currentPassword?.message}
+				{...form.register('currentPassword', clearAlert)}
+				// A value typed while a change is in flight would be cleared with the one that was sent.
+				readOnly={pending}
+				autoComplete="current-password"
+			/>
+			<PasswordField
+				id={newId}
+				label="New password"
+				error={errors.newPassword?.message}
+				range
+				{...form.register('newPassword', clearAlert)}
+				readOnly={pending}
+				autoComplete="new-password"
+				enterKeyHint="done"
+			/>
 			{alert && <p role="alert" className={alertClass}>{alert}</p>}
 			<div className="flex justify-end">
 				<Button type="submit" className="h-11 px-4" disabled={pending || !currentPassword || !newPassword}>
@@ -129,6 +116,33 @@ function ChangePasswordForm({ onChange }: { onChange: NonNullable<PasswordCardPr
 				</Button>
 			</div>
 		</form>
+	)
+}
+
+type PasswordFieldProps = ComponentProps<typeof Input> & {
+	id: string
+	label: string
+	error?: string
+	/** Shows the allowed length inside the field, and says it to assistive technology. */
+	range?: boolean
+}
+
+/** A labelled, masked field with its error below it. */
+function PasswordField({ id, label, error, range, ...props }: PasswordFieldProps) {
+	return (
+		<div className="space-y-1.5">
+			<label htmlFor={id} className="text-sm font-medium">{label}</label>
+			<div className="relative">
+				<Input {...fieldA11y(id, error, range)} {...props} type="password" className={cn(inputClass, range && 'pr-20')} />
+				{range && (
+					<span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground tabular-nums">
+						{PASSWORD_MIN_LENGTH}–{PASSWORD_MAX_LENGTH}
+					</span>
+				)}
+			</div>
+			{range && <p id={`${id}-hint`} className="sr-only">{PASSWORD_MIN_LENGTH} to {PASSWORD_MAX_LENGTH} characters</p>}
+			{error && <FieldError id={`${id}-error`}>{error}</FieldError>}
+		</div>
 	)
 }
 
