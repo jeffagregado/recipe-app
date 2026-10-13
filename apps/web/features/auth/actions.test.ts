@@ -7,7 +7,7 @@ vi.mock('next/headers', () => ({
 }))
 vi.mock('next/navigation', () => ({ redirect: (path: string) => { throw new Error(`NEXT_REDIRECT:${path}`) } }))
 
-import { login, logout, signup } from './actions'
+import { login, logout, resendVerification, signup } from './actions'
 
 const credentials = { email: 'owner@example.invalid', password: 'x'.repeat(16) }
 const user = { user: { id: 'user-1', displayName: 'Test Owner' } }
@@ -88,14 +88,59 @@ it('maps an email conflict to the exact message', async () => {
 	expect(await signup({ displayName: 'Owner', ...credentials })).toMatchObject({ ok: false, message: 'Email already exists.' })
 })
 
-it('treats a success without a session cookie as a failure and never replays signup', async () => {
-	fetchMock.mockResolvedValue(json(user, 201))
+it.each([
+	['http://localhost:3000', false],
+	['https://recipes.example', true],
+])('remembers the address for /check-email after signup from %s, sets no session cookie and redirects', async (origin, secure) => {
+	next.headers = new Headers({ origin })
+	fetchMock.mockResolvedValue(json({ verificationRequired: true }, 201, 'better-auth.session_token=abc; Max-Age=604800; Path=/'))
+	await expect(signup({ displayName: 'Owner', email: '  Owner@Example.invalid ', password: credentials.password })).rejects.toThrow('NEXT_REDIRECT:/check-email')
+	expect(fetchMock.mock.calls[0][0]).toBe('http://api.example/auth/signup')
+	expect(next.set).toHaveBeenCalledExactlyOnceWith('pending-verification-email', 'owner@example.invalid', { httpOnly: true, sameSite: 'lax', path: '/', secure, maxAge: 3600 })
+})
+
+it('treats an unexpected signup success body as a failure and never replays signup', async () => {
+	fetchMock.mockResolvedValue(json(user, 201, 'better-auth.session_token=abc; Max-Age=604800; Path=/'))
 	expect(await signup({ displayName: 'Owner', ...credentials })).toMatchObject({ ok: false, code: 'SERVICE_UNAVAILABLE' })
 	expect(next.set).not.toHaveBeenCalled()
 	fetchMock.mockReset()
 	fetchMock.mockRejectedValue(new TypeError('Test transport failed'))
 	expect(await signup({ displayName: 'Owner', ...credentials })).toMatchObject({ ok: false, message: expect.stringContaining('try logging in with your email') })
 	expect(fetchMock).toHaveBeenCalledOnce()
+})
+
+it('tells a login with the right password and an unverified email to verify, without a session cookie', async () => {
+	fetchMock.mockResolvedValue(json({ code: 'EMAIL_NOT_VERIFIED', message: 'raw upstream text' }, 403))
+	expect(await login(credentials)).toEqual({ ok: false, code: 'EMAIL_NOT_VERIFIED', message: 'Verify your email before logging in.' })
+	expect(warn).toHaveBeenCalledExactlyOnceWith('Auth: login failed with EMAIL_NOT_VERIFIED (upstream 403).')
+	expect(next.set).not.toHaveBeenCalled()
+})
+
+it('sends a resend request with only the normalised address, origin and client address', async () => {
+	fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+	expect(await resendVerification({ email: ' Owner@Example.invalid ' })).toEqual({ ok: true })
+	const [url, init] = fetchMock.mock.calls[0]
+	expect(url).toBe('http://api.example/auth/resend-verification')
+	expect(init?.method).toBe('POST')
+	expect(init?.body).toBe('{"email":"owner@example.invalid"}')
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9' })
+	expect(next.set).not.toHaveBeenCalled()
+})
+
+it.each([
+	['the rate limit', () => json({ code: 'RATE_LIMITED', message: 'raw upstream text' }, 429), { ok: false, code: 'RATE_LIMITED', message: 'You asked for too many emails. Please try again later.' }, 'Auth: resend-verification failed with RATE_LIMITED (upstream 429).'],
+	['an unavailable service', () => json({ code: 'SERVICE_UNAVAILABLE', message: 'raw upstream text' }, 503), { ok: false, code: 'SERVICE_UNAVAILABLE', message: 'We could not send the email. Please try again.' }, 'Auth: resend-verification failed with SERVICE_UNAVAILABLE (upstream 503).'],
+	['an unexpected success status', () => json({ verificationRequired: true }, 200), { ok: false, code: 'SERVICE_UNAVAILABLE', message: 'We could not send the email. Please try again.' }, 'Auth: resend-verification failed with SERVICE_UNAVAILABLE (upstream 200).'],
+	['a failed or timed out request', () => Promise.reject(new TypeError('Test transport failed')), { ok: false, code: 'SERVICE_UNAVAILABLE', message: 'We could not send the email. Please try again.' }, 'Auth: resend-verification failed with SERVICE_UNAVAILABLE.'],
+])('answers a resend after %s and logs the cause once without the address', async (_cause, respond, expected, line) => {
+	fetchMock.mockImplementation(async () => respond())
+	expect(await resendVerification({ email: credentials.email })).toEqual(expected)
+	expect(warn).toHaveBeenCalledExactlyOnceWith(line)
+})
+
+it('rejects an invalid resend address locally without contacting the API', async () => {
+	expect(await resendVerification({ email: 'not-an-address' })).toEqual({ ok: false, code: 'VALIDATION_FAILED', message: 'Check your details and try again.', fieldErrors: { email: ['Enter a valid email address.'] } })
+	expect(fetchMock).not.toHaveBeenCalled()
 })
 
 it('clears cookies locally without a request when already signed out', async () => {

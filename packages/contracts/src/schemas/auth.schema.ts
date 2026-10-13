@@ -6,12 +6,16 @@ import {
   EMAIL_MAX_LENGTH,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
+  VERIFICATION_TOKEN_MAX_LENGTH,
   type AuthErrorResponse,
   type AuthSessionResponse,
   type AuthUser,
   type AuthUserResponse,
   type LoginInput,
+  type ResendVerificationInput,
   type SignupInput,
+  type SignupResponse,
+  type VerifyEmailInput,
 } from "../types/auth.js";
 
 import { entityIdSchema, isoDateStringSchema } from "./common.schema.js";
@@ -45,6 +49,19 @@ export const loginSchema: z.ZodType<LoginInput, LoginInput> = z.strictObject({
 });
 
 export const logoutSchema = z.strictObject({});
+
+export const resendVerificationSchema: z.ZodType<ResendVerificationInput, ResendVerificationInput> = z.strictObject({
+  email: emailSchema,
+});
+
+// The token is opaque here: only the API decides whether it names a live link.
+export const verifyEmailSchema: z.ZodType<VerifyEmailInput> = z.strictObject({
+  token: z.string().min(1).max(VERIFICATION_TOKEN_MAX_LENGTH),
+});
+
+export const signupResponseSchema: z.ZodType<SignupResponse> = z.strictObject({
+  verificationRequired: z.literal(true),
+});
 
 export const authUserSchema: z.ZodType<AuthUser> = z.strictObject({
   id: entityIdSchema,

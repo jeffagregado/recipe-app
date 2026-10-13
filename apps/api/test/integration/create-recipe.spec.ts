@@ -94,7 +94,7 @@ describe('Create recipe and private detail HTTP', () => {
       objectKeys.add(key); uploaded++; return upload(key, bytes, mime);
     });
     const client = apiClient(baseUrl, addresses[0]);
-    owner = await signupUser(client, emails[0]); other = await signupUser(client, emails[1]);
+    owner = await signupUser(client, db, emails[0]); other = await signupUser(client, db, emails[1]);
     for (const [who, user] of [['owner', owner], ['other', other]] as const) {
       const response = await fetch(`${baseUrl}/categories`, { headers: { Cookie: user.cookie } });
       expect(response.status).toBe(200);

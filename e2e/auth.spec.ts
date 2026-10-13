@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { BrowserContext, Page } from '@playwright/test';
 import { eq } from '../apps/api/node_modules/drizzle-orm/index.js';
 import { authRateLimits } from '../apps/api/src/database/schema.js';
 import { createHash } from 'node:crypto';
@@ -22,7 +22,10 @@ async function logout(page: Page) {
   await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
 }
 
-test('signup has three fields, creates empty library, forwards address and logs out', async ({ page, context, workerData }) => {
+const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+const sessionCookies = async (context: BrowserContext) => (await context.cookies()).filter(({ name }) => name.endsWith('session_token'));
+
+test('signup sends to check-your-email, the link verifies once without a session, then login opens an empty library', async ({ page, context, workerData }) => {
   const email = workerData.newEmail();
   const password = workerData.newPassword();
   const key = `wrapper:signup:address:${createHash('sha256').update(workerData.address).digest('hex').slice(0, 32)}`;
@@ -36,6 +39,32 @@ test('signup has three fields, creates empty library, forwards address and logs 
   await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.locator('form').getByRole('button', { name: 'Sign up', exact: true }).click();
+  await expect(page).toHaveURL(`${WEB_URL}/check-email`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Check your email' })).toBeVisible();
+  await expect(page.getByText(email, { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Resend verification email', exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await fits(page)).toBe(true);
+  expect(await sessionCookies(context)).toEqual([]);
+  // Without a session the private pages stay closed.
+  await page.goto('/recipes');
+  await expect(page).toHaveURL(`${WEB_URL}/`);
+
+  const [token] = await workerData.verificationTokens(email);
+  await page.goto(`/verify-email?token=${token}`);
+  await expect(page.getByText('Email verified. Log in to continue.', { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(`${WEB_URL}/`);
+  expect(await sessionCookies(context)).toEqual([]);
+  // The link works once: opening it again shows the expired state with a way to ask for another.
+  await page.goto(`/verify-email?token=${token}`);
+  await expect(page).toHaveURL(`${WEB_URL}/verify-email/invalid`);
+  await expect(page.getByRole('heading', { level: 1, name: 'This link has expired or was already used' })).toBeVisible();
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Resend verification email', exact: true })).toBeVisible();
+  expect(await fits(page)).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await login(page, email, password);
   await expect(page).toHaveURL(`${WEB_URL}/recipes`);
   await expect(page.getByText('Your recipe library is empty.', { exact: true })).toBeVisible();
   await expect(allCount(page)).toContainText('0');
@@ -52,6 +81,29 @@ test('signup has three fields, creates empty library, forwards address and logs 
   await login(page, email.toUpperCase(), password);
   await expect(page).toHaveURL(`${WEB_URL}/recipes`);
   await expect(page.getByText('Your recipe library is empty.', { exact: true })).toBeVisible();
+});
+
+test('the right password before verifying shows the verify message with a resend, and the new link lets the person in', async ({ page, workerData }) => {
+  const { email, password } = await workerData.signupUnverified();
+  await page.setViewportSize({ width: 320, height: 720 });
+  await login(page, email, workerData.newPassword());
+  await expect(page.locator('form').getByRole('alert')).toHaveText('Invalid email or password');
+  await expect(page.getByRole('button', { name: 'Resend verification email', exact: true })).toHaveCount(0);
+  await login(page, email, password);
+  await expect(page.getByText('Verify your email before logging in.', { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(`${WEB_URL}/`);
+  expect(await fits(page)).toBe(true);
+  // Counts only: a failed assertion must not print a link.
+  expect((await workerData.verificationTokens(email)).length).toBe(1);
+  await page.getByRole('button', { name: 'Resend verification email', exact: true }).click();
+  await expect(page.getByText('If that address needs verifying, we sent a new link.', { exact: true })).toBeVisible();
+  expect(await fits(page)).toBe(true);
+  const tokens = await workerData.verificationTokens(email);
+  expect(tokens.length).toBe(2);
+  await page.goto(`/verify-email?token=${tokens[0]}`);
+  await expect(page.getByText('Email verified. Log in to continue.', { exact: true })).toBeVisible();
+  await login(page, email, password);
+  await expect(page).toHaveURL(`${WEB_URL}/recipes`);
 });
 
 test('wrong password and unknown email match; duplicate email links an exact field error', async ({ page, workerData }) => {

@@ -29,6 +29,10 @@ type WorkerData = {
   newPassword: () => string;
   /** A fresh, empty account signed up from its own client address, so the five-per-hour signup limit is never shared. */
   signupFreshAccount: () => Promise<TestAccount>;
+  /** A new Account that has not opened its verification link, signed up from its own client address. */
+  signupUnverified: () => Promise<{ email: string; password: string }>;
+  /** The tokens of the verification links stored for an address, newest first. */
+  verificationTokens: (email: string) => Promise<string[]>;
   /** How many of these stored objects still answer 200. Keys stay inside the helper's callers; only counts leave. */
   countStoredObjects: (keys: string[]) => Promise<number>;
 };
@@ -79,7 +83,7 @@ async function removeWorkerData(db: DrizzleDb, emails: string[], addresses: stri
 
 export const authTest = base.extend<Record<never, never>, { workerData: WorkerData }>({
   workerData: [async ({}, use) => {
-    const { apiClient, signupUser, insertOwnedRecipes, testAddress, testEmail, testPassword } = await loadAuthHarness();
+    const { apiClient, signupUser, insertOwnedRecipes, testAddress, testEmail, testPassword, verificationTokens } = await loadAuthHarness();
     let connection: string;
     try { connection = await getDevDatabaseUrl(); } catch { throw new Error('Could not resolve the approved Neon dev target for E2E.'); }
     const pool = new pg.Pool({ connectionString: connection, ssl: { rejectUnauthorized: true }, max: 2, connectionTimeoutMillis: 10_000 });
@@ -97,14 +101,25 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
     const signupFreshAccount = async () => {
       const freshAddress = testAddress();
       addresses.push(freshAddress);
-      return { ...await signupUser(apiClient(API_URL, freshAddress, WEB_URL), newEmail()), tag: `e2e-${randomUUID()}` };
+      return { ...await signupUser(apiClient(API_URL, freshAddress, WEB_URL), db, newEmail()), tag: `e2e-${randomUUID()}` };
+    };
+    const signupUnverified = async () => {
+      const freshAddress = testAddress();
+      addresses.push(freshAddress);
+      const account = { email: newEmail(), password: testPassword() };
+      const response = await apiClient(API_URL, freshAddress, WEB_URL).post('/auth/signup', { displayName: 'Unverified kitchen', ...account });
+      if (response.status !== 201) throw new Error(`Temporary signup failed with HTTP ${response.status}.`);
+      return account;
     };
     try {
-      const owner = { ...await signupUser(client, newEmail()), tag: `e2e-${randomUUID()}` };
+      const owner = { ...await signupUser(client, db, newEmail()), tag: `e2e-${randomUUID()}` };
       await insertOwnedRecipes(db, owner.user, owner.tag);
-      const other = { ...await signupUser(client, newEmail()), tag: `e2e-${randomUUID()}` };
+      const other = { ...await signupUser(client, db, newEmail()), tag: `e2e-${randomUUID()}` };
       await insertOwnedRecipes(db, other.user, other.tag, seedRecipes.slice(0, 25).map((recipe) => ({ ...recipe, title: `Other kitchen: ${recipe.title}` })));
-      await use({ db, client, address, owner, other, emails, newEmail, newPassword: testPassword, signupFreshAccount, countStoredObjects });
+      await use({
+        db, client, address, owner, other, emails, newEmail, newPassword: testPassword, signupFreshAccount, signupUnverified, countStoredObjects,
+        verificationTokens: (email) => verificationTokens(db, email),
+      });
     } finally {
       try { await storage?.close(); await removeWorkerData(db, emails, addresses); }
       catch { throw new Error('Temporary E2E user/counter/storage cleanup failed on the approved dev database.'); }

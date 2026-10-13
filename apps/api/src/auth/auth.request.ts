@@ -9,6 +9,13 @@ export function clientAddress(request: AuthRequest): string {
   return address;
 }
 
+/** The web origin a request came from. Call it only behind OriginGuard, which has matched it against the trusted list. */
+export function trustedOrigin(request: AuthRequest): string {
+  const origin = request.headers.origin;
+  if (typeof origin !== 'string') throw new Error('Request origin unavailable.');
+  return origin;
+}
+
 /** Only the proxy-resolved address and required auth headers reach Better Auth. */
 export function authHeaders(request: AuthRequest, withCookie = false): Headers {
   const headers = new Headers({ 'x-forwarded-for': clientAddress(request) });

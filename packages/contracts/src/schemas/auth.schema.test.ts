@@ -7,7 +7,10 @@ import {
   emailSchema,
   loginSchema,
   logoutSchema,
+  resendVerificationSchema,
+  signupResponseSchema,
   signupSchema,
+  verifyEmailSchema,
 } from "./auth.schema.js";
 import { userSchema } from "./user.schema.js";
 
@@ -86,6 +89,29 @@ describe("login and logout", () => {
   });
 });
 
+describe("email verification", () => {
+  it("normalizes the resend address and accepts nothing else", () => {
+    expect(resendVerificationSchema.parse({ email: " ANA@Example.invalid " })).toEqual({ email });
+    expect(resendVerificationSchema.safeParse({ email: "ana" }).success).toBe(false);
+    expect(resendVerificationSchema.safeParse({ email, userId: "user-1" }).success).toBe(false);
+  });
+
+  it("accepts a token of 1 to 128 characters unchanged and nothing else", () => {
+    expect(verifyEmailSchema.parse({ token: "Ab_-9" })).toEqual({ token: "Ab_-9" });
+    expect(verifyEmailSchema.safeParse({ token: "x".repeat(128) }).success).toBe(true);
+    for (const token of ["", "x".repeat(129), 7, null]) {
+      expect(verifyEmailSchema.safeParse({ token }).success, String(token)).toBe(false);
+    }
+    expect(verifyEmailSchema.safeParse({ token: "x", email }).success).toBe(false);
+  });
+
+  it("answers signup with the verification requirement and no identity", () => {
+    expect(signupResponseSchema.parse({ verificationRequired: true })).toEqual({ verificationRequired: true });
+    expect(signupResponseSchema.safeParse({ verificationRequired: false }).success).toBe(false);
+    expect(signupResponseSchema.safeParse({ verificationRequired: true, user: { id: "user-1", displayName: "Ana" } }).success).toBe(false);
+  });
+});
+
 describe("public auth responses", () => {
   const user = { id: "user-1", displayName: "Ana" };
 
@@ -101,6 +127,9 @@ describe("public auth responses", () => {
   it("describes errors by code, message and optional field errors", () => {
     expect(authErrorResponseSchema.safeParse({ code: "EMAIL_ALREADY_EXISTS", message: "Email already exists." }).success).toBe(true);
     expect(authErrorResponseSchema.safeParse({ code: "VALIDATION_FAILED", message: "Invalid", fieldErrors: { email: ["Too long"] } }).success).toBe(true);
+    for (const code of ["EMAIL_NOT_VERIFIED", "VERIFICATION_LINK_INVALID"]) {
+      expect(authErrorResponseSchema.safeParse({ code, message: "x" }).success, code).toBe(true);
+    }
     for (const code of ["USERNAME_UNAVAILABLE", "FAILED_TO_CREATE_USER"]) {
       expect(authErrorResponseSchema.safeParse({ code, message: "x" }).success, code).toBe(false);
     }

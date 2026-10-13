@@ -5,6 +5,7 @@ export const NOTICE_MESSAGES = {
 	'recipe-saved': 'Recipe saved',
 	'recipe-updated': 'Recipe updated',
 	'recipe-deleted': 'Recipe deleted',
+	'email-verified': 'Email verified. Log in to continue.',
 } as const
 
 export type NoticeCode = keyof typeof NOTICE_MESSAGES
