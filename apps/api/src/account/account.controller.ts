@@ -11,6 +11,7 @@ import { validateAuth } from '../auth/auth.validation.js';
 import { OriginGuard } from '../auth/origin.guard.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { AccountService } from './account.service.js';
+import type { LinkCaller } from './account.service.js';
 
 export const DISPLAY_NAME_WRITE_LIMIT = 20;
 const DISPLAY_NAME_WRITE_WINDOW_MS = 10 * 60_000;
@@ -20,7 +21,9 @@ const DISPLAY_NAME_WRITE_WINDOW_MS = 10 * 60_000;
  */
 const CURRENT_PASSWORD_LIMIT = { scope: 'change-password:user', limit: 10, windowMs: 900_000 } as const;
 /** Starting a change or resending its link, per client address, beside the three an hour per target address the service counts. */
-const EMAIL_CHANGE_ADDRESS_LIMIT = { limit: 10, windowMs: 3_600_000 };
+const EMAIL_CHANGE_ADDRESS_LIMIT = { scope: 'email-change:address', limit: 10, windowMs: 3_600_000 } as const;
+/** Per client address, like the reset link's: the endpoint has no session to count against. */
+const EMAIL_CHANGE_CONFIRM_LIMIT = { limit: 30, windowMs: 3_600_000 };
 /** Per client address, beside the three an hour per target address that the service shares with forgot-password. */
 const SET_PASSWORD_ADDRESS_LIMIT = { limit: 10, windowMs: 3_600_000 };
 
@@ -64,7 +67,7 @@ export class AccountController {
   async changeEmail(@Body() body: unknown, @Req() request: AuthRequest): Promise<AuthUserResponse> {
     if (!request.user) throw unauthenticated();
     await this.countPasswordGuess(request.user.id);
-    await this.limiter.consume(rateLimitKey('email-change:address', clientAddress(request)), EMAIL_CHANGE_ADDRESS_LIMIT);
+    await this.countEmailChangeRequest(request);
     const input = validateAuth(changeEmailSchema, body);
     return { user: await this.account.requestEmailChange(request.user.id, input, trustedOrigin(request)) };
   }
@@ -74,7 +77,7 @@ export class AccountController {
   @HttpCode(204)
   async resendEmailChange(@Body() body: unknown, @Req() request: AuthRequest): Promise<void> {
     if (!request.user) throw unauthenticated();
-    await this.limiter.consume(rateLimitKey('email-change:address', clientAddress(request)), EMAIL_CHANGE_ADDRESS_LIMIT);
+    await this.countEmailChangeRequest(request);
     validateAuth(resendEmailChangeSchema, body);
     await this.account.resendEmailChange(request.user.id, trustedOrigin(request));
   }
@@ -85,6 +88,11 @@ export class AccountController {
     if (!request.user) throw unauthenticated();
     validateAuth(cancelEmailChangeSchema, body);
     return { user: await this.account.cancelEmailChange(request.user.id) };
+  }
+
+  private async countEmailChangeRequest(request: AuthRequest): Promise<void> {
+    const { scope, ...limit } = EMAIL_CHANGE_ADDRESS_LIMIT;
+    await this.limiter.consume(rateLimitKey(scope, clientAddress(request)), limit);
   }
 
   /** Counted before the body is read, so a malformed guess is still a guess. */
@@ -108,13 +116,13 @@ export class EmailChangeLinkController {
   @Post('email-change/confirm')
   @HttpCode(200)
   async confirmEmailChange(@Body() body: unknown, @Req() request: AuthRequest): Promise<ConfirmEmailChangeResponse> {
-    await this.limiter.consume(rateLimitKey('email-change-confirm:address', clientAddress(request)), { limit: 30, windowMs: 3_600_000 });
+    await this.limiter.consume(rateLimitKey('email-change-confirm:address', clientAddress(request)), EMAIL_CHANGE_CONFIRM_LIMIT);
     const input = validateAuth(confirmEmailChangeSchema, body);
     return this.account.confirmEmailChange(input.token, await this.caller(request));
   }
 
   /** Whose session the request carries, if any, so that session can be the one kept. Being signed out is not an error here. */
-  private async caller(request: AuthRequest): Promise<{ userId: string; sessionId: string } | undefined> {
+  private async caller(request: AuthRequest): Promise<LinkCaller | undefined> {
     try {
       const { user, sessionId } = await this.auth.identify(request, 'confirm-email-change-session');
       return { userId: user.id, sessionId };

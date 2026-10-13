@@ -29,5 +29,3 @@ export const verificationLinkInvalid = () => new AuthError(400, 'VERIFICATION_LI
 /** Answered only to the signed-in Account itself, and named on the field so the form can show it there. */
 export const invalidCurrentPassword = () => new AuthError(400, 'INVALID_CURRENT_PASSWORD', 'Current password is incorrect.', { fieldErrors: { currentPassword: ['Current password is incorrect.'] } });
 export const passwordAlreadySet = () => new AuthError(409, 'PASSWORD_ALREADY_SET', 'This Account already has a password.');
-/** An Account without a password proves nothing by one: it sets a password first. */
-export const passwordRequired = () => new AuthError(409, 'PASSWORD_REQUIRED', 'Set a password before changing your email.');

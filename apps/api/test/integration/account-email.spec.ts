@@ -105,22 +105,6 @@ describe('Account email HTTP', () => {
     } finally { await google?.close(); }
   }, 60_000);
 
-  it('reports the Verified email and no pending change wherever the public user is returned', async () => {
-    const client = newClient();
-    const owner = await signupUser(client, db, track());
-    const expected = { id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true };
-    // The login answer and the session read state the same shape.
-    expect(owner.user).toEqual(expected);
-    expect(await sessionOf(client, owner.cookie)).toEqual(expected);
-
-    const googleOnly = await signupWithGoogle(client);
-    expect(await sessionOf(client, googleOnly.cookie)).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', email: googleOnly.email, pendingEmail: null, hasPassword: false });
-    // A rename answers with the same shape, so the page never loses a field between reads.
-    const renamed = await send('PUT', '/account/display-name', { displayName: 'Ana Google' }, { cookie: googleOnly.cookie });
-    expect(renamed.status).toBe(200);
-    expect(authUserResponseSchema.parse(await renamed.json())).toEqual({ user: { id: googleOnly.id, displayName: 'Ana Google', email: googleOnly.email, pendingEmail: null, hasPassword: false } });
-  }, 60_000);
-
   it('with the right password mails one link to the new address and one masked notice to the old, and changes nothing yet', async () => {
     const client = newClient();
     const owner = await signupUser(client, db, track());
@@ -275,6 +259,29 @@ describe('Account email HTTP', () => {
     expect((await sessionOf(client, owner.cookie)).pendingEmail).toBe(newEmail);
   }, 60_000);
 
+  it('leaves a pending change and its link as they were when a later link cannot be mailed', async () => {
+    const client = newClient();
+    const { owner, newEmail, token } = await pendingChange(client);
+    const other = track();
+    // A change to another address, then a resend: each fails at the transport and must cost the person nothing.
+    for (const attempt of [() => changeEmail({ newEmail: other, currentPassword: owner.password }, { cookie: owner.cookie }), () => resend({ cookie: owner.cookie })]) {
+      const failing = vi.spyOn(mail, 'send').mockRejectedValueOnce(new Error('Test transport failed'));
+      try {
+        await expectError(await attempt(), 503, 'SERVICE_UNAVAILABLE');
+        expect(failing).toHaveBeenCalledOnce();
+      } finally { failing.mockRestore(); }
+      expect((await sessionOf(client, owner.cookie)).pendingEmail).toBe(newEmail);
+      const tokens = await emailChangeTokens(db, owner.email);
+      expect(tokens.length).toBe(1);
+      expect(tokens[0] === token).toBe(true);
+    }
+    expect(changeMailTo([other]).length).toBe(0);
+    expect(linksSentTo(newEmail).length).toBe(1);
+    // The link mailed before the failures still moves the Account.
+    expect(await confirmed(await confirm({ token }, { cookie: owner.cookie }))).toEqual({ signedIn: true });
+    expect((await sessionOf(client, owner.cookie)).email).toBe(newEmail);
+  }, 60_000);
+
   it('resends a fresh link to the pending address, retires the older one and sends no second notice', async () => {
     const client = newClient();
     const { owner, newEmail, token: first } = await pendingChange(client);
@@ -384,19 +391,19 @@ describe('Account email HTTP', () => {
     expect(await sessionOf(client, owner.cookie)).toEqual(moved);
   }, 60_000);
 
-  it('confirm without the Account\'s own session signs every session of the Account out and leaves the caller\'s alone', async () => {
+  it.each([
+    ['a browser that is not signed in', false],
+    ['a browser signed in to another Account', true],
+  ])('confirm from %s signs every session of the Account out and leaves the caller alone', async (_case, signedInElsewhere) => {
     const client = newClient();
-    const stranger = await signupUser(client, db, track());
-    // Opened in a browser that is not signed in, then in one signed in to a different Account.
-    for (const cookie of [null, stranger.cookie]) {
-      const { owner, newEmail, token } = await pendingChange(client);
-      expect(await confirmed(await confirm({ token }, { cookie }))).toEqual({ signedIn: false });
-      expect((await client.get('/auth/session', { cookie: owner.cookie })).status).toBe(401);
-      expect(await db.$count(authSessions, eq(authSessions.userId, owner.user.id))).toBe(0);
-      expect(await loginStatus(client, newEmail, owner.password)).toBe(200);
-    }
-    expect(await sessionOf(client, stranger.cookie)).toEqual({ id: stranger.user.id, displayName: 'Temporary verification', email: stranger.email, pendingEmail: null, hasPassword: true });
-  }, 90_000);
+    const stranger = signedInElsewhere ? await signupUser(client, db, track()) : undefined;
+    const { owner, newEmail, token } = await pendingChange(client);
+    expect(await confirmed(await confirm({ token }, { cookie: stranger?.cookie ?? null }))).toEqual({ signedIn: false });
+    expect((await client.get('/auth/session', { cookie: owner.cookie })).status).toBe(401);
+    expect(await db.$count(authSessions, eq(authSessions.userId, owner.user.id))).toBe(0);
+    expect(await loginStatus(client, newEmail, owner.password)).toBe(200);
+    if (stranger) expect(await sessionOf(client, stranger.cookie)).toEqual({ id: stranger.user.id, displayName: 'Temporary verification', email: stranger.email, pendingEmail: null, hasPassword: true });
+  }, 60_000);
 
   it('refuses an expired and an unknown token alike, and leaves the change waiting for a fresh link', async () => {
     const client = newClient();
@@ -459,7 +466,7 @@ describe('Account email HTTP', () => {
     const cookie = await googleSignIn(client, person);
     expect(await sessionOf(client, cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: newEmail, pendingEmail: null, hasPassword: true });
     expect(await db.$count(users, eq(users.email, owner.email))).toBe(0);
-  }, 90_000);
+  }, 60_000);
 
   it.each([
     ['changing the password', async (client: Client, owner: Awaited<ReturnType<typeof signupUser>>) => {

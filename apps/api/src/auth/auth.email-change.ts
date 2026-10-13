@@ -15,18 +15,24 @@ export const emailChangeIdentifier = (token: string) => `${IDENTIFIER_PREFIX}${t
 export const EMAIL_CHANGE_IDENTIFIERS = `${IDENTIFIER_PREFIX}%`;
 export const tokenOfEmailChangeIdentifier = (identifier: string) => identifier.slice(IDENTIFIER_PREFIX.length);
 
+/** A stored link as it is needed to store it again. */
+export type EmailChangeLink = { identifier: string; value: string; expiresAt: Date };
+
 /**
- * Drops an Account's pending change and retires its links, inside the caller's transaction. Changing or resetting the
+ * Drops an Account's pending change and retires its links, inside the caller's transaction, and returns those links. Changing or resetting the
  * password runs it too: that is what the notice tells the owner of the old address to do about a change they did not ask for.
  */
-export async function clearEmailChange(tx: Pick<DrizzleDb, 'update' | 'delete'>, userId: string): Promise<void> {
+export async function clearEmailChange(tx: Pick<DrizzleDb, 'update' | 'delete'>, userId: string): Promise<EmailChangeLink[]> {
   await tx.update(users).set({ pendingEmail: null }).where(eq(users.id, userId));
-  await tx.delete(authVerifications).where(and(eq(authVerifications.value, userId), like(authVerifications.identifier, EMAIL_CHANGE_IDENTIFIERS)));
+  return tx.delete(authVerifications).where(and(eq(authVerifications.value, userId), like(authVerifications.identifier, EMAIL_CHANGE_IDENTIFIERS)))
+    .returning({ identifier: authVerifications.identifier, value: authVerifications.value, expiresAt: authVerifications.expiresAt });
 }
 
 /** One answer for an expired, used and unknown token, and for an address another Account took in the meantime. */
 export const emailChangeLinkInvalid = () => new AuthError(400, 'EMAIL_CHANGE_LINK_INVALID', 'This link has expired or was already used.');
 export const emailChangeNotPending = () => new AuthError(409, 'EMAIL_CHANGE_NOT_PENDING', 'No email change is waiting to be confirmed.');
+/** An Account without a password proves nothing by one: it sets a password first. */
+export const passwordRequired = () => new AuthError(409, 'PASSWORD_REQUIRED', 'Set a password before changing your email.');
 /** Named on the field so the form can show it there. */
 export const emailUnchanged = () => new AuthError(400, 'VALIDATION_FAILED', 'Check the submitted fields.', { fieldErrors: { newEmail: ['This is already your email.'] } });
 
@@ -45,9 +51,9 @@ export function emailChangeMessage(to: string, origin: string, token: string): M
     to,
     subject: 'Confirm your new email',
     html: [
-      '<p>We received a request to use this address for your Recipe App account.</p>',
+      '<p>A Recipe App account asked to use this address as its email.</p>',
       `<p><a href="${origin}/confirm-email-change?token=${token}">Confirm my new email</a></p>`,
-      '<p>The link works once and expires in 24 hours. Your email stays the same until you confirm. If you did not ask for this, you can ignore this email.</p>',
+      '<p>The link works once and expires in 24 hours. The account keeps its current email until you confirm. If you did not ask for this, do not confirm: ignore this email and nothing changes.</p>',
     ].join(''),
   };
 }
