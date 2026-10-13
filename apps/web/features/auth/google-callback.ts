@@ -7,18 +7,21 @@ import { withNotice } from '@/lib/notice'
 import { authFetch } from './api'
 import { applySessionCookies, clearGoogleStateCookies, countSessionCookies, googleStateCookieHeader } from './session-cookie'
 
-type GoogleCallbackOutcome = 'signed-in' | 'failed' | 'email-not-verified'
+type GoogleCallbackOutcome = 'signed-in' | 'failed' | 'email-not-verified' | 'account-not-verified'
 
 const DESTINATIONS: Record<GoogleCallbackOutcome, string> = {
 	'signed-in': '/recipes',
 	failed: withNotice('/', 'google-sign-in-failed'),
 	'email-not-verified': withNotice('/', 'google-email-not-verified'),
+	'account-not-verified': withNotice('/', 'google-account-not-verified'),
 }
 
 /** The one server record of a failed callback: code and upstream status only, never the code or state Google sent. */
 function logFailure(code: string, status?: number): GoogleCallbackOutcome {
 	console.warn(`Auth: google-callback failed with ${code}${status === undefined ? '' : ` (upstream ${status})`}.`)
-	return code === 'GOOGLE_EMAIL_NOT_VERIFIED' ? 'email-not-verified' : 'failed'
+	if (code === 'GOOGLE_EMAIL_NOT_VERIFIED') return 'email-not-verified'
+	// The Google address matches an Account whose own email is not Verified yet (ADR 0003): nothing was attached.
+	return code === 'EMAIL_NOT_VERIFIED' ? 'account-not-verified' : 'failed'
 }
 
 /** Forwards the code and state with the state cookie. Answers the API's response only when it is a sign-in to apply. */

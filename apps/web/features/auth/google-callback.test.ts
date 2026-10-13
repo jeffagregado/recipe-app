@@ -50,6 +50,7 @@ it('forwards the code, the state and only the state cookie, copies the session c
 it.each([
 	['a refused sign-in', () => error('GOOGLE_SIGN_IN_FAILED', 400), FAILED, 'Auth: google-callback failed with GOOGLE_SIGN_IN_FAILED (upstream 400).'],
 	['an unverified Google email', () => error('GOOGLE_EMAIL_NOT_VERIFIED', 403), '/?notice=google-email-not-verified', 'Auth: google-callback failed with GOOGLE_EMAIL_NOT_VERIFIED (upstream 403).'],
+	['an unverified Account with the same email', () => error('EMAIL_NOT_VERIFIED', 403), '/?notice=google-account-not-verified', 'Auth: google-callback failed with EMAIL_NOT_VERIFIED (upstream 403).'],
 	['rate limiting', () => error('RATE_LIMITED', 429), FAILED, 'Auth: google-callback failed with RATE_LIMITED (upstream 429).'],
 	['an unavailable service', () => error('SERVICE_UNAVAILABLE', 503), FAILED, 'Auth: google-callback failed with SERVICE_UNAVAILABLE (upstream 503).'],
 	['an unparseable response', () => new Response('<html>raw upstream text</html>', { status: 502 }), FAILED, 'Auth: google-callback failed with SERVICE_UNAVAILABLE (upstream 502).'],
