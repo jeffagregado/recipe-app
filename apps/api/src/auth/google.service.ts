@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { GoogleCallbackInput } from '@recipe-app/contracts/types';
 import { AUTH } from './auth.tokens.js';
 import type { RecipeAuth } from './auth.js';
-import { googleEmailNotVerified, googleSignInFailed } from './auth.errors.js';
+import { emailNotVerified, googleEmailNotVerified, googleSignInFailed } from './auth.errors.js';
 import { GOOGLE_EMAIL_NOT_VERIFIED, GOOGLE_PROVIDER_ID } from './auth.google.js';
 import { authHeaders } from './auth.request.js';
 import type { AuthRequest } from './auth.request.js';
@@ -19,6 +19,9 @@ class GoogleCallbackRefused extends Error {
     this.body = { code: (typeof reason === 'string' ? reason : 'unknown').replace(/[^a-z0-9]+/gi, '_').toUpperCase().slice(0, 64) };
   }
 }
+
+/** The `error` of the redirect Better Auth answers when an email matches an Account it will not attach the identity to. */
+const ACCOUNT_NOT_LINKED = 'account_not_linked';
 
 /** Reads a callback response Better Auth answered: a refusing redirect, an error body, or nothing to object to. */
 async function refusalOf(response: Response): Promise<{ code: unknown } | undefined> {
@@ -60,6 +63,9 @@ export class GoogleSignInService {
     } catch (cause) { throw googleSignInFailed('google-callback', cause); }
     const refusal = await refusalOf(response);
     if (refusal?.code === GOOGLE_EMAIL_NOT_VERIFIED) throw googleEmailNotVerified();
+    // With linking configured as it is, Better Auth declines to attach for one reason only: the matching Account's email
+    // is not Verified. Google has verified the address for the caller, so naming the Account's state tells them nothing new.
+    if (refusal?.code === ACCOUNT_NOT_LINKED) throw emailNotVerified(new GoogleCallbackRefused(refusal.code));
     if (refusal) throw googleSignInFailed('google-callback', new GoogleCallbackRefused(refusal.code));
     try { return await this.onlyCookie(response.headers, 'session_token'); }
     catch (cause) { throw googleSignInFailed('google-callback', cause); }

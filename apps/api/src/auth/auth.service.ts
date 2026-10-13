@@ -13,6 +13,7 @@ import type { MailTransport } from '../mail/mail.transport.js';
 import { AUTH } from './auth.tokens.js';
 import type { RecipeAuth } from './auth.js';
 import { AuthError, emailAlreadyExists, emailNotVerified, unauthenticated, unavailable, verificationLinkInvalid } from './auth.errors.js';
+import { GOOGLE_PROVIDER_ID } from './auth.google.js';
 import { logAuthFailure } from './auth.logger.js';
 import { accountExistsMessage } from './auth.notice.js';
 import { AuthRateLimiter, rateLimitKey } from './auth.rate-limit.js';
@@ -180,7 +181,7 @@ export class AuthService {
       if (!await this.limiter.allows(rateLimitKey('notice:email', email), { limit: 3, windowMs: 3_600_000 })) return;
       const signIns = await this.db.select({ providerId: authAccounts.providerId }).from(authAccounts)
         .innerJoin(users, eq(users.id, authAccounts.userId)).where(eq(users.email, email));
-      const methods: SignInMethod[] = signIns.some(({ providerId }) => providerId === 'credential') ? ['password'] : [];
+      const methods = signIns.flatMap(({ providerId }): SignInMethod[] => providerId === 'credential' ? ['password'] : providerId === GOOGLE_PROVIDER_ID ? ['google'] : []);
       await this.mail.send(accountExistsMessage(email, origin, methods));
     } catch (cause) { logAuthFailure('signup-notice-mail', cause); }
   }

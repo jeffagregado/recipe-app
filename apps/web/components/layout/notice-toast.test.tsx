@@ -53,6 +53,7 @@ it.each([
 it.each([
 	['google-sign-in-failed', 'Google sign-in did not complete. Try again.'],
 	['google-email-not-verified', 'Google has not verified this email address. Verify it with Google, or sign up with a password.'],
+	['google-account-not-verified', 'This email has an account that is not verified yet. Use "Forgot password?" to set a new password, which verifies it, then sign in with Google again.'],
 ])('announces %s as an error that stays until dismissed', (code, message) => {
 	navigation.pathname = '/'
 	navigation.search = `notice=${code}`
