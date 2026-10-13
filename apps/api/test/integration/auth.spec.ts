@@ -348,6 +348,44 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(await db.$count(authAccounts, eq(authAccounts.userId, rows[0].id))).toBe(1);
   }, 60_000);
 
+  it.each(['an unverified', 'a verified'])('mails one notice and no new link to %s Account when its email is signed up again', async (state) => {
+    const taken = track();
+    const owner = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
+    if (state === 'a verified') await signupUser(owner, db, taken);
+    else expect((await owner.post('/auth/signup', { displayName: 'Owner', email: taken, password: testPassword() })).status).toBe(201);
+    const links = (await verificationTokens(db, taken)).length;
+
+    const response = await owner.post('/auth/signup', { displayName: 'Other', email: ` ${taken.toUpperCase()} `, password: testPassword() });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ code: 'EMAIL_ALREADY_EXISTS', message: 'Email already exists.' });
+    expect(sentTo(taken).map(({ kind, subject }) => ({ kind, subject }))).toEqual([
+      { kind: 'verification', subject: 'Verify your email' },
+      { kind: 'account-exists', subject: 'Someone tried to sign up with your email' },
+    ]);
+    const notice = sentTo(taken)[1].html;
+    // The link opens the web app's login page; the API's own address never reaches a mailbox.
+    expect(notice.includes(`<a href="${TEST_ORIGIN}/">`)).toBe(true);
+    expect(notice.includes('127.0.0.1')).toBe(false);
+    expect((await verificationTokens(db, taken)).length).toBe(links);
+    expect(await db.$count(users, eq(users.email, taken))).toBe(1);
+  }, 60_000);
+
+  it('limits notices to 3 an hour per address across clients and keeps answering the conflict', async () => {
+    const taken = track();
+    expect((await apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]).post('/auth/signup', { displayName: 'Owner', email: taken, password: testPassword() })).status).toBe(201);
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      // A new client each time: only the count kept for the target address can stop the mail.
+      const response = await apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1])
+        .post('/auth/signup', { displayName: 'Other', email: attempt % 2 ? taken : ` ${taken.toUpperCase()} `, password: testPassword() });
+      expect(response.status, `attempt ${attempt}`).toBe(409);
+      expect(await response.json(), `attempt ${attempt}`).toEqual({ code: 'EMAIL_ALREADY_EXISTS', message: 'Email already exists.' });
+      expect(response.headers.get('retry-after'), `attempt ${attempt}`).toBeNull();
+    }
+    expect(sentTo(taken).filter(({ kind }) => kind === 'account-exists').length).toBe(3);
+    // The counter is stored under a digest, never under the address itself.
+    expect(await db.$count(authRateLimits, like(authRateLimits.key, `%${taken}%`))).toBe(0);
+  }, 60_000);
+
   it('rejects absent, null and untrusted origins on every mutation', async () => {
     const body = { displayName: 'Temporary verification', email: track(), password: testPassword() };
     for (const origin of [null, 'null', 'https://untrusted.example.invalid', `${TEST_ORIGIN}.evil.example.invalid`, 'http://127.0.0.1:4100', 'http://127.0.0.1:3000']) {
