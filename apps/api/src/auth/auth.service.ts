@@ -165,20 +165,24 @@ export class AuthService {
     throw unavailable('signup', cause);
   }
 
-  /**
-   * Answers the conflict after telling the Account's own address about the attempt, at most 3 times an hour so sign-up
-   * cannot flood an inbox. A failure is logged and not raised: the answer is the same whether or not the notice went out.
-   */
+  /** Answers the conflict once the Account's own address has been told about the attempt. */
   private async rejectTaken(email: string, origin: string): Promise<never> {
-    try {
-      if (await this.limiter.allows(rateLimitKey('notice:email', email), { limit: 3, windowMs: 3_600_000 })) {
-        const accounts = await this.db.select({ providerId: authAccounts.providerId }).from(authAccounts)
-          .innerJoin(users, eq(users.id, authAccounts.userId)).where(eq(users.email, email));
-        const methods: SignInMethod[] = accounts.some(({ providerId }) => providerId === 'credential') ? ['password'] : [];
-        await this.mail.send(accountExistsMessage(email, origin, methods));
-      }
-    } catch (cause) { logAuthFailure('signup-notice-mail', cause); }
+    await this.sendAccountExistsNotice(email, origin);
     throw emailAlreadyExists();
+  }
+
+  /**
+   * Mails the notice at most 3 times an hour per address, so sign-up cannot flood an inbox. A failure is logged and not
+   * raised: the caller answers the same whether or not the notice went out.
+   */
+  private async sendAccountExistsNotice(email: string, origin: string): Promise<void> {
+    try {
+      if (!await this.limiter.allows(rateLimitKey('notice:email', email), { limit: 3, windowMs: 3_600_000 })) return;
+      const signIns = await this.db.select({ providerId: authAccounts.providerId }).from(authAccounts)
+        .innerJoin(users, eq(users.id, authAccounts.userId)).where(eq(users.email, email));
+      const methods: SignInMethod[] = signIns.some(({ providerId }) => providerId === 'credential') ? ['password'] : [];
+      await this.mail.send(accountExistsMessage(email, origin, methods));
+    } catch (cause) { logAuthFailure('signup-notice-mail', cause); }
   }
 
   private async sessionCookie(headers: Headers): Promise<string> {
