@@ -14,10 +14,10 @@ export class AccountService {
    * Renames the Account the session guard already identified. One statement: Better Auth's own update would look the
    * session up a second time, and with no cookie cache it has nothing else to refresh. The session is unchanged.
    */
-  async updateDisplayName(input: UpdateDisplayNameInput, user: AuthUser): Promise<AuthUser> {
+  async updateDisplayName(userId: string, input: UpdateDisplayNameInput): Promise<AuthUser> {
     let renamed: { id: string; displayName: string } | undefined;
     try {
-      [renamed] = await this.db.update(users).set({ name: input.displayName }).where(eq(users.id, user.id))
+      [renamed] = await this.db.update(users).set({ name: input.displayName }).where(eq(users.id, userId))
         .returning({ id: users.id, displayName: users.name });
     } catch (cause) { throw unavailable('update-display-name', cause); }
     // The Account was deleted between the guard's read and this write.

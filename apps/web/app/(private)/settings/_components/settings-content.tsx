@@ -4,6 +4,5 @@ import { DisplayNameCard } from '@/features/settings/components/display-name-car
 /** Uncached read of the signed-in Account inside the page's Suspense boundary; anonymous visitors are redirected. */
 export async function SettingsContent() {
 	const { user } = await requireSession()
-	// A save (here or on another device) changes the stored name, so the card remounts with it instead of keeping edited state.
-	return <DisplayNameCard key={user.displayName} displayName={user.displayName} />
+	return <DisplayNameCard displayName={user.displayName} />
 }

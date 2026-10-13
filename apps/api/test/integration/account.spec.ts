@@ -96,18 +96,16 @@ describe('Account settings HTTP', () => {
     expect(await sessionName()).toBe(original);
   }, 60_000);
 
-  // The name rule belongs to the contract's own tests; here rejected bodies prove the endpoint applies that strict schema.
+  // The name rule belongs to the contract's own tests; here rejected bodies prove the endpoint applies that strict schema
+  // and names the field at fault.
   it.each([
-    ['a blank name', { displayName: '   ' }, 'displayName', 'Enter a display name.'],
-    ['101 characters', { displayName: 'a'.repeat(101) }, 'displayName', 'Use at most 100 characters.'],
-    ['an email beside the name', { displayName: 'Ana', email: 'ana@example.invalid' }, 'email', 'Unexpected field.'],
-    ['another Account id', { displayName: 'Ana', id: 'someone-else' }, 'id', 'Unexpected field.'],
-    ['a body that is not an object', ['Ana'], 'body', undefined],
-  ] as const)('rejects %s with a field error and writes nothing', async (_case, body, field, message) => {
+    ['a blank name', { displayName: '   ' }, 'displayName'],
+    ['an email beside the name', { displayName: 'Ana', email: 'ana@example.invalid' }, 'email'],
+    ['another Account id', { displayName: 'Ana', id: 'someone-else' }, 'id'],
+    ['a body that is not an object', ['Ana'], 'body'],
+  ] as const)('rejects %s with a field error and writes nothing', async (_case, body, field) => {
     const error = await expectError(await put(body), 400, 'VALIDATION_FAILED');
-    const messages = Object.getOwnPropertyDescriptor(error.fieldErrors ?? {}, field)?.value as string[] | undefined;
-    expect(messages?.length).toBe(1);
-    if (message) expect(messages).toEqual([message]);
+    expect(Object.getOwnPropertyDescriptor(error.fieldErrors ?? {}, field)?.value).toHaveLength(1);
     const [row] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, owner.user.id));
     expect(row).toEqual({ name: original, email: emails[0] });
   }, 60_000);

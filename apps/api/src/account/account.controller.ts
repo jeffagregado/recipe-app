@@ -26,6 +26,6 @@ export class AccountController {
     // Generous for a person correcting a typo; bounds scripted saves per Account.
     await this.limiter.consume(rateLimitKey('display-name:user', request.user.id), { limit: DISPLAY_NAME_WRITE_LIMIT, windowMs: DISPLAY_NAME_WRITE_WINDOW_MS });
     const input = validateAuth(updateDisplayNameSchema, body);
-    return { user: await this.account.updateDisplayName(input, request.user) };
+    return { user: await this.account.updateDisplayName(request.user.id, input) };
   }
 }

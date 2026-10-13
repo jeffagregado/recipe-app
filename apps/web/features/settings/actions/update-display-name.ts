@@ -8,6 +8,7 @@ import { DISPLAY_NAME_MESSAGES, type UpdateDisplayNameResult } from './results'
 const SAVE_TIMEOUT_MS = 20_000
 
 const failed = (message: string = DISPLAY_NAME_MESSAGES.failed): UpdateDisplayNameResult => ({ status: 'failed', message })
+const sessionExpired: UpdateDisplayNameResult = { status: 'session-expired', message: DISPLAY_NAME_MESSAGES.sessionExpired }
 const invalid = (message: string = DISPLAY_NAME_MESSAGES.invalid): UpdateDisplayNameResult => ({ status: 'invalid', message })
 
 /**
@@ -19,7 +20,7 @@ export async function updateDisplayName(input: unknown): Promise<UpdateDisplayNa
 	// Only a message about the name itself is shown on the field; a malformed request gets the general wording.
 	if (!parsed.success) return invalid(parsed.error.issues.find((issue) => issue.path[0] === 'displayName')?.message)
 	const read = await readWriteContext()
-	if ('problem' in read) return read.problem === 'session-expired' ? { status: 'session-expired', message: DISPLAY_NAME_MESSAGES.sessionExpired } : failed(DISPLAY_NAME_MESSAGES.unverified)
+	if ('problem' in read) return read.problem === 'session-expired' ? sessionExpired : failed(DISPLAY_NAME_MESSAGES.unverified)
 
 	const outcome = await sendWrite({
 		context: read.context,
@@ -30,7 +31,7 @@ export async function updateDisplayName(input: unknown): Promise<UpdateDisplayNa
 	const { response } = outcome
 	// The message comes from the shared schema, never from a database error; every other field is dropped.
 	if (response.status === 400) return invalid((await readErrorEnvelope(response))?.fieldErrors?.displayName?.[0])
-	if (response.status === 401) return { status: 'session-expired', message: DISPLAY_NAME_MESSAGES.sessionExpired }
+	if (response.status === 401) return sessionExpired
 	if (response.status === 403) return failed(DISPLAY_NAME_MESSAGES.unverified)
 	if (response.status === 429) return failed(DISPLAY_NAME_MESSAGES.rateLimited)
 	if (response.status !== 200) return failed()

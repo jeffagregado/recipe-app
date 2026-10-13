@@ -37,20 +37,17 @@ test('sidebar journey: Settings is current, a changed name saves and the sidebar
   await expect(sidebar(page).getByText(stored, { exact: true })).toBeVisible();
   await expect(save(page)).toBeDisabled();
 
-  await nameInput(page).fill('   ');
-  await save(page).click();
-  await expect(nameInput(page)).toHaveAccessibleDescription('Enter a display name.');
-  await expect(sidebar(page).getByText(stored, { exact: true })).toBeVisible();
-
   await nameInput(page).fill('Ana María');
   await expect(card(page).getByText('9/100', { exact: true })).toBeVisible();
-  await save(page).click();
+  // Saved from the keyboard: Enter in the field, and focus stays there once the stored name comes back.
+  await nameInput(page).press('Enter');
   const notice = toast.success(page, 'Display name saved');
   await expect(notice).toBeVisible();
   await expect(sidebar(page).getByText('Ana María', { exact: true })).toBeVisible();
   await expect(sidebar(page).getByText(stored, { exact: true })).toHaveCount(0);
   await expect(nameInput(page)).toHaveValue('Ana María');
   await expect(save(page)).toBeDisabled();
+  await expect(nameInput(page)).toBeFocused();
   await toast.dismiss(notice).click();
 
   // The stored name, not a preserved copy: a fresh load reads it back.

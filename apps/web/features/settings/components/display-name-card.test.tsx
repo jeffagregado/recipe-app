@@ -21,8 +21,7 @@ const input = () => within(card()).getByRole('textbox', { name: 'Display name' }
 const save = () => within(card()).getByRole('button', { name: /^Save name$|^Saving/ })
 async function retype(user: ReturnType<typeof userEvent.setup>, value: string) {
 	await user.clear(input())
-	// Pasted, not typed: 101 keystrokes would take seconds on a busy runner.
-	if (value) await user.paste(value)
+	if (value) await user.type(input(), value)
 }
 
 it('shows the saved name with its count of 100 and nothing to save', () => {
@@ -44,14 +43,12 @@ it('enables Save only while the name differs from the saved one, ignoring surrou
 	expect(save()).toBeDisabled()
 })
 
-it.each([
-	['a blank name', '   ', 'Enter a display name.'],
-	['101 characters', 'a'.repeat(101), 'Use at most 100 characters.'],
-])('puts the error for %s on the field, focuses it and does not save', async (_case, value, message) => {
+// The name rule belongs to the contract's tests; one rejected value shows where its message goes.
+it('puts the error for a rejected name on the field, focuses it and does not save', async () => {
 	const user = renderCard('Ana')
-	await retype(user, value)
+	await retype(user, '   ')
 	await user.click(save())
-	await waitFor(() => expect(input()).toHaveAccessibleDescription(message))
+	await waitFor(() => expect(input()).toHaveAccessibleDescription('Enter a display name.'))
 	expect(input()).toHaveAttribute('aria-invalid', 'true')
 	expect(input()).toHaveFocus()
 	expect(onSave).not.toHaveBeenCalled()
@@ -66,6 +63,16 @@ it('saves the typed name once, announces it in a toast and leaves the stored nam
 	await waitFor(() => expect(input()).toHaveValue('Ana Reyes'))
 	expect(save()).toBeDisabled()
 	expect(within(card()).getByText('9/100')).toBeInTheDocument()
+	// Keyboard users stay where they were.
+	expect(input()).toHaveFocus()
+})
+
+it('adopts a stored name that changed elsewhere and has nothing to save', async () => {
+	const view = render(<AppToaster><DisplayNameCard displayName="Ana María" onSave={onSave} /></AppToaster>)
+	await userEvent.setup().type(input(), '!')
+	view.rerender(<AppToaster><DisplayNameCard displayName="Ana Reyes" onSave={onSave} /></AppToaster>)
+	await waitFor(() => expect(input()).toHaveValue('Ana Reyes'))
+	expect(save()).toBeDisabled()
 })
 
 it('holds Save while a save is in flight', async () => {
@@ -76,6 +83,7 @@ it('holds Save while a save is in flight', async () => {
 	await user.click(save())
 	await waitFor(() => expect(save()).toHaveTextContent('Saving…'))
 	expect(save()).toBeDisabled()
+	expect(input()).toHaveAttribute('readonly')
 	await user.type(input(), '{Enter}')
 	finish({ status: 'saved', displayName: 'Ana Reyes' })
 	await waitFor(() => expect(save()).toHaveTextContent('Save name'))

@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { updateDisplayNameSchema } from '@recipe-app/contracts/schemas'
 import type { UpdateDisplayNameInput } from '@recipe-app/contracts/types'
 import { Loader2 } from 'lucide-react'
-import { useId, useRef, useState, useTransition, type BaseSyntheticEvent } from 'react'
+import { useEffect, useId, useRef, useState, useTransition, type BaseSyntheticEvent } from 'react'
 import { useForm, useFormState, useWatch } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -18,7 +18,7 @@ import { updateDisplayName } from '../actions/update-display-name'
 import { displayNameLength, isDisplayNameChanged, MAX_DISPLAY_NAME_LENGTH } from '../lib/display-name-form'
 
 type DisplayNameCardProps = {
-	/** The stored name this card opens with. Mount with a `key` that changes when it does, so a saved card starts clean. */
+	/** The stored name. When it changes (a save here, or one made elsewhere) the card adopts it and has nothing to save. */
 	displayName: string
 	onSave?: (input: UpdateDisplayNameInput) => Promise<UpdateDisplayNameResult>
 }
@@ -31,8 +31,15 @@ export function DisplayNameCard({ displayName, onSave = updateDisplayName }: Dis
 	const [pending, startTransition] = useTransition()
 	const inFlight = useRef(false)
 	const [saved, setSaved] = useState(displayName)
+	const [stored, setStored] = useState(displayName)
 	const [alert, setAlert] = useState<string>()
 	const form = useForm<UpdateDisplayNameInput>({ resolver: zodResolver(updateDisplayNameSchema), defaultValues: { displayName } })
+	// The card stays mounted across refreshes so focus stays in the field; a new stored name replaces what the card holds.
+	if (stored !== displayName) {
+		setStored(displayName)
+		setSaved(displayName)
+	}
+	useEffect(() => { form.setValue('displayName', displayName) }, [form, displayName])
 	// Subscribed state: the form object keeps one identity, so reading form.formState here could be cached by the compiler.
 	const { errors } = useFormState({ control: form.control })
 	const value = useWatch({ control: form.control, name: 'displayName' })
@@ -41,12 +48,12 @@ export function DisplayNameCard({ displayName, onSave = updateDisplayName }: Dis
 	function showResult(result: UpdateDisplayNameResult) {
 		if (result.status === 'saved') {
 			toast.success(DISPLAY_NAME_MESSAGES.saved)
-			// The refreshed page remounts the card with the stored name; until then the saved name is the clean state.
+			// The refreshed page passes the stored name down; until then the saved name is the clean state.
 			setSaved(result.displayName)
 			form.setValue('displayName', result.displayName)
 			return
 		}
-		toast.error(result.status === 'session-expired' ? result.message : DISPLAY_NAME_MESSAGES.failed)
+		toast.error(result.status === 'invalid' ? DISPLAY_NAME_MESSAGES.failed : result.message)
 		if (result.status === 'invalid') form.setError('displayName', { type: 'server', message: result.message }, { shouldFocus: true })
 		else setAlert(result.message)
 	}
@@ -73,17 +80,19 @@ export function DisplayNameCard({ displayName, onSave = updateDisplayName }: Dis
 				<div className="px-(--card-spacing)">
 					<h2 id={headingId} className="text-base font-semibold">Display name</h2>
 					{/* Below lg there is no sidebar, so the line would describe something the person cannot see. */}
-					<p className="text-sm text-muted-foreground max-lg:hidden">Shown in the sidebar.</p>
+					<p className="hidden text-sm text-muted-foreground lg:block">Shown in the sidebar.</p>
 				</div>
 				<CardContent>
-					<form noValidate onSubmit={submit} aria-busy={pending} aria-label="Display name" className="space-y-3">
+					<form noValidate onSubmit={submit} aria-busy={pending} className="space-y-3">
 						<div className="space-y-1.5">
 							<div className="relative">
 								<Input
 									{...fieldA11y(fieldId, error)}
 									{...form.register('displayName', { onChange: () => setAlert(undefined) })}
 									className={cn(inputClass, 'sm:pr-16')}
-									aria-label="Display name"
+									aria-labelledby={headingId}
+									// A name typed while a save is in flight would be replaced by the saved one.
+									readOnly={pending}
 									autoComplete="name"
 									enterKeyHint="done"
 								/>

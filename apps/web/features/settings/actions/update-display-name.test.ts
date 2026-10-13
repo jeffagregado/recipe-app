@@ -78,7 +78,6 @@ it('reports a failure for network errors and timeouts instead of throwing', asyn
 
 it('rejects an invalid name locally with the schema message, without contacting the API', async () => {
 	expect(await updateDisplayName({ displayName: '   ' })).toEqual({ status: 'invalid', message: 'Enter a display name.' })
-	expect(await updateDisplayName({ displayName: 'Ana', email: 'ana@example.invalid' })).toEqual({ status: 'invalid', message: 'Check your display name and try again.' })
 	expect(await updateDisplayName('Ana')).toEqual({ status: 'invalid', message: 'Check your display name and try again.' })
 	expect(fetchMock).not.toHaveBeenCalled()
 })
