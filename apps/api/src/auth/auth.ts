@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { betterAuth } from 'better-auth';
+import { eq } from 'drizzle-orm';
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@recipe-app/contracts/types';
 import { insertDefaultCategories } from '../categories/default-categories.js';
@@ -39,14 +40,17 @@ export function createAuth(db: DrizzleDb, config: AuthConfig, endpoints: GoogleE
     databaseHooks: {
       account: {
         create: {
-          // Sign-up creates the user and then its first account, credential or Google, in one transaction. Writing the default
-          // categories here, in that transaction, means an account never exists without them and a failure rolls the whole
-          // sign-up back. Account linking is off, so a Google account row is only ever written for a brand-new user.
+          // Sign-up creates the user and then its first Sign-in method, a password or Google, in one transaction. Writing the
+          // default categories here, in that transaction, means an account never exists without them and a failure rolls the
+          // whole sign-up back. A Google identity attached to an existing Account joins one that already has its categories
+          // and writes none.
           before: async (account) => {
             if (account.providerId !== 'credential' && account.providerId !== GOOGLE_PROVIDER_ID) return;
             const tx = activeTransaction.getStore();
-            if (!tx) throw new Error('Sign-up is not running in a transaction; default categories were not created.');
-            await insertDefaultCategories(tx, account.userId);
+            if (await (tx ?? db).$count(schema.authAccounts, eq(schema.authAccounts.userId, account.userId)) === 0) {
+              if (!tx) throw new Error('Sign-up is not running in a transaction; default categories were not created.');
+              await insertDefaultCategories(tx, account.userId);
+            }
             // Google's tokens are spent once the profile is read; only the identity is kept.
             if (account.providerId === GOOGLE_PROVIDER_ID) {
               return { data: { ...account, accessToken: null, refreshToken: null, idToken: null, accessTokenExpiresAt: null, refreshTokenExpiresAt: null, scope: null } };
@@ -67,8 +71,15 @@ export function createAuth(db: DrizzleDb, config: AuthConfig, endpoints: GoogleE
       disableSessionRefresh: true,
       cookieCache: { enabled: false },
     },
-    // A Google identity never joins an existing Account here: a matching email is refused until linking rules exist (#48).
-    account: { modelName: 'authAccounts', accountLinking: { enabled: false }, updateAccountOnSignIn: false },
+    // One Account per email (ADR 0003). A Google sign-in whose email matches an Account attaches the identity only when
+    // that Account's own email is Verified; over an unverified one Better Auth refuses before it writes anything, so the
+    // sign-in can neither join the Account nor verify it. No provider is trusted by name: Google's word that it verified
+    // the address is required on every sign-in. The Account's name and email are never overwritten from Google.
+    account: {
+      modelName: 'authAccounts',
+      accountLinking: { enabled: true, requireLocalEmailVerified: true, trustedProviders: [], allowDifferentEmails: false, updateUserInfoOnLink: false },
+      updateAccountOnSignIn: false,
+    },
     // Without a client the provider is absent, and starting the flow fails like any other refused sign-in.
     plugins: clientId && clientSecret && redirectUri ? [googleSignIn({ clientId, clientSecret, redirectUri }, endpoints)] : [],
     verification: { modelName: 'authVerifications' },

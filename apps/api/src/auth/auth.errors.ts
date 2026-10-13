@@ -20,7 +20,7 @@ export const unauthenticated = () => new AuthError(401, 'UNAUTHENTICATED', 'Log 
 export const emailAlreadyExists = () => new AuthError(409, 'EMAIL_ALREADY_EXISTS', 'Email already exists.');
 export const emailNotVerified = (cause: unknown) => new AuthError(403, 'EMAIL_NOT_VERIFIED', 'Verify your email to log in.', { cause });
 export const googleEmailNotVerified = () => new AuthError(403, 'GOOGLE_EMAIL_NOT_VERIFIED', 'Google has not verified this email address.');
-/** One answer for a bad or replayed state, a failed exchange, a taken email and an unconfigured provider; the log keeps the cause. */
+/** One answer for a bad or replayed state, a failed exchange and an unconfigured provider; the log keeps the cause. */
 export function googleSignInFailed(operation: string, cause: unknown): AuthError {
   logAuthFailure(operation, cause);
   return new AuthError(400, 'GOOGLE_SIGN_IN_FAILED', 'Google sign-in failed. Try again.', { cause });

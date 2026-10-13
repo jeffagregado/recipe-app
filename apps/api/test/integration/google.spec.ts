@@ -7,8 +7,9 @@ import { GOOGLE_ENDPOINTS } from '../../src/auth/auth.google.js';
 import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import { DEFAULT_CATEGORY_NAMES } from '../../src/categories/default-categories.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
-import { authAccounts, authRateLimits, authVerifications, categories, users } from '../../src/database/schema.js';
-import { apiClient, cookiePair, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
+import { authAccounts, authRateLimits, authVerifications, categories, recipes, users } from '../../src/database/schema.js';
+import { seedRecipes } from '../../src/recipes/seed-recipes.js';
+import { apiClient, cookiePair, insertOwnedRecipes, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
 import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { GoogleIdentity } from '../google-stand-in.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
@@ -17,7 +18,7 @@ const WEB_CALLBACK = `${TEST_ORIGIN}/api/auth/callback/google`;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const FAILED = { code: 'GOOGLE_SIGN_IN_FAILED', message: 'Google sign-in failed. Try again.' };
 
-describe('Sign in with Google for a new person', () => {
+describe('Sign in with Google', () => {
   let app: NestExpressApplication;
   let baseUrl: string;
   let db: DrizzleDb;
@@ -157,7 +158,7 @@ describe('Sign in with Google for a new person', () => {
     expect(await categoryNames(row!.id)).toEqual([...DEFAULT_CATEGORY_NAMES]);
   }, 60_000);
 
-  it('answers a manual sign-up over a Google-created Account with the email conflict and leaves the Account alone', async () => {
+  it('answers a manual sign-up over a Google-created Account with the email conflict, tells its owner to sign in with Google and leaves the Account alone', async () => {
     const person = identity();
     expect((await finish({ code: google.consent(person), ...(await start()) })).status).toBe(204);
     const response = await client.post('/auth/signup', { displayName: 'Password Person', email: person.email.toUpperCase(), password: randomBytes(24).toString('base64url') });
@@ -170,6 +171,14 @@ describe('Sign in with Google for a new person', () => {
     // No password joins the Google identity, and no verification link is stored for an address Google already vouched for.
     expect(row?.accounts.map(({ providerId }) => providerId)).toEqual(['google']);
     expect(await db.$count(authVerifications, eq(authVerifications.value, row!.id))).toBe(0);
+    expect(mail.messages.filter(({ to }) => to === person.email)).toEqual([{
+      kind: 'account-exists',
+      to: person.email,
+      subject: 'Someone tried to sign up with your email',
+      html: '<p>Someone tried to sign up for Recipe App with this email address, which already has an account.</p>'
+        + `<p>If it was you, sign in with Google: <a href="${TEST_ORIGIN}/">Log in to Recipe App</a></p>`
+        + '<p>If it was not you, no action is needed. Your account has not changed.</p>',
+    }]);
   }, 60_000);
 
   it('refuses an identity whose email Google reports as unverified and creates nothing', async () => {
@@ -183,28 +192,108 @@ describe('Sign in with Google for a new person', () => {
     await expectRefused(await finish({ code: 'never-issued', ...(await start()) }), 400, FAILED);
   }, 30_000);
 
-  it.each([
-    ['a Verified', true],
-    ['an unverified', false],
-  ])('refuses an email that matches %s password Account and links nothing', async (_label, verified) => {
-    let email: string;
-    if (verified) ({ email } = await signupUser(client, db));
-    else {
-      email = testEmail();
-      expect((await client.post('/auth/signup', { displayName: 'Password Person', email, password: randomBytes(24).toString('base64url') })).status).toBe(201);
-    }
+  it('attaches the identity to a Verified password Account with the same email and signs in, leaving one unchanged Account', async () => {
+    const { user, email, password } = await signupUser(client, db);
     emails.push(email);
-    const person = identity({ email: email.toUpperCase() });
-    await expectRefused(await finish({ code: google.consent(person), ...(await start()) }), 400, FAILED);
-    const after = await userOf(email);
+    await insertOwnedRecipes(db, user, `google-link-${randomBytes(4).toString('hex')}`, seedRecipes.slice(0, 2));
+    // The owner renamed one Default category and deleted another; linking must not write the five again.
+    const [renamed, deleted] = await db.select({ id: categories.id }).from(categories).where(eq(categories.userId, user.id)).orderBy(asc(categories.sortOrder));
+    await db.update(categories).set({ name: 'Brunch' }).where(eq(categories.id, renamed.id));
+    await db.delete(categories).where(eq(categories.id, deleted.id));
+    const person = identity({ email: email.toUpperCase(), name: 'Name At Google' });
+
+    const response = await finish({ code: google.consent(person), ...(await start()) });
+    expect(response.status).toBe(204);
+    const cookies = response.headers.getSetCookie();
+    expect(cookies.length).toBe(1);
+    expect(cookies[0].startsWith('better-auth.session_token=')).toBe(true);
+    const session = await client.get('/auth/session', { cookie: cookiePair(response) });
+    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: user.id, displayName: 'Temporary verification' });
+
     expect(await db.$count(users, eq(users.email, email))).toBe(1);
-    expect(after?.accounts.map(({ providerId }) => providerId)).toEqual(['credential']);
-    expect(after?.emailVerified).toBe(verified);
-    expect(after?.name).toBe(verified ? 'Temporary verification' : 'Password Person');
-    // The harness logged the Verified Account in once; the refused Google sign-in added no session to either.
-    expect(after?.sessions.length).toBe(verified ? 1 : 0);
+    expect(await db.$count(authAccounts, eq(authAccounts.accountId, person.sub))).toBe(1);
+    const after = await userOf(email);
+    expect(after?.id).toBe(user.id);
+    expect(after?.name).toBe('Temporary verification');
+    expect(after?.emailVerified).toBe(true);
+    // Only the identity joins the password: none of Google's tokens are kept.
+    expect(after?.accounts.map(({ providerId, accountId, accessToken, refreshToken, idToken }) => ({ providerId, accountId, accessToken, refreshToken, idToken })).sort((a, b) => a.providerId.localeCompare(b.providerId)))
+      .toEqual([
+        { providerId: 'credential', accountId: user.id, accessToken: null, refreshToken: null, idToken: null },
+        { providerId: 'google', accountId: person.sub, accessToken: null, refreshToken: null, idToken: null },
+      ]);
+    // The harness logged in once; the Google sign-in added the second session.
+    expect(after?.sessions.length).toBe(2);
+    expect(await categoryNames(user.id)).toEqual(['Brunch', 'Dinner', 'Snacks', 'Desserts']);
+    expect(await db.$count(recipes, eq(recipes.userId, user.id))).toBe(2);
+    // The password still works, and the next Google sign-in opens the same Account without attaching again.
+    expect((await client.post('/auth/login', { email, password })).status).toBe(200);
+    expect((await finish({ code: google.consent(person), ...(await start()) })).status).toBe(204);
+    expect(await db.$count(authAccounts, eq(authAccounts.userId, user.id))).toBe(2);
+
+    // An Account with both Sign-in methods is told it can use either.
+    expect((await client.post('/auth/signup', { displayName: 'Someone Else', email, password: randomBytes(24).toString('base64url') })).status).toBe(409);
+    expect(mail.messages.filter(({ to, kind }) => to === email && kind === 'account-exists').map(({ html }) => html)).toEqual([
+      '<p>Someone tried to sign up for Recipe App with this email address, which already has an account.</p>'
+        + `<p>If it was you, log in with your email and password, or sign in with Google: <a href="${TEST_ORIGIN}/">Log in to Recipe App</a></p>`
+        + '<p>If it was not you, no action is needed. Your account has not changed.</p>',
+    ]);
+  }, 120_000);
+
+  it('refuses an email that matches an unverified password Account with EMAIL_NOT_VERIFIED, attaches nothing and verifies nothing', async () => {
+    const email = testEmail();
+    emails.push(email);
+    expect((await client.post('/auth/signup', { displayName: 'Password Person', email, password: randomBytes(24).toString('base64url') })).status).toBe(201);
+    const before = await userOf(email);
+    const person = identity({ email: email.toUpperCase() });
+    await expectRefused(await finish({ code: google.consent(person), ...(await start()) }), 403, { code: 'EMAIL_NOT_VERIFIED', message: 'Verify your email to log in.' });
+    expect(await db.$count(users, eq(users.email, email))).toBe(1);
     expect(await db.$count(authAccounts, eq(authAccounts.accountId, person.sub))).toBe(0);
+    const after = await userOf(email);
+    expect(after?.id).toBe(before!.id);
+    expect(after?.emailVerified).toBe(false);
+    expect(after?.name).toBe('Password Person');
+    expect(after?.accounts.map(({ providerId }) => providerId)).toEqual(['credential']);
+    expect(after?.sessions.length).toBe(0);
     expect(await categoryNames(after!.id)).toEqual([...DEFAULT_CATEGORY_NAMES]);
+    // A second refusal changes nothing either: the guard does not wear off.
+    await expectRefused(await finish({ code: google.consent(person), ...(await start()) }), 403, { code: 'EMAIL_NOT_VERIFIED', message: 'Verify your email to log in.' });
+    expect((await userOf(email))?.emailVerified).toBe(false);
+    expect(await db.$count(authAccounts, eq(authAccounts.userId, before!.id))).toBe(1);
+  }, 60_000);
+
+  it('signs an attached identity into its Account after the Account\'s email has changed, by the identity and not the email', async () => {
+    const person = identity();
+    expect((await finish({ code: google.consent(person), ...(await start()) })).status).toBe(204);
+    const row = await userOf(person.email);
+    const moved = testEmail();
+    emails.push(moved);
+    await db.update(users).set({ email: moved }).where(eq(users.id, row!.id));
+
+    const response = await finish({ code: google.consent(person), ...(await start()) });
+    expect(response.status).toBe(204);
+    const session = await client.get('/auth/session', { cookie: cookiePair(response) });
+    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: row!.id, displayName: 'Ana Google' });
+    // No Account was created for the Google address, and the changed address was left as it is.
+    expect(await db.$count(users, eq(users.email, person.email))).toBe(0);
+    expect(await db.$count(authAccounts, eq(authAccounts.accountId, person.sub))).toBe(1);
+    expect((await userOf(moved))?.accounts.map(({ providerId }) => providerId)).toEqual(['google']);
+  }, 60_000);
+
+  it('attaches nothing to the Account of a signed-in session that completes a Google sign-in for another email', async () => {
+    const signedIn = await signupUser(client, db);
+    emails.push(signedIn.email);
+    const person = identity();
+    const flow = await start();
+    const response = await client.post('/auth/google/callback', { code: google.consent(person), state: flow.state }, { origin: null, cookie: `${flow.cookie}; ${signedIn.cookie}` });
+    expect(response.status).toBe(204);
+    // The identity got an Account of its own, matched by its email; the session's Account kept only its password.
+    const session = await client.get('/auth/session', { cookie: cookiePair(response) });
+    const created = await userOf(person.email);
+    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: created!.id, displayName: 'Ana Google' });
+    expect(created!.id).not.toBe(signedIn.user.id);
+    expect(created?.accounts.map(({ providerId, accountId }) => ({ providerId, accountId }))).toEqual([{ providerId: 'google', accountId: person.sub }]);
+    expect((await userOf(signedIn.email))?.accounts.map(({ providerId }) => providerId)).toEqual(['credential']);
   }, 60_000);
 
   it('keeps the native social and callback routes closed, so the wrappers are the only way in', async () => {
