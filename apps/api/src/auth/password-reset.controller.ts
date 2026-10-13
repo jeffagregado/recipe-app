@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, Post, Req, UseFilters, UseGuards } from '@n
 import { forgotPasswordSchema, resetPasswordSchema } from '@recipe-app/contracts/schemas';
 import { AuthError } from './auth.errors.js';
 import { AuthFilter } from './auth.filter.js';
+import { RESET_LINKS_PER_EMAIL } from './auth.reset.js';
 import { AuthRateLimiter, rateLimitKey } from './auth.rate-limit.js';
 import { clientAddress, trustedOrigin } from './auth.request.js';
 import type { AuthRequest } from './auth.request.js';
@@ -42,7 +43,8 @@ export class PasswordResetController {
    */
   private async withinEmailLimit(email: string): Promise<boolean> {
     try {
-      await this.limiter.consume(rateLimitKey('forgot:email', email), { limit: 3, windowMs: HOUR_MS });
+      const { scope, ...limit } = RESET_LINKS_PER_EMAIL;
+      await this.limiter.consume(rateLimitKey(scope, email), limit);
       return true;
     } catch (error) {
       if (error instanceof AuthError && error.getStatus() === 429) return false;

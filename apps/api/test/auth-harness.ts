@@ -123,15 +123,18 @@ export async function insertOwnedRecipes(db: DrizzleDb, user: Pick<AuthUser, 'id
 
 /** Removes temporary users (cascading sessions, accounts and recipes) and their wrapper counters. */
 export async function removeTestData(db: DrizzleDb, data: { emails: string[]; addresses: string[] }): Promise<void> {
+  let accountKeys: string[] = [];
   if (data.emails.length > 0) {
     // Verification links name their Account without a foreign key, so they go before the users they belong to.
     const owners = db.select({ id: users.id }).from(users).where(inArray(users.email, data.emails));
+    accountKeys = (await owners).map(({ id }) => rateLimitKey('change-password:user', id));
     await db.delete(authVerifications).where(inArray(authVerifications.value, owners));
     await db.delete(users).where(inArray(users.email, data.emails));
   }
   const keys = [
+    ...accountKeys,
     ...data.emails.flatMap((email) => ['login:email', 'resend:email', 'notice:email', 'forgot:email'].map((scope) => rateLimitKey(scope, email))),
-    ...data.addresses.flatMap((address) => ['login:address', 'signup:address', 'resend:address', 'verify:address', 'google-start:address', 'google-callback:address', 'forgot:address', 'reset:address'].map((scope) => rateLimitKey(scope, address))),
+    ...data.addresses.flatMap((address) => ['login:address', 'signup:address', 'resend:address', 'verify:address', 'google-start:address', 'google-callback:address', 'forgot:address', 'reset:address', 'set-password:address'].map((scope) => rateLimitKey(scope, address))),
   ];
   await db.delete(authRateLimits).where(or(inArray(authRateLimits.key, keys), ...data.addresses.map((address) => like(authRateLimits.key, `${address}%`))));
 }

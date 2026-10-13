@@ -2,6 +2,8 @@ import type { MailMessage } from '../mail/mail.transport.js';
 import { AuthError } from './auth.errors.js';
 
 export const RESET_LIFETIME_MS = 60 * 60 * 1000;
+/** Per target address, shared by every way of asking for a reset link, so together they mail it at most three an hour. */
+export const RESET_LINKS_PER_EMAIL = { scope: 'forgot:email', limit: 3, windowMs: 60 * 60 * 1000 } as const;
 
 const IDENTIFIER_PREFIX = 'password-reset:';
 

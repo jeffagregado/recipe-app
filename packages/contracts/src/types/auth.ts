@@ -8,10 +8,14 @@ export const VERIFICATION_TOKEN_MAX_LENGTH = 128;
 export const GOOGLE_CODE_MAX_LENGTH = 2048;
 export const GOOGLE_STATE_MAX_LENGTH = 256;
 
-/** Public identity. Email, account records and session tokens never appear here. */
+/**
+ * Public identity, and what the Settings page renders from. Email, account records and session tokens never appear here.
+ */
 export type AuthUser = {
   id: EntityId;
   displayName: string;
+  /** Whether a password is one of the Account's Sign-in methods. */
+  hasPassword: boolean;
 };
 
 export type SignupInput = {
@@ -77,6 +81,8 @@ export const AUTH_ERROR_CODES = [
   "EMAIL_NOT_VERIFIED",
   "VERIFICATION_LINK_INVALID",
   "RESET_LINK_INVALID",
+  "INVALID_CURRENT_PASSWORD",
+  "PASSWORD_ALREADY_SET",
   "GOOGLE_EMAIL_NOT_VERIFIED",
   "GOOGLE_SIGN_IN_FAILED",
   "PAYLOAD_TOO_LARGE",

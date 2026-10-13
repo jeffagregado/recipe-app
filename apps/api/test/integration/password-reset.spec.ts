@@ -224,7 +224,7 @@ describe('Forgot and reset password HTTP', () => {
 
     const login = await client.post('/auth/login', { email: person.email, password });
     expect(login.status).toBe(200);
-    expect(await login.json()).toEqual({ user: { id: owner!.id, displayName: 'Temporary Google-only' } });
+    expect(await login.json()).toEqual({ user: { id: owner!.id, displayName: 'Temporary Google-only', hasPassword: true } });
     // Google still opens the same Account, and no second one was made for the address.
     const again = await signInWithGoogle(client, person);
     expect(again.status).toBe(204);

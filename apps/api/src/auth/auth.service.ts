@@ -3,7 +3,6 @@ import { ResilienceService } from '@nestjs/resilience';
 import type { ResiliencePolicy } from '@nestjs/resilience';
 import { APIError } from 'better-auth/api';
 import { and, eq, gt, like, lte } from 'drizzle-orm';
-import { authUserSchema } from '@recipe-app/contracts/schemas';
 import type { AuthSessionResponse, AuthUser, LoginInput, SignupInput } from '@recipe-app/contracts/types';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
@@ -20,10 +19,9 @@ import type { SignInMethod } from './auth.notice.js';
 import { newVerificationToken, VERIFICATION_IDENTIFIERS, VERIFICATION_LIFETIME_MS, verificationIdentifier, verificationMessage } from './auth.verification.js';
 import { authHeaders } from './auth.request.js';
 import type { AuthRequest } from './auth.request.js';
+import { readPublicUser } from './auth.user.js';
+import type { SessionUser } from './auth.user.js';
 
-function publicUser(user: { id: string; name: string }): AuthUser {
-  return authUserSchema.parse({ id: user.id, displayName: user.name });
-}
 
 @Injectable()
 export class AuthService {
@@ -91,7 +89,8 @@ export class AuthService {
       const { response, headers } = await this.credentialPolicy.execute(() => this.auth.api.signInEmail({
         body: { email: input.email, password: input.password }, headers: authHeaders(request), returnHeaders: true,
       }));
-      return { user: publicUser(response.user), cookie: await this.sessionCookie(headers) };
+      // Signed in with a password, so the Account has one.
+      return { user: { id: response.user.id, displayName: response.user.name, hasPassword: true }, cookie: await this.sessionCookie(headers) };
     } catch (cause) {
       // Better Auth checks the password first, so this code is only ever given to someone who knows it.
       if (cause instanceof APIError && cause.body?.code === 'EMAIL_NOT_VERIFIED') throw emailNotVerified(cause);
@@ -102,11 +101,21 @@ export class AuthService {
     }
   }
 
-  async session(request: AuthRequest, operation = 'session'): Promise<AuthSessionResponse> {
+  async session(request: AuthRequest): Promise<AuthSessionResponse> {
+    const session = await this.readSession(request, 'session');
+    if (!session) throw unauthenticated();
+    let user: AuthUser | undefined;
+    try { user = await readPublicUser(this.db, session.user.id); } catch (cause) { throw unavailable('session', cause); }
+    // The Account was deleted between the two reads.
+    if (!user) throw unauthenticated();
+    return { user, expiresAt: session.session.expiresAt.toISOString() };
+  }
+
+  /** Who the cookie belongs to and which session it is, for the guard: one read, on the way to every private request. */
+  async identify(request: AuthRequest, operation: string): Promise<{ user: SessionUser; sessionId: string }> {
     const session = await this.readSession(request, operation);
     if (!session) throw unauthenticated();
-    try { return { user: publicUser(session.user), expiresAt: session.session.expiresAt.toISOString() }; }
-    catch (cause) { throw unavailable(operation, cause); }
+    return { user: { id: session.user.id, displayName: session.user.name }, sessionId: session.session.id };
   }
 
   async logout(request: AuthRequest): Promise<string> {

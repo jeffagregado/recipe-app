@@ -26,3 +26,6 @@ export function googleSignInFailed(operation: string, cause: unknown): AuthError
   return new AuthError(400, 'GOOGLE_SIGN_IN_FAILED', 'Google sign-in failed. Try again.', { cause });
 }
 export const verificationLinkInvalid = () => new AuthError(400, 'VERIFICATION_LINK_INVALID', 'This verification link has expired or was already used.');
+/** Answered only to the signed-in Account itself, and named on the field so the form can show it there. */
+export const invalidCurrentPassword = () => new AuthError(400, 'INVALID_CURRENT_PASSWORD', 'Current password is incorrect.', { fieldErrors: { currentPassword: ['Current password is incorrect.'] } });
+export const passwordAlreadySet = () => new AuthError(409, 'PASSWORD_ALREADY_SET', 'This Account already has a password.');

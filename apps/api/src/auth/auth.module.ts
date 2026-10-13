@@ -35,6 +35,6 @@ export { AUTH } from './auth.tokens.js';
       GOOGLE_REDIRECT_URI: config.get('GOOGLE_REDIRECT_URI', { infer: true }),
     }, endpoints),
   }, AuthService, GoogleSignInService, PasswordResetService, AuthRateLimiter, SessionGuard, OriginGuard],
-  exports: [AUTH, AuthService, SessionGuard, OriginGuard, AuthRateLimiter],
+  exports: [AUTH, AuthService, SessionGuard, OriginGuard, AuthRateLimiter, PasswordResetService],
 })
 export class AuthModule {}

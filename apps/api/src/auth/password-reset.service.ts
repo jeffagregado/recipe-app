@@ -10,10 +10,8 @@ import type { RecipeAuth } from './auth.js';
 import { logAuthFailure } from './auth.logger.js';
 import { RESET_IDENTIFIERS, RESET_LIFETIME_MS, resetIdentifier, resetLinkInvalid, resetMessage } from './auth.reset.js';
 import { AUTH } from './auth.tokens.js';
+import { CREDENTIAL_PROVIDER } from './auth.user.js';
 import { newVerificationToken, VERIFICATION_IDENTIFIERS } from './auth.verification.js';
-
-/** Better Auth's provider id for an email-and-password Sign-in method; its account id is the Account's own id. */
-const CREDENTIAL_PROVIDER = 'credential';
 
 /**
  * The reset link is stored and consumed here, like the verification link, and not through Better Auth's own reset API:
@@ -38,21 +36,24 @@ export class PasswordResetService {
       user = await this.db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true, email: true } });
     } catch (cause) { throw unavailable('forgot-password', cause); }
     if (!user) return;
+    try { await this.sendLink(user, origin); } catch (cause) { logAuthFailure('forgot-password-link', cause); }
+  }
+
+  /**
+   * Stores a one-hour link for the Account, retiring its older ones, and mails it to the Account's address. A failure to
+   * store is raised as it is, for the caller to answer or to hide; a failure to send is logged.
+   */
+  async sendLink(user: { id: string; email: string }, origin: string): Promise<void> {
     const { id } = user;
     const token = newVerificationToken();
-    try {
-      await this.db.transaction(async (tx) => {
-        // The row lock makes two requests for one Account take turns, so only the later link is left.
-        await tx.select({ id: users.id }).from(users).where(eq(users.id, id)).for('update');
-        await tx.delete(authVerifications).where(and(eq(authVerifications.value, id), like(authVerifications.identifier, RESET_IDENTIFIERS)));
-        await tx.insert(authVerifications).values({ identifier: resetIdentifier(token), value: id, expiresAt: new Date(Date.now() + RESET_LIFETIME_MS) });
-      });
-    } catch (cause) {
-      logAuthFailure('forgot-password-link', cause);
-      return;
-    }
+    await this.db.transaction(async (tx) => {
+      // The row lock makes two requests for one Account take turns, so only the later link is left.
+      await tx.select({ id: users.id }).from(users).where(eq(users.id, id)).for('update');
+      await tx.delete(authVerifications).where(and(eq(authVerifications.value, id), like(authVerifications.identifier, RESET_IDENTIFIERS)));
+      await tx.insert(authVerifications).values({ identifier: resetIdentifier(token), value: id, expiresAt: new Date(Date.now() + RESET_LIFETIME_MS) });
+    });
     // Not awaited: waiting for the mail provider would make the answer for a known address measurably slower.
-    void this.mail.send(resetMessage(user.email, origin, token)).catch((cause: unknown) => logAuthFailure('forgot-password-mail', cause));
+    void this.mail.send(resetMessage(user.email, origin, token)).catch((cause: unknown) => logAuthFailure('reset-link-mail', cause));
   }
 
   /**

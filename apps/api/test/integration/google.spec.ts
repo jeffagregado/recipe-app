@@ -113,7 +113,7 @@ describe('Sign in with Google for a new person', () => {
 
     const session = await client.get('/auth/session', { cookie: cookiePair(response) });
     expect(session.status).toBe(200);
-    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: row!.id, displayName: 'Ana Google' });
+    expect(authSessionResponseSchema.parse(await session.json()).user).toEqual({ id: row!.id, displayName: 'Ana Google', hasPassword: false });
 
     // Compared without printing either side: a failure must not put the verifier in the log.
     // The exchange named the web callback and proved possession of the verifier behind the challenge Google was shown.
