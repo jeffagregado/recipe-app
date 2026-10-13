@@ -31,6 +31,16 @@ export type VerifyEmailInput = {
   token: string;
 };
 
+export type ForgotPasswordInput = {
+  email: string;
+};
+
+/** The token from the reset link and the password that replaces the old one. */
+export type ResetPasswordInput = {
+  token: string;
+  password: string;
+};
+
 /** Signup creates no session: the Account signs in only after its email is verified. */
 export type SignupResponse = {
   verificationRequired: true;
@@ -53,6 +63,7 @@ export const AUTH_ERROR_CODES = [
   "EMAIL_ALREADY_EXISTS",
   "EMAIL_NOT_VERIFIED",
   "VERIFICATION_LINK_INVALID",
+  "RESET_LINK_INVALID",
   "PAYLOAD_TOO_LARGE",
   "RATE_LIMITED",
   "SERVICE_UNAVAILABLE",

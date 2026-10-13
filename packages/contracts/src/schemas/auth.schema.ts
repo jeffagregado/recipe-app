@@ -11,8 +11,10 @@ import {
   type AuthSessionResponse,
   type AuthUser,
   type AuthUserResponse,
+  type ForgotPasswordInput,
   type LoginInput,
   type ResendVerificationInput,
+  type ResetPasswordInput,
   type SignupInput,
   type SignupResponse,
   type VerifyEmailInput,
@@ -57,6 +59,16 @@ export const resendVerificationSchema: z.ZodType<ResendVerificationInput, Resend
 // The token is opaque here: only the API decides whether it names a live link.
 export const verifyEmailSchema: z.ZodType<VerifyEmailInput> = z.strictObject({
   token: z.string().min(1).max(VERIFICATION_TOKEN_MAX_LENGTH),
+});
+
+export const forgotPasswordSchema: z.ZodType<ForgotPasswordInput, ForgotPasswordInput> = z.strictObject({
+  email: emailSchema,
+});
+
+// The same opaque token bound as a verification link, and the sign-up password rule.
+export const resetPasswordSchema: z.ZodType<ResetPasswordInput> = z.strictObject({
+  token: z.string().min(1).max(VERIFICATION_TOKEN_MAX_LENGTH),
+  password: passwordSchema,
 });
 
 export const signupResponseSchema: z.ZodType<SignupResponse> = z.strictObject({
