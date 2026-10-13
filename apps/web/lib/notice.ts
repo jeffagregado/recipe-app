@@ -9,7 +9,9 @@ export const NOTICE_MESSAGES = {
 	'password-reset': 'Password updated. Log in with your new password.',
 	'google-sign-in-failed': 'Google sign-in did not complete. Try again.',
 	'google-email-not-verified': 'Google has not verified this email address. Verify it with Google, or sign up with a password.',
-	'google-account-not-verified': 'This email has an account that is not verified yet. Open the link we emailed you, then sign in with Google again.',
+	// Points at the reset, never at a verification link already in the inbox: whoever signed up with the address chose that
+	// Account's password, and only a reset replaces it before a Google identity joins the Account.
+	'google-account-not-verified': 'This email has an account that is not verified yet. Use "Forgot password?" to set a new password, which verifies it, then sign in with Google again.',
 } as const
 
 /** The notices that report a failure: they are announced urgently and stay until dismissed. */

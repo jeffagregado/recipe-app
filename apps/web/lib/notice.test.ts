@@ -3,7 +3,7 @@ import { NOTICE_MESSAGES, noticeIsError, noticeMessage, urlWithoutNotice, withNo
 
 describe('noticeMessage', () => {
 	it('maps every known code to its toast text', () => {
-		expect(NOTICE_MESSAGES).toEqual({ 'recipe-saved': 'Recipe saved', 'recipe-updated': 'Recipe updated', 'recipe-deleted': 'Recipe deleted', 'email-verified': 'Email verified. Log in to continue.', 'password-reset': 'Password updated. Log in with your new password.', 'google-sign-in-failed': 'Google sign-in did not complete. Try again.', 'google-email-not-verified': 'Google has not verified this email address. Verify it with Google, or sign up with a password.', 'google-account-not-verified': 'This email has an account that is not verified yet. Open the link we emailed you, then sign in with Google again.' })
+		expect(NOTICE_MESSAGES).toEqual({ 'recipe-saved': 'Recipe saved', 'recipe-updated': 'Recipe updated', 'recipe-deleted': 'Recipe deleted', 'email-verified': 'Email verified. Log in to continue.', 'password-reset': 'Password updated. Log in with your new password.', 'google-sign-in-failed': 'Google sign-in did not complete. Try again.', 'google-email-not-verified': 'Google has not verified this email address. Verify it with Google, or sign up with a password.', 'google-account-not-verified': 'This email has an account that is not verified yet. Use "Forgot password?" to set a new password, which verifies it, then sign in with Google again.' })
 		expect(noticeMessage('recipe-saved')).toBe('Recipe saved')
 	})
 

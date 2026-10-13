@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { asc, eq, like } from 'drizzle-orm';
 import { authErrorResponseSchema, authSessionResponseSchema, googleStartResponseSchema } from '@recipe-app/contracts/schemas';
 import { GOOGLE_ENDPOINTS } from '../../src/auth/auth.google.js';
@@ -9,7 +9,7 @@ import { DEFAULT_CATEGORY_NAMES } from '../../src/categories/default-categories.
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authAccounts, authRateLimits, authVerifications, categories, recipes, users } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
-import { apiClient, cookiePair, insertOwnedRecipes, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
+import { apiClient, cookiePair, insertOwnedRecipes, latestResetToken, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
 import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { GoogleIdentity } from '../google-stand-in.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
@@ -25,7 +25,7 @@ describe('Sign in with Google', () => {
   let mail: RecordingMailTransport;
   let client: ReturnType<typeof apiClient>;
   let google: Awaited<ReturnType<typeof startGoogleStandIn>>;
-  const addresses = [testAddress()];
+  const addresses: string[] = [];
   const emails: string[] = [];
   const identity = (overrides: Partial<GoogleIdentity> = {}): GoogleIdentity => {
     const email = testEmail();
@@ -57,8 +57,9 @@ describe('Sign in with Google', () => {
     process.env.GOOGLE_CLIENT_SECRET = STAND_IN_CLIENT.secret;
     process.env.GOOGLE_REDIRECT_URI = WEB_CALLBACK;
     ({ app, baseUrl, db, mail } = await startApi((builder) => builder.overrideProvider(GOOGLE_ENDPOINTS).useValue(google.endpoints)));
-    client = apiClient(baseUrl, addresses[0]);
   }, 60_000);
+  // Start, callback and sign-up are limited per client address, so each test calls from an address of its own.
+  beforeEach(() => { client = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]); });
   afterAll(async () => {
     try {
       if (app) {
@@ -193,7 +194,7 @@ describe('Sign in with Google', () => {
   }, 30_000);
 
   it('attaches the identity to a Verified password Account with the same email and signs in, leaving one unchanged Account', async () => {
-    const { user, email, password } = await signupUser(client, db);
+    const { user, email } = await signupUser(client, db);
     emails.push(email);
     await insertOwnedRecipes(db, user, `google-link-${randomBytes(4).toString('hex')}`, seedRecipes.slice(0, 2));
     // The owner renamed one Default category and deleted another; linking must not write the five again.
@@ -226,19 +227,26 @@ describe('Sign in with Google', () => {
     expect(after?.sessions.length).toBe(2);
     expect(await categoryNames(user.id)).toEqual(['Brunch', 'Dinner', 'Snacks', 'Desserts']);
     expect(await db.$count(recipes, eq(recipes.userId, user.id))).toBe(2);
+  }, 60_000);
+
+  it('keeps both Sign-in methods of a joined Account working and tells a manual sign-up over it that either can be used', async () => {
+    const { user, email, password } = await signupUser(client, db);
+    emails.push(email);
+    const person = identity({ email });
+    expect((await finish({ code: google.consent(person), ...(await start()) })).status).toBe(204);
     // The password still works, and the next Google sign-in opens the same Account without attaching again.
     expect((await client.post('/auth/login', { email, password })).status).toBe(200);
     expect((await finish({ code: google.consent(person), ...(await start()) })).status).toBe(204);
     expect(await db.$count(authAccounts, eq(authAccounts.userId, user.id))).toBe(2);
+    expect(await db.$count(users, eq(users.email, email))).toBe(1);
 
-    // An Account with both Sign-in methods is told it can use either.
     expect((await client.post('/auth/signup', { displayName: 'Someone Else', email, password: randomBytes(24).toString('base64url') })).status).toBe(409);
     expect(mail.messages.filter(({ to, kind }) => to === email && kind === 'account-exists').map(({ html }) => html)).toEqual([
       '<p>Someone tried to sign up for Recipe App with this email address, which already has an account.</p>'
         + `<p>If it was you, log in with your email and password, or sign in with Google: <a href="${TEST_ORIGIN}/">Log in to Recipe App</a></p>`
         + '<p>If it was not you, no action is needed. Your account has not changed.</p>',
     ]);
-  }, 120_000);
+  }, 60_000);
 
   it('refuses an email that matches an unverified password Account with EMAIL_NOT_VERIFIED, attaches nothing and verifies nothing', async () => {
     const email = testEmail();
@@ -260,6 +268,32 @@ describe('Sign in with Google', () => {
     await expectRefused(await finish({ code: google.consent(person), ...(await start()) }), 403, { code: 'EMAIL_NOT_VERIFIED', message: 'Verify your email to log in.' });
     expect((await userOf(email))?.emailVerified).toBe(false);
     expect(await db.$count(authAccounts, eq(authAccounts.userId, before!.id))).toBe(1);
+    // Google's own verdict is read first: an address it has not verified is refused as that, whatever Account it matches.
+    const unproven = identity({ email, email_verified: false });
+    await expectRefused(await finish({ code: google.consent(unproven), ...(await start()) }), 403, { code: 'GOOGLE_EMAIL_NOT_VERIFIED', message: 'Google has not verified this email address.' });
+    expect(await db.$count(authAccounts, eq(authAccounts.accountId, unproven.sub))).toBe(0);
+  }, 60_000);
+
+  it('attaches the identity once a password reset has verified the Account, and the password set before it no longer logs in', async () => {
+    // The login notice sends a refused person to the reset, never to a link that someone else's sign-up put in their inbox:
+    // whoever created the unverified Account chose its password, and the reset is what takes that password away.
+    const email = testEmail();
+    emails.push(email);
+    const chosenAtSignup = testPassword();
+    expect((await client.post('/auth/signup', { displayName: 'Password Person', email, password: chosenAtSignup })).status).toBe(201);
+    const person = identity({ email });
+    await expectRefused(await finish({ code: google.consent(person), ...(await start()) }), 403, { code: 'EMAIL_NOT_VERIFIED', message: 'Verify your email to log in.' });
+
+    expect((await client.post('/auth/forgot-password', { email })).status).toBe(204);
+    const chosenAtReset = testPassword();
+    expect((await client.post('/auth/reset-password', { token: await latestResetToken(db, email), password: chosenAtReset })).status).toBe(204);
+    expect((await finish({ code: google.consent(person), ...(await start()) })).status).toBe(204);
+
+    const after = await userOf(email);
+    expect(after?.emailVerified).toBe(true);
+    expect(after?.accounts.map(({ providerId }) => providerId).sort()).toEqual(['credential', 'google']);
+    await expectRefused(await client.post('/auth/login', { email, password: chosenAtSignup }), 401, { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' });
+    expect((await client.post('/auth/login', { email, password: chosenAtReset })).status).toBe(200);
   }, 60_000);
 
   it('signs an attached identity into its Account after the Account\'s email has changed, by the identity and not the email', async () => {
