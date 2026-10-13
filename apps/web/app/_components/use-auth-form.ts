@@ -3,9 +3,12 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { loginSchema, signupSchema } from '@recipe-app/contracts/schemas'
 import type { SignupInput } from '@recipe-app/contracts/types'
+import { unstable_rethrow } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
+import { GOOGLE_UNAVAILABLE } from '@/features/auth/action-result'
 import { login, signup } from '@/features/auth/actions'
+import { startGoogleSignIn } from '@/features/auth/google-actions'
 import { broadcastAuth } from '@/features/auth/session-client'
 import { submitAuth } from '@/features/auth/submit-auth'
 
@@ -59,6 +62,22 @@ export function useAuthForm() {
 		})
 	})
 
-	return { mode, isSignup, pending, showPassword, setShowPassword, message, unverifiedEmail, errors, register, switchMode, submit }
+	/** Leaves for Google's consent screen. Only a failure to start comes back here; the outcome arrives on the callback. */
+	function continueWithGoogle() {
+		if (pending) return
+		clearErrors()
+		setMessage(undefined)
+		setUnverifiedEmail(undefined)
+		startTransition(async () => {
+			try { setMessage((await startGoogleSignIn()).message) }
+			catch (error) {
+				// A Next action redirect rejects its promise; preserve that framework control flow.
+				unstable_rethrow(error)
+				setMessage(GOOGLE_UNAVAILABLE.message)
+			}
+		})
+	}
+
+	return { mode, isSignup, pending, showPassword, setShowPassword, message, unverifiedEmail, errors, register, switchMode, submit, continueWithGoogle }
 }
 

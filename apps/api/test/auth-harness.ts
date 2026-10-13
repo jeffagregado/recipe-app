@@ -13,7 +13,7 @@ import { authRateLimits, authVerifications, categories, recipeCategories, recipe
 import type { SeedRecipe } from '../src/recipes/fixtures/fixture.js';
 import { seedRecipes } from '../src/recipes/seed-recipes.js';
 import { getDevDatabaseUrl } from './neon-dev.js';
-import type { RecordingMailTransport } from './recording-mail.js';
+import type { ConfigureTestingModule, RecordingMailTransport } from './recording-mail.js';
 
 export const TEST_ORIGIN = 'http://localhost:3000';
 
@@ -33,7 +33,7 @@ export function testAddress(): string {
 export const testEmail = () => `t_${randomBytes(10).toString('hex')}@example.invalid`;
 export const testPassword = () => randomBytes(24).toString('base64url');
 
-export async function startApi(): Promise<{ app: NestExpressApplication; baseUrl: string; db: DrizzleDb; mail: RecordingMailTransport }> {
+export async function startApi(configure?: ConfigureTestingModule): Promise<{ app: NestExpressApplication; baseUrl: string; db: DrizzleDb; mail: RecordingMailTransport }> {
   process.env.DATABASE_URL = await getDevDatabaseUrl();
   process.env.BETTER_AUTH_URL = 'http://127.0.0.1:4101';
   // Process environment overrides the env file, so the suite never depends on the developer's list.
@@ -41,7 +41,7 @@ export async function startApi(): Promise<{ app: NestExpressApplication; baseUrl
   const { AppModule } = await import('../src/app.module.js');
   // Imported here, not at the top: the e2e loader compiles this file alone and resolves no other test module.
   const { createAppWithRecordedMail } = await import('./recording-mail.js');
-  const { app, mail } = await createAppWithRecordedMail(AppModule, { logger: false, bodyParser: false, abortOnError: false });
+  const { app, mail } = await createAppWithRecordedMail(AppModule, { logger: false, bodyParser: false, abortOnError: false }, configure);
   mountAuth(app);
   await app.listen(0, '127.0.0.1');
   const baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
@@ -121,7 +121,7 @@ export async function removeTestData(db: DrizzleDb, data: { emails: string[]; ad
   }
   const keys = [
     ...data.emails.flatMap((email) => ['login:email', 'resend:email', 'notice:email'].map((scope) => rateLimitKey(scope, email))),
-    ...data.addresses.flatMap((address) => ['login:address', 'signup:address', 'resend:address', 'verify:address'].map((scope) => rateLimitKey(scope, address))),
+    ...data.addresses.flatMap((address) => ['login:address', 'signup:address', 'resend:address', 'verify:address', 'google-start:address', 'google-callback:address'].map((scope) => rateLimitKey(scope, address))),
   ];
   await db.delete(authRateLimits).where(or(inArray(authRateLimits.key, keys), ...data.addresses.map((address) => like(authRateLimits.key, `${address}%`))));
 }

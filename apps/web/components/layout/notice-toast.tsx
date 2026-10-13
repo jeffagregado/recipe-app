@@ -3,7 +3,7 @@
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useEffect, useRef } from 'react'
 
-import { NOTICE_PARAM, noticeMessage, urlWithoutNotice } from '@/lib/notice'
+import { NOTICE_PARAM, noticeIsError, noticeMessage, urlWithoutNotice } from '@/lib/notice'
 import { useAppToast } from '@/lib/use-app-toast'
 
 /**
@@ -29,7 +29,7 @@ export function NoticeToast() {
 		handled.current = notice
 
 		const message = noticeMessage(notice)
-		if (message) toast.success(message)
+		if (message) toast[noticeIsError(notice) ? 'error' : 'success'](message)
 		window.history.replaceState(null, '', urlWithoutNotice(pathname, searchParams, window.location.hash))
 	}, [notice, pathname, searchParams, toast])
 

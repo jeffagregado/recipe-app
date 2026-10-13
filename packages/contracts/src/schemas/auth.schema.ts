@@ -4,6 +4,8 @@ import {
   AUTH_ERROR_CODES,
   DISPLAY_NAME_MAX_LENGTH,
   EMAIL_MAX_LENGTH,
+  GOOGLE_CODE_MAX_LENGTH,
+  GOOGLE_STATE_MAX_LENGTH,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   VERIFICATION_TOKEN_MAX_LENGTH,
@@ -11,6 +13,8 @@ import {
   type AuthSessionResponse,
   type AuthUser,
   type AuthUserResponse,
+  type GoogleCallbackInput,
+  type GoogleStartResponse,
   type LoginInput,
   type ResendVerificationInput,
   type SignupInput,
@@ -57,6 +61,19 @@ export const resendVerificationSchema: z.ZodType<ResendVerificationInput, Resend
 // The token is opaque here: only the API decides whether it names a live link.
 export const verifyEmailSchema: z.ZodType<VerifyEmailInput> = z.strictObject({
   token: z.string().min(1).max(VERIFICATION_TOKEN_MAX_LENGTH),
+});
+
+// Starting takes no input: the API decides the provider, the callback and the scopes.
+export const googleStartSchema = z.strictObject({});
+
+// Both values are opaque here: only the API decides whether they complete a sign-in it started.
+export const googleCallbackSchema: z.ZodType<GoogleCallbackInput> = z.strictObject({
+  code: z.string().min(1).max(GOOGLE_CODE_MAX_LENGTH),
+  state: z.string().min(1).max(GOOGLE_STATE_MAX_LENGTH),
+});
+
+export const googleStartResponseSchema: z.ZodType<GoogleStartResponse> = z.strictObject({
+  url: z.url({ protocol: /^https?$/, hostname: /\S+/ }),
 });
 
 export const signupResponseSchema: z.ZodType<SignupResponse> = z.strictObject({

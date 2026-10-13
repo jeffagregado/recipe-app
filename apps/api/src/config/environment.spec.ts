@@ -116,3 +116,42 @@ describe('mail configuration', () => {
     expect(message.includes('marker-value')).toBe(false);
   });
 });
+
+describe('Google sign-in configuration', () => {
+  const localCallback = 'http://localhost:3000/api/auth/callback/google';
+  const google = { GOOGLE_CLIENT_ID: 'unit-client-id', GOOGLE_CLIENT_SECRET: 'unit-client-marker-value' };
+  const read = (input: Record<string, unknown>) => {
+    const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI } = validateEnvironment({ ...base, ...input });
+    return { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI };
+  };
+
+  it.each([{}, { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '', GOOGLE_REDIRECT_URI: '' }, { GOOGLE_CLIENT_ID: '  ', GOOGLE_CLIENT_SECRET: '  ' }])('starts without Google (%j)', (input) => {
+    expect(read(input)).toEqual({ GOOGLE_CLIENT_ID: undefined, GOOGLE_CLIENT_SECRET: undefined, GOOGLE_REDIRECT_URI: localCallback });
+    expect(read({ ...input, NODE_ENV: 'production', AUTH_TRUSTED_ORIGINS: 'https://app.example.com' }).GOOGLE_CLIENT_ID).toBeUndefined();
+  });
+
+  it('defaults the redirect URI to the local web callback outside production', () => {
+    expect(read(google)).toEqual({ ...google, GOOGLE_REDIRECT_URI: localCallback });
+  });
+
+  it('keeps a configured redirect URI on the web callback path', () => {
+    expect(read({ ...google, GOOGLE_REDIRECT_URI: ' https://app.example.com/api/auth/callback/google ', NODE_ENV: 'production', AUTH_TRUSTED_ORIGINS: 'https://app.example.com' }).GOOGLE_REDIRECT_URI)
+      .toBe('https://app.example.com/api/auth/callback/google');
+  });
+
+  it.each([
+    ['an id without a secret', { GOOGLE_CLIENT_ID: 'marker-value' }, 'GOOGLE_CLIENT_SECRET'],
+    ['a secret without an id', { GOOGLE_CLIENT_SECRET: 'marker-value' }, 'GOOGLE_CLIENT_ID'],
+    ['an id with inner whitespace', { ...google, GOOGLE_CLIENT_ID: 'marker-value other' }, 'GOOGLE_CLIENT_ID'],
+    ['a redirect URI on another path', { ...google, GOOGLE_REDIRECT_URI: 'https://marker-value.example/callback' }, 'GOOGLE_REDIRECT_URI'],
+    ['a redirect URI with a query', { ...google, GOOGLE_REDIRECT_URI: 'https://marker-value.example/api/auth/callback/google?next=1' }, 'GOOGLE_REDIRECT_URI'],
+    ['a redirect URI with credentials', { ...google, GOOGLE_REDIRECT_URI: 'https://user:marker-value@a.example/api/auth/callback/google' }, 'GOOGLE_REDIRECT_URI'],
+    ['a redirect URI that is not http(s)', { ...google, GOOGLE_REDIRECT_URI: 'ftp://marker-value.example/api/auth/callback/google' }, 'GOOGLE_REDIRECT_URI'],
+    ['Google in production without a redirect URI', { ...google, NODE_ENV: 'production', AUTH_TRUSTED_ORIGINS: 'https://app.example.com' }, 'GOOGLE_REDIRECT_URI'],
+  ])('rejects %s with a key-only error that never echoes values', (_name, input, key) => {
+    const message = messageOf(input);
+    expect(message.startsWith('Invalid API configuration:')).toBe(true);
+    expect(message.includes(key)).toBe(true);
+    expect(message.includes('marker-value')).toBe(false);
+  });
+});

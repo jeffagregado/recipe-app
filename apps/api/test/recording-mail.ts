@@ -2,6 +2,7 @@ import type { Type } from '@nestjs/common';
 import type { NestApplicationOptions } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
+import type { TestingModuleBuilder } from '@nestjs/testing';
 import { MAIL_TRANSPORT } from '../src/mail/mail.transport.js';
 import type { MailMessage, MailTransport } from '../src/mail/mail.transport.js';
 
@@ -15,9 +16,12 @@ export class RecordingMailTransport implements MailTransport {
   }
 }
 
+/** Replaces further providers before the application is compiled, such as the endpoints a provider stand-in answers. */
+export type ConfigureTestingModule = (builder: TestingModuleBuilder) => TestingModuleBuilder;
+
 /** Builds the application with its mail transport replaced, so a suite never reaches Resend even when the env file holds a key. */
-export async function createAppWithRecordedMail(module: Type<unknown>, options: NestApplicationOptions): Promise<{ app: NestExpressApplication; mail: RecordingMailTransport }> {
+export async function createAppWithRecordedMail(module: Type<unknown>, options: NestApplicationOptions, configure: ConfigureTestingModule = (builder) => builder): Promise<{ app: NestExpressApplication; mail: RecordingMailTransport }> {
   const mail = new RecordingMailTransport();
-  const compiled = await Test.createTestingModule({ imports: [module] }).overrideProvider(MAIL_TRANSPORT).useValue(mail).compile();
+  const compiled = await configure(Test.createTestingModule({ imports: [module] }).overrideProvider(MAIL_TRANSPORT).useValue(mail)).compile();
   return { app: compiled.createNestApplication<NestExpressApplication>(options), mail };
 }

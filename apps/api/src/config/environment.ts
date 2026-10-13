@@ -47,6 +47,26 @@ const mailSender = new RegExp(String.raw`^(?:${mailAddress}|[^<>,;"@\p{Cc}]+ <${
 /** An env example line left empty means "not set". */
 const blankAsUnset = (value: unknown) => (typeof value === 'string' && !value.trim() ? undefined : value);
 
+/** The path of the web route handler that receives Google's redirect; the origin in front of it is the web app's. */
+const GOOGLE_CALLBACK_PATH = '/api/auth/callback/google';
+const localGoogleRedirectUri = `http://localhost:3000${GOOGLE_CALLBACK_PATH}`;
+const googleRedirectUriSchema = z.url({ protocol: /^https?$/, hostname: /\S+/ }).pipe(z.string().refine((value) => {
+  const url = new URL(value);
+  return url.pathname === GOOGLE_CALLBACK_PATH && [url.username, url.password, url.search, url.hash].every((part) => !part);
+}, 'must be the web origin followed by the Google callback path'));
+
+type GoogleSettings = { GOOGLE_CLIENT_ID?: string; GOOGLE_CLIENT_SECRET?: string; GOOGLE_REDIRECT_URI?: string };
+
+/** The keys a half-configured Google client is missing, each with the reason. */
+function missingGoogleSettings(google: GoogleSettings, production: boolean): [key: keyof GoogleSettings, message: string][] {
+  const missing: [keyof GoogleSettings, string][] = [];
+  if (google.GOOGLE_CLIENT_ID && !google.GOOGLE_CLIENT_SECRET) missing.push(['GOOGLE_CLIENT_SECRET', 'is required with GOOGLE_CLIENT_ID']);
+  if (google.GOOGLE_CLIENT_SECRET && !google.GOOGLE_CLIENT_ID) missing.push(['GOOGLE_CLIENT_ID', 'is required with GOOGLE_CLIENT_SECRET']);
+  // The local callback is a development default only: a deployment that offers Google names its own web origin.
+  if (production && google.GOOGLE_CLIENT_ID && !google.GOOGLE_REDIRECT_URI) missing.push(['GOOGLE_REDIRECT_URI', 'is required in production']);
+  return missing;
+}
+
 const environmentSchema = z.object({
   NODE_ENV: z.string().optional(),
   AUTH_TRUSTED_ORIGINS: authTrustedOriginsSchema,
@@ -66,14 +86,21 @@ const environmentSchema = z.object({
   S3_BUCKET: z.string().trim().min(1),
   RESEND_API_KEY: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S+$/).optional()),
   MAIL_FROM: z.preprocess(blankAsUnset, z.string().trim().regex(mailSender).default(defaultMailSender)),
+  GOOGLE_CLIENT_ID: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S+$/).optional()),
+  GOOGLE_CLIENT_SECRET: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S+$/).optional()),
+  GOOGLE_REDIRECT_URI: z.preprocess(blankAsUnset, z.string().trim().pipe(googleRedirectUriSchema).optional()),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
 }).transform(({ NODE_ENV, AUTH_TRUSTED_ORIGINS, ...config }, context) => {
-  if (AUTH_TRUSTED_ORIGINS.length > 0) return { ...config, AUTH_TRUSTED_ORIGINS };
-  if (NODE_ENV === 'production') {
-    context.issues.push({ code: 'custom', message: 'is required in production', input: undefined, path: ['AUTH_TRUSTED_ORIGINS'] });
-    return z.NEVER;
-  }
-  return { ...config, AUTH_TRUSTED_ORIGINS: localAuthOrigins };
+  const production = NODE_ENV === 'production';
+  const missing: [string, string][] = missingGoogleSettings(config, production);
+  if (production && AUTH_TRUSTED_ORIGINS.length === 0) missing.push(['AUTH_TRUSTED_ORIGINS', 'is required in production']);
+  for (const [key, message] of missing) context.issues.push({ code: 'custom', message, input: undefined, path: [key] });
+  if (missing.length > 0) return z.NEVER;
+  return {
+    ...config,
+    GOOGLE_REDIRECT_URI: config.GOOGLE_REDIRECT_URI ?? (production ? undefined : localGoogleRedirectUri),
+    AUTH_TRUSTED_ORIGINS: AUTH_TRUSTED_ORIGINS.length > 0 ? AUTH_TRUSTED_ORIGINS : localAuthOrigins,
+  };
 });
 
 export type Environment = z.infer<typeof environmentSchema>;
@@ -87,7 +114,7 @@ export function validateEnvironment(input: Record<string, unknown>): Environment
   const result = environmentSchema.safeParse(input);
   if (!result.success) {
     const keys = [...new Set(result.error.issues.map((issue) => issue.path[0]))];
-    throw new ConfigurationError(`Invalid API configuration: ${keys.join(', ')}. Check required values and URL formats; PORT must be an integer between 1 and 65535; AUTH_TRUSTED_ORIGINS must list exact http(s) origins and is required in production; MAIL_FROM must be one address, bare or as Name <address>; RESEND_API_KEY must not contain whitespace.`);
+    throw new ConfigurationError(`Invalid API configuration: ${keys.join(', ')}. Check required values and URL formats; PORT must be an integer between 1 and 65535; AUTH_TRUSTED_ORIGINS must list exact http(s) origins and is required in production; MAIL_FROM must be one address, bare or as Name <address>; RESEND_API_KEY must not contain whitespace; GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set together, and GOOGLE_REDIRECT_URI is the web origin followed by ${GOOGLE_CALLBACK_PATH}, required in production when Google is configured.`);
   }
   return result.data;
 }
