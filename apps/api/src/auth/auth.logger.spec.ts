@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MailError } from '../mail/mail.transport.js';
 import { logAuthEvent, logAuthFailure } from './auth.logger.js';
 
 const sqlError = (code: string, message: string, cause?: unknown) => Object.assign(new Error(message, { cause }), { code });
@@ -23,6 +24,17 @@ describe('auth logging', () => {
     expect(error).toHaveBeenCalledExactlyOnceWith('Auth login failed: RangeError <- Error.');
     logAuthFailure('login', 'plain string');
     expect(error).toHaveBeenLastCalledWith('Auth login failed: string.');
+  });
+
+  it.each([
+    ['a mail error with a provider code', new Error('signup', { cause: new MailError('validation_error') }), 'Auth signup failed: Error <- MailError (code validation_error).'],
+    ['a code-less mail error as its class name only', new MailError(), 'Auth signup failed: MailError.'],
+    ['a mail error with an unsafe code as its class name only', new MailError('secret@example.invalid'), 'Auth signup failed: MailError.'],
+    ['another error without its lower-case code', Object.assign(new Error('secret'), { code: 'validation_error' }), 'Auth signup failed: Error.'],
+  ])('logs %s', (_case, cause, line) => {
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    logAuthFailure('signup', cause);
+    expect(error).toHaveBeenCalledExactlyOnceWith(line);
   });
 
   it('logs only the level and SQLSTATE for Better Auth events', () => {

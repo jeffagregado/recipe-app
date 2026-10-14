@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { MAIL_CODE, MailError } from '../mail/mail.transport.js';
 
 const logger = new Logger('BetterAuth');
 
@@ -20,12 +21,13 @@ function codeMatching(value: unknown, pattern: RegExp): string[] {
   return typeof code === 'string' && pattern.test(code) ? [code] : [];
 }
 
-/** Only SQLSTATEs and Better Auth upper-case error codes are safe to log; messages and other values never are. */
+/** Only SQLSTATEs, Better Auth upper-case error codes and mail provider codes are safe to log; messages and other values never are. */
 function safeCodes(start: unknown): string[] {
   const codes = new Set<string>();
   for (const cause of causes(start)) {
     const body = 'body' in cause ? cause.body : undefined;
-    for (const code of [...codeMatching(cause, SQLSTATE), ...codeMatching(body, AUTH_CODE)]) codes.add(code);
+    const mail = cause instanceof MailError ? codeMatching(cause, MAIL_CODE) : [];
+    for (const code of [...codeMatching(cause, SQLSTATE), ...codeMatching(body, AUTH_CODE), ...mail]) codes.add(code);
   }
   return [...codes];
 }
