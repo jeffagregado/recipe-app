@@ -117,6 +117,39 @@ describe('mail configuration', () => {
   });
 });
 
+describe('Gmail configuration', () => {
+  const gmail = { GMAIL_CLIENT_ID: 'unit-gmail-client', GMAIL_CLIENT_SECRET: 'unit-gmail-secret', GMAIL_REFRESH_TOKEN: 'unit-refresh-token', MAIL_FROM: 'Kitchen <kitchen@gmail.com>' };
+  const read = (input: Record<string, unknown>) => validateEnvironment({ ...base, ...input }).GMAIL;
+
+  it.each([{}, { GMAIL_CLIENT_ID: '', GMAIL_CLIENT_SECRET: '', GMAIL_REFRESH_TOKEN: '' }, { GMAIL_CLIENT_ID: ' ', GMAIL_CLIENT_SECRET: ' ', GMAIL_REFRESH_TOKEN: ' ' }])('runs without Gmail (%j)', (input) => {
+    expect(read(input)).toBeUndefined();
+  });
+
+  it('accepts all three values together', () => {
+    expect(read({ ...gmail, GMAIL_CLIENT_ID: ' unit-gmail-client ' })).toEqual({ clientId: 'unit-gmail-client', clientSecret: 'unit-gmail-secret', refreshToken: 'unit-refresh-token' });
+  });
+
+  it.each([
+    ['a bare Gmail sender in any letter case', 'Kitchen@GMail.com'],
+    ['a named sender on Gmail\'s other domain', 'Kitchen <kitchen@googlemail.com>'],
+  ])('accepts %s', (_name, sender) => {
+    expect(validateEnvironment({ ...base, ...gmail, MAIL_FROM: sender }).MAIL_FROM).toBe(sender);
+  });
+
+  it.each([
+    ...['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'].map((key) => [`a missing ${key}`, { [key]: undefined }, key] as const),
+    ['only a refresh token', { GMAIL_CLIENT_ID: undefined, GMAIL_CLIENT_SECRET: undefined }, 'GMAIL_CLIENT_ID'],
+    ['a sender outside Gmail', { MAIL_FROM: 'Kitchen <kitchen@marker-value.example>' }, 'MAIL_FROM'],
+    ['a sender whose domain only ends in gmail.com', { MAIL_FROM: 'kitchen@marker-valuegmail.com' }, 'MAIL_FROM'],
+    ['the default sender', { MAIL_FROM: undefined }, 'MAIL_FROM'],
+  ] as const)('rejects %s with a key-only error that never echoes values', (_name, input, key) => {
+    const message = messageOf({ ...gmail, GMAIL_CLIENT_SECRET: 'marker-value', ...input });
+    expect(message.startsWith('Invalid API configuration:')).toBe(true);
+    expect(message.split('.')[0]).toContain(key);
+    expect(message.includes('marker-value')).toBe(false);
+  });
+});
+
 describe('Google sign-in configuration', () => {
   const localCallback = 'http://localhost:3000/api/auth/callback/google';
   const google = { GOOGLE_CLIENT_ID: 'unit-client-id', GOOGLE_CLIENT_SECRET: 'unit-client-marker-value' };

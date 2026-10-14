@@ -47,6 +47,26 @@ const mailSender = new RegExp(String.raw`^(?:${mailAddress}|[^<>,;"@\p{Cc}]+ <${
 /** An env example line left empty means "not set". */
 const blankAsUnset = (value: unknown) => (typeof value === 'string' && !value.trim() ? undefined : value);
 
+/** The OAuth client and refresh token the mail transport sends through the Gmail API with. */
+export type GmailAccount = { clientId: string; clientSecret: string; refreshToken: string };
+
+type GmailEnv = { GMAIL_CLIENT_ID?: string; GMAIL_CLIENT_SECRET?: string; GMAIL_REFRESH_TOKEN?: string };
+const gmailKeys = ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'] as const;
+const gmailSender = /@(?:gmail|googlemail)\.com>?$/i;
+
+const isCompleteGmail = (env: GmailEnv): env is Required<GmailEnv> => gmailKeys.every((key) => env[key] !== undefined);
+
+/** The Gmail account when all three settings are set, or the issues with them: a partial set, or a sender Gmail would replace. */
+function parseGmailAccount(env: GmailEnv, mailFrom: string): { account?: GmailAccount; issues: [string, string][] } {
+  if (!isCompleteGmail(env)) {
+    const unset = gmailKeys.filter((key) => env[key] === undefined);
+    return { issues: unset.length < gmailKeys.length ? unset.map((key) => [key, 'is required with the other Gmail settings']) : [] };
+  }
+  // Gmail replaces any From address other than the authorised account's own, so the sender must be a Gmail address.
+  if (!gmailSender.test(mailFrom)) return { issues: [['MAIL_FROM', 'must be the authorised Gmail address']] };
+  return { account: { clientId: env.GMAIL_CLIENT_ID, clientSecret: env.GMAIL_CLIENT_SECRET, refreshToken: env.GMAIL_REFRESH_TOKEN }, issues: [] };
+}
+
 /** The path of the web route handler that receives Google's redirect; the origin in front of it is the web app's. */
 const GOOGLE_CALLBACK_PATH = '/api/auth/callback/google';
 const localGoogleRedirectUri = `http://localhost:3000${GOOGLE_CALLBACK_PATH}`;
@@ -86,20 +106,26 @@ const environmentSchema = z.object({
   S3_BUCKET: z.string().trim().min(1),
   RESEND_API_KEY: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S+$/).optional()),
   MAIL_FROM: z.preprocess(blankAsUnset, z.string().trim().regex(mailSender).default(defaultMailSender)),
+  /** A Gmail account takes precedence over Resend; see createMailTransport. */
+  GMAIL_CLIENT_ID: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S+$/).optional()),
+  GMAIL_CLIENT_SECRET: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S+$/).optional()),
+  GMAIL_REFRESH_TOKEN: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S+$/).optional()),
   GOOGLE_CLIENT_ID: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S+$/).optional()),
   GOOGLE_CLIENT_SECRET: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S+$/).optional()),
   GOOGLE_REDIRECT_URI: z.preprocess(blankAsUnset, z.string().trim().pipe(googleRedirectUriSchema).optional()),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   /** Proxies in front of the API whose X-Forwarded-For entries are trusted; 0 trusts loopback only. See mountAuth. */
   TRUST_PROXY_HOPS: z.preprocess(blankAsUnset, z.coerce.number().int().min(0).default(0)),
-}).transform(({ NODE_ENV, AUTH_TRUSTED_ORIGINS, ...config }, context) => {
+}).transform(({ NODE_ENV, AUTH_TRUSTED_ORIGINS, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, ...config }, context) => {
   const production = NODE_ENV === 'production';
-  const missing: [string, string][] = missingGoogleSettings(config, production);
+  const gmail = parseGmailAccount({ GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN }, config.MAIL_FROM);
+  const missing: [string, string][] = [...missingGoogleSettings(config, production), ...gmail.issues];
   if (production && AUTH_TRUSTED_ORIGINS.length === 0) missing.push(['AUTH_TRUSTED_ORIGINS', 'is required in production']);
   for (const [key, message] of missing) context.issues.push({ code: 'custom', message, input: undefined, path: [key] });
   if (missing.length > 0) return z.NEVER;
   return {
     ...config,
+    ...(gmail.account && { GMAIL: gmail.account }),
     GOOGLE_REDIRECT_URI: config.GOOGLE_REDIRECT_URI ?? (production ? undefined : localGoogleRedirectUri),
     AUTH_TRUSTED_ORIGINS: AUTH_TRUSTED_ORIGINS.length > 0 ? AUTH_TRUSTED_ORIGINS : localAuthOrigins,
   };
@@ -116,7 +142,7 @@ export function validateEnvironment(input: Record<string, unknown>): Environment
   const result = environmentSchema.safeParse(input);
   if (!result.success) {
     const keys = [...new Set(result.error.issues.map((issue) => issue.path[0]))];
-    throw new ConfigurationError(`Invalid API configuration: ${keys.join(', ')}. Check required values and URL formats; PORT must be an integer between 1 and 65535; TRUST_PROXY_HOPS must be an integer of 0 or more; AUTH_TRUSTED_ORIGINS must list exact http(s) origins and is required in production; MAIL_FROM must be one address, bare or as Name <address>; RESEND_API_KEY must not contain whitespace; GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set together, and GOOGLE_REDIRECT_URI is the web origin followed by ${GOOGLE_CALLBACK_PATH}, required in production when Google is configured.`);
+    throw new ConfigurationError(`Invalid API configuration: ${keys.join(', ')}. Check required values and URL formats; PORT must be an integer between 1 and 65535; TRUST_PROXY_HOPS must be an integer of 0 or more; AUTH_TRUSTED_ORIGINS must list exact http(s) origins and is required in production; MAIL_FROM must be one address, bare or as Name <address>; RESEND_API_KEY must not contain whitespace; GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN are set together, and with them MAIL_FROM is the authorised Gmail address; GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set together, and GOOGLE_REDIRECT_URI is the web origin followed by ${GOOGLE_CALLBACK_PATH}, required in production when Google is configured.`);
   }
   return result.data;
 }

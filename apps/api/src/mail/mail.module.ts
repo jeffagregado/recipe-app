@@ -9,6 +9,7 @@ import { createMailTransport, MAIL_TRANSPORT } from './mail.transport.js';
     provide: MAIL_TRANSPORT,
     inject: [ConfigService],
     useFactory: (config: ConfigService<Environment, true>) => createMailTransport({
+      GMAIL: config.get('GMAIL', { infer: true }),
       RESEND_API_KEY: config.get('RESEND_API_KEY', { infer: true }),
       MAIL_FROM: config.get('MAIL_FROM', { infer: true }),
     }),
