@@ -21,7 +21,7 @@ import { useAppToast } from '@/lib/use-app-toast'
 import { connectGoogle } from '../actions/connect-google'
 import { disconnectGoogle } from '../actions/disconnect-google'
 import { SIGN_IN_METHODS_MESSAGES, type ConnectGoogleResult, type DisconnectGoogleResult } from '../actions/results'
-import { useSingleFlight } from '../lib/use-single-flight'
+import { useSingleFlight } from '@/lib/use-single-flight'
 
 type SignInMethodsCardProps = {
 	/** Both from the session read: a disconnect or a connect refreshes it, and the card renders what it then reports. */

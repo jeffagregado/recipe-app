@@ -1,13 +1,14 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, like } from 'drizzle-orm';
 import { authErrorResponseSchema, authSessionResponseSchema, authUserResponseSchema, confirmEmailChangeResponseSchema, googleStartResponseSchema } from '@recipe-app/contracts/schemas';
+import { emailChangeIdentifier } from '../../src/auth/auth.email-change.js';
 import { GOOGLE_ENDPOINTS } from '../../src/auth/auth.google.js';
 import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authAccounts, authRateLimits, authSessions, authVerifications, users } from '../../src/database/schema.js';
-import { apiClient, cookiePair, emailChangeTokens, latestEmailChangeToken, latestResetToken, removeTestData, resetTokens, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { apiClient, cookiePair, latestToken, linkToken, removeTestData, signupUser, startApi, storedEmailChangeLinks, storedResetLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
 import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
 
@@ -80,11 +81,11 @@ describe('Account email HTTP', () => {
   };
   /** A signed-up Account with a change to a fresh address waiting on its link. */
   const pendingChange = async (client: Client) => {
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const newEmail = track();
     const started = await changeEmail({ newEmail, currentPassword: owner.password }, { cookie: owner.cookie });
     if (started.status !== 200) throw new Error(`Temporary email change failed with HTTP ${started.status}.`);
-    return { owner, newEmail, token: await latestEmailChangeToken(db, owner.email) };
+    return { owner, newEmail, token: await latestToken(mail, 'email-change', newEmail) };
   };
   const loginStatus = async (client: Client, email: string, password: string) => (await client.post('/auth/login', { email, password })).status;
   /** Test addresses are `t_<hex>@example.invalid`, so every one of them is masked the same way. */
@@ -107,7 +108,7 @@ describe('Account email HTTP', () => {
 
   it('with the right password mails one link to the new address and one masked notice to the old, and changes nothing yet', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const newEmail = track();
     const before = Date.now();
 
@@ -122,10 +123,11 @@ describe('Account email HTTP', () => {
     expect(mail.messages.filter(({ to }) => to === newEmail).map(({ kind }) => kind)).toEqual(['email-change']);
     const [link] = linksSentTo(newEmail);
     expect(link.subject).toBe('Confirm your new email');
-    const tokens = await emailChangeTokens(db, owner.email);
-    expect(tokens.length).toBe(1);
+    const token = linkToken(link);
     // Compared without printing either side: a failure must not put a token or an address in the log.
-    expect(link.html.includes(`<a href="${TEST_ORIGIN}/confirm-email-change?token=${tokens[0]}">`)).toBe(true);
+    expect(link.html.includes(`<a href="${TEST_ORIGIN}/confirm-email-change?token=${token}">`)).toBe(true);
+    // At rest the link is only the SHA-256 of its token: a copy of the table cannot rebuild it.
+    expect((await storedEmailChangeLinks(db, owner.email)).join() === `email-change:${createHash('sha256').update(token).digest('hex')}`).toBe(true);
     const [stored] = await db.select({ expiresAt: authVerifications.expiresAt }).from(authVerifications)
       .where(and(eq(authVerifications.value, owner.user.id), like(authVerifications.identifier, 'email-change:%')));
     // Valid 24 hours from the request.
@@ -139,7 +141,7 @@ describe('Account email HTTP', () => {
     // The old inbox learns that a change was asked for and what to do, but neither the full new address nor the link.
     expect(notice.html.includes(MASKED)).toBe(true);
     expect(notice.html.includes(newEmail)).toBe(false);
-    expect(notice.html.includes(tokens[0])).toBe(false);
+    expect(notice.html.includes(token)).toBe(false);
     expect(notice.html.includes('change your password')).toBe(true);
 
     // Until the link is confirmed the Account keeps its email: the session says so and only the old address signs in.
@@ -150,15 +152,15 @@ describe('Account email HTTP', () => {
 
   it('refuses a wrong current password on its field, mails nobody and records nothing', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
-    const other = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
+    const other = await signupUser(client, mail, track());
     // A free address and a taken one answer alike: without the password nobody learns which addresses are registered.
     for (const newEmail of [track(), other.email]) {
       const error = await expectError(await changeEmail({ newEmail, currentPassword: `${owner.password} ` }, { cookie: owner.cookie }), 400, 'INVALID_CURRENT_PASSWORD');
       expect(error).toEqual({ code: 'INVALID_CURRENT_PASSWORD', message: 'Current password is incorrect.', fieldErrors: { currentPassword: ['Current password is incorrect.'] } });
     }
     expect(changeMailTo(emails.slice(-3)).length).toBe(0);
-    expect((await emailChangeTokens(db, owner.email)).length).toBe(0);
+    expect((await storedEmailChangeLinks(db, owner.email)).length).toBe(0);
     expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
   }, 60_000);
 
@@ -169,25 +171,25 @@ describe('Account email HTTP', () => {
     const error = await expectError(await changeEmail({ newEmail, currentPassword: testPassword() }, { cookie: googleOnly.cookie }), 409, 'PASSWORD_REQUIRED');
     expect(error).toEqual({ code: 'PASSWORD_REQUIRED', message: 'Set a password before changing your email.' });
     expect(changeMailTo([newEmail, googleOnly.email]).length).toBe(0);
-    expect((await emailChangeTokens(db, googleOnly.email)).length).toBe(0);
+    expect((await storedEmailChangeLinks(db, googleOnly.email)).length).toBe(0);
     expect(await sessionOf(client, googleOnly.cookie)).toEqual({ id: googleOnly.id, displayName: 'Temporary Google-only', email: googleOnly.email, pendingEmail: null, hasPassword: false, google: { email: googleOnly.email } });
   }, 60_000);
 
   it('rejects the Account\'s own email on the new email field and mails nobody', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     for (const newEmail of [owner.email, ` ${owner.email.toUpperCase()} `]) {
       const error = await expectError(await changeEmail({ newEmail, currentPassword: owner.password }, { cookie: owner.cookie }), 400, 'VALIDATION_FAILED');
       expect(error.fieldErrors).toEqual({ newEmail: ['This is already your email.'] });
     }
     expect(changeMailTo([owner.email]).length).toBe(0);
-    expect((await emailChangeTokens(db, owner.email)).length).toBe(0);
+    expect((await storedEmailChangeLinks(db, owner.email)).length).toBe(0);
   }, 60_000);
 
   it('answers EMAIL_ALREADY_EXISTS for an address that belongs to another Account, and mails nobody', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
-    const other = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
+    const other = await signupUser(client, mail, track());
     const error = await expectError(await changeEmail({ newEmail: other.email.toUpperCase(), currentPassword: owner.password }, { cookie: owner.cookie }), 409, 'EMAIL_ALREADY_EXISTS');
     expect(error).toEqual({ code: 'EMAIL_ALREADY_EXISTS', message: 'Email already exists.' });
     expect(changeMailTo([owner.email, other.email]).length).toBe(0);
@@ -196,7 +198,7 @@ describe('Account email HTTP', () => {
 
   it('requires a session and a trusted origin, and applies the strict schema to the change', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const valid = { newEmail: track(), currentPassword: owner.password };
     const forged = owner.cookie.replace(/=[^;]+/, `=${randomUUID()}`);
     for (const path of ['/account/email-change', '/account/email-change/resend', '/account/email-change/cancel']) {
@@ -226,7 +228,7 @@ describe('Account email HTTP', () => {
 
   it('counts current-password guesses together with the Password card, per Account', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const newEmail = track();
     // Nine guesses already made in this window: the tenth is still answered, the eleventh is not, on either card.
     await db.insert(authRateLimits).values({ id: randomUUID(), key: rateLimitKey('change-password:user', owner.user.id), count: 9, lastRequest: Date.now() });
@@ -242,7 +244,7 @@ describe('Account email HTTP', () => {
 
   it('says so when the link cannot be mailed and records nothing, and the next request sends', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const newEmail = track();
     const failing = vi.spyOn(mail, 'send').mockRejectedValueOnce(new Error('Test transport failed'));
     try {
@@ -251,7 +253,7 @@ describe('Account email HTTP', () => {
       expect(failing).toHaveBeenCalledOnce();
     } finally { failing.mockRestore(); }
     expect(changeMailTo([newEmail, owner.email]).length).toBe(0);
-    expect((await emailChangeTokens(db, owner.email)).length).toBe(0);
+    expect((await storedEmailChangeLinks(db, owner.email)).length).toBe(0);
     expect((await sessionOf(client, owner.cookie)).pendingEmail).toBe(null);
 
     expect((await changeEmail({ newEmail, currentPassword: owner.password }, { cookie: owner.cookie })).status).toBe(200);
@@ -271,9 +273,7 @@ describe('Account email HTTP', () => {
         expect(failing).toHaveBeenCalledOnce();
       } finally { failing.mockRestore(); }
       expect((await sessionOf(client, owner.cookie)).pendingEmail).toBe(newEmail);
-      const tokens = await emailChangeTokens(db, owner.email);
-      expect(tokens.length).toBe(1);
-      expect(tokens[0] === token).toBe(true);
+      expect((await storedEmailChangeLinks(db, owner.email)).join() === emailChangeIdentifier(token)).toBe(true);
     }
     expect(changeMailTo([other]).length).toBe(0);
     expect(linksSentTo(newEmail).length).toBe(1);
@@ -292,22 +292,22 @@ describe('Account email HTTP', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(response.headers.getSetCookie()).toEqual([]);
 
-    const tokens = await emailChangeTokens(db, owner.email);
-    expect(tokens.length).toBe(1);
-    expect(tokens[0] === first).toBe(false);
     expect(linksSentTo(newEmail).length).toBe(2);
-    expect(linksSentTo(newEmail)[1].html.includes(`<a href="${TEST_ORIGIN}/confirm-email-change?token=${tokens[0]}">`)).toBe(true);
+    const fresh = linkToken(linksSentTo(newEmail)[1]);
+    expect(fresh === first).toBe(false);
+    // Only the fresh link is stored.
+    expect((await storedEmailChangeLinks(db, owner.email)).join() === emailChangeIdentifier(fresh)).toBe(true);
     expect(noticesSentTo(owner.email).length).toBe(1);
     expect((await sessionOf(client, owner.cookie)).pendingEmail).toBe(newEmail);
 
     await expectError(await confirm({ token: first }), 400, 'EMAIL_CHANGE_LINK_INVALID');
     expect((await sessionOf(client, owner.cookie)).email).toBe(owner.email);
-    expect(await confirmed(await confirm({ token: tokens[0] }))).toEqual({ signedIn: false });
+    expect(await confirmed(await confirm({ token: fresh }))).toEqual({ signedIn: false });
   }, 60_000);
 
   it('answers EMAIL_CHANGE_NOT_PENDING to a resend with no change waiting, and mails nobody', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const error = await expectError(await resend({ cookie: owner.cookie }), 409, 'EMAIL_CHANGE_NOT_PENDING');
     expect(error).toEqual({ code: 'EMAIL_CHANGE_NOT_PENDING', message: 'No email change is waiting to be confirmed.' });
     expect(changeMailTo([owner.email]).length).toBe(0);
@@ -319,14 +319,14 @@ describe('Account email HTTP', () => {
     const second = track();
     const response = await changeEmail({ newEmail: second, currentPassword: owner.password }, { cookie: owner.cookie });
     expect(authUserResponseSchema.parse(await response.json())).toEqual({ user: { id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: second, hasPassword: true, google: null } });
-    const tokens = await emailChangeTokens(db, owner.email);
-    expect(tokens.length).toBe(1);
+    const secondToken = await latestToken(mail, 'email-change', second);
+    expect((await storedEmailChangeLinks(db, owner.email)).join() === emailChangeIdentifier(secondToken)).toBe(true);
     expect(linksSentTo(second).length).toBe(1);
 
     // The first address's link can no longer move the Account anywhere.
     await expectError(await confirm({ token: firstToken }), 400, 'EMAIL_CHANGE_LINK_INVALID');
     expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: second, hasPassword: true, google: null });
-    expect(await confirmed(await confirm({ token: tokens[0] }, { cookie: owner.cookie }))).toEqual({ signedIn: true });
+    expect(await confirmed(await confirm({ token: secondToken }, { cookie: owner.cookie }))).toEqual({ signedIn: true });
     expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: second, pendingEmail: null, hasPassword: true, google: null });
     expect(await loginStatus(client, first, owner.password)).toBe(401);
   }, 60_000);
@@ -341,7 +341,7 @@ describe('Account email HTTP', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(response.headers.getSetCookie()).toEqual([]);
     expect(authUserResponseSchema.parse(await response.json())).toEqual({ user: unchanged });
-    expect((await emailChangeTokens(db, owner.email)).length).toBe(0);
+    expect((await storedEmailChangeLinks(db, owner.email)).length).toBe(0);
 
     await expectError(await confirm({ token }, { cookie: owner.cookie }), 400, 'EMAIL_CHANGE_LINK_INVALID');
     expect(await sessionOf(client, owner.cookie)).toEqual(unchanged);
@@ -356,10 +356,10 @@ describe('Account email HTTP', () => {
     const client = newClient();
     const { owner, newEmail, token } = await pendingChange(client);
     const elsewhere = cookiePair(await client.post('/auth/login', { email: owner.email, password: owner.password }));
-    const stranger = await signupUser(client, db, track());
+    const stranger = await signupUser(client, mail, track());
     // A reset link mailed to the old address must not outlive the move away from it.
     expect((await client.post('/auth/forgot-password', { email: owner.email })).status).toBe(204);
-    expect((await resetTokens(db, owner.email)).length).toBe(1);
+    expect((await storedResetLinks(db, owner.email)).length).toBe(1);
     expect(await db.$count(authSessions, eq(authSessions.userId, owner.user.id))).toBe(2);
 
     const response = await confirm({ token }, { cookie: owner.cookie });
@@ -376,8 +376,8 @@ describe('Account email HTTP', () => {
     expect((await client.get('/auth/session', { cookie: stranger.cookie })).status).toBe(200);
     const [row] = await db.select({ email: users.email, emailVerified: users.emailVerified, pendingEmail: users.pendingEmail }).from(users).where(eq(users.id, owner.user.id));
     expect(row).toEqual({ email: newEmail, emailVerified: true, pendingEmail: null });
-    expect((await emailChangeTokens(db, newEmail)).length).toBe(0);
-    expect((await resetTokens(db, newEmail)).length).toBe(0);
+    expect((await storedEmailChangeLinks(db, newEmail)).length).toBe(0);
+    expect((await storedResetLinks(db, newEmail)).length).toBe(0);
 
     // The new address signs in with the same password; the old one is no longer an Account.
     expect(await loginStatus(client, owner.email, owner.password)).toBe(401);
@@ -396,7 +396,7 @@ describe('Account email HTTP', () => {
     ['a browser signed in to another Account', true],
   ])('confirm from %s signs every session of the Account out and leaves the caller alone', async (_case, signedInElsewhere) => {
     const client = newClient();
-    const stranger = signedInElsewhere ? await signupUser(client, db, track()) : undefined;
+    const stranger = signedInElsewhere ? await signupUser(client, mail, track()) : undefined;
     const { owner, newEmail, token } = await pendingChange(client);
     expect(await confirmed(await confirm({ token }, { cookie: stranger?.cookie ?? null }))).toEqual({ signedIn: false });
     expect((await client.get('/auth/session', { cookie: owner.cookie })).status).toBe(401);
@@ -419,7 +419,7 @@ describe('Account email HTTP', () => {
 
     // The banner's Resend recovers from an expired link.
     expect((await resend({ cookie: owner.cookie })).status).toBe(204);
-    expect(await confirmed(await confirm({ token: await latestEmailChangeToken(db, owner.email) }, { cookie: owner.cookie }))).toEqual({ signedIn: true });
+    expect(await confirmed(await confirm({ token: await latestToken(mail, 'email-change', newEmail) }, { cookie: owner.cookie }))).toEqual({ signedIn: true });
     expect((await sessionOf(client, owner.cookie)).email).toBe(newEmail);
   }, 60_000);
 
@@ -427,11 +427,11 @@ describe('Account email HTTP', () => {
     const client = newClient();
     const { owner, newEmail, token } = await pendingChange(client);
     // Sign-up does not know about pending changes: the address is free until a link is confirmed.
-    const taker = await signupUser(client, db, newEmail);
+    const taker = await signupUser(client, mail, newEmail);
 
     await expectError(await confirm({ token }, { cookie: owner.cookie }), 400, 'EMAIL_CHANGE_LINK_INVALID');
     expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
-    expect((await emailChangeTokens(db, owner.email)).length).toBe(0);
+    expect((await storedEmailChangeLinks(db, owner.email)).length).toBe(0);
     expect(await sessionOf(client, taker.cookie)).toEqual({ id: taker.user.id, displayName: 'Temporary verification', email: newEmail, pendingEmail: null, hasPassword: true, google: null });
     expect(await loginStatus(client, owner.email, owner.password)).toBe(200);
   }, 60_000);
@@ -439,9 +439,10 @@ describe('Account email HTTP', () => {
   it('gives the address to the first of two Accounts that confirm a change to it', async () => {
     const client = newClient();
     const first = await pendingChange(client);
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     expect((await changeEmail({ newEmail: first.newEmail, currentPassword: owner.password }, { cookie: owner.cookie })).status).toBe(200);
-    const token = await latestEmailChangeToken(db, owner.email);
+    // The owner's link went to the same address after the first one's.
+    const token = await latestToken(mail, 'email-change', first.newEmail);
 
     const answers = await Promise.all([confirm({ token: first.token }, { cookie: first.owner.cookie }), confirm({ token }, { cookie: owner.cookie })]);
     expect(answers.map(({ status }) => status).sort()).toEqual([200, 400]);
@@ -453,12 +454,12 @@ describe('Account email HTTP', () => {
 
   it('keeps a Google identity attached after the email changes: it still signs in to the same Account', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const person = { sub: randomBytes(10).toString('hex'), email: owner.email, email_verified: true, name: 'Name At Google' };
     await googleSignIn(client, person);
     const newEmail = track();
     expect((await changeEmail({ newEmail, currentPassword: owner.password }, { cookie: owner.cookie })).status).toBe(200);
-    expect(await confirmed(await confirm({ token: await latestEmailChangeToken(db, owner.email) }, { cookie: owner.cookie }))).toEqual({ signedIn: true });
+    expect(await confirmed(await confirm({ token: await latestToken(mail, 'email-change', newEmail) }, { cookie: owner.cookie }))).toEqual({ signedIn: true });
 
     const methods = await db.select({ providerId: authAccounts.providerId, accountId: authAccounts.accountId }).from(authAccounts).where(eq(authAccounts.userId, owner.user.id));
     expect(methods.sort((a, b) => a.providerId.localeCompare(b.providerId))).toEqual([{ providerId: 'credential', accountId: owner.user.id }, { providerId: 'google', accountId: person.sub }]);
@@ -476,7 +477,7 @@ describe('Account email HTTP', () => {
     ['resetting the password', async (client: Client, owner: Awaited<ReturnType<typeof signupUser>>) => {
       expect((await client.post('/auth/forgot-password', { email: owner.email })).status).toBe(204);
       const password = testPassword();
-      expect((await client.post('/auth/reset-password', { token: await latestResetToken(db, owner.email), password })).status).toBe(204);
+      expect((await client.post('/auth/reset-password', { token: await latestToken(mail, 'password-reset', owner.email), password })).status).toBe(204);
       return cookiePair(await client.post('/auth/login', { email: owner.email, password }));
     }],
   ] as const)('%s cancels a pending change, as the notice to the old address promises', async (_case, secure) => {
@@ -484,7 +485,7 @@ describe('Account email HTTP', () => {
     const { owner, newEmail, token } = await pendingChange(client);
     const cookie = await secure(client, owner);
     expect(await sessionOf(client, cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
-    expect((await emailChangeTokens(db, owner.email)).length).toBe(0);
+    expect((await storedEmailChangeLinks(db, owner.email)).length).toBe(0);
     await expectError(await confirm({ token }), 400, 'EMAIL_CHANGE_LINK_INVALID');
     expect(await db.$count(users, eq(users.email, newEmail))).toBe(0);
   }, 60_000);
@@ -494,7 +495,7 @@ describe('Account email HTTP', () => {
     const { owner, newEmail } = await pendingChange(client);
     for (let attempt = 2; attempt <= 3; attempt++) expect((await resend({ cookie: owner.cookie })).status, `link ${attempt}`).toBe(204);
     expect(linksSentTo(newEmail).length).toBe(3);
-    const third = await latestEmailChangeToken(db, owner.email);
+    const third = await latestToken(mail, 'email-change', newEmail);
 
     // From another client address too: the counter belongs to the address the mail goes to.
     for (const address of [addresses.at(-1), addresses[addresses.push(testAddress()) - 1]]) {
@@ -508,7 +509,7 @@ describe('Account email HTTP', () => {
     expect(linksSentTo(newEmail).length).toBe(3);
     expect(noticesSentTo(owner.email).length).toBe(1);
     // The refused requests left the third link alone: it is still the newest and it still works.
-    expect(await latestEmailChangeToken(db, owner.email) === third).toBe(true);
+    expect((await storedEmailChangeLinks(db, owner.email)).join() === emailChangeIdentifier(third)).toBe(true);
     expect(await confirmed(await confirm({ token: third }, { cookie: owner.cookie }))).toEqual({ signedIn: true });
   }, 60_000);
 

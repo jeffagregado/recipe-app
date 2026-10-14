@@ -1,14 +1,19 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { MailMessage } from '../mail/mail.transport.js';
 
 export const VERIFICATION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
 const IDENTIFIER_PREFIX = 'email-verification:';
 
-/** The verifications row of one link: the identifier carries the token and the value names the Account. */
-export const verificationIdentifier = (token: string) => `${IDENTIFIER_PREFIX}${token}`;
+/**
+ * What an emailed link stores in place of its token: anyone who can read the table, a backup or a branch must not be able
+ * to rebuild a working link. A fast hash is enough, because the token carries 256 random bits.
+ */
+export const hashLinkToken = (token: string) => createHash('sha256').update(token).digest('hex');
+
+/** The verifications row of one link: the identifier carries the token's hash and the value names the Account. */
+export const verificationIdentifier = (token: string) => `${IDENTIFIER_PREFIX}${hashLinkToken(token)}`;
 export const VERIFICATION_IDENTIFIERS = `${IDENTIFIER_PREFIX}%`;
-export const tokenOfIdentifier = (identifier: string) => identifier.slice(IDENTIFIER_PREFIX.length);
 
 /** 256 random bits in URL-safe characters, so the link needs no encoding. */
 export const newVerificationToken = () => randomBytes(32).toString('base64url');

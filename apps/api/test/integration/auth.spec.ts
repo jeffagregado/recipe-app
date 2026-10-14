@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
@@ -12,7 +12,7 @@ import type { DrizzleDb } from '../../src/database/database.service.js';
 import { verificationIdentifier } from '../../src/auth/auth.verification.js';
 import { authAccounts, authRateLimits, authSessions, authVerifications, recipeImages, recipes, users } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
-import { apiClient, cookiePair, insertOwnedRecipes, latestVerificationToken, ownedId, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword, verificationTokens } from '../auth-harness.js';
+import { apiClient, cookiePair, insertOwnedRecipes, latestToken, mailedTokens, ownedId, removeTestData, signupUser, startApi, storedVerificationLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -90,7 +90,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(row?.accounts[0].password?.includes(password.trim())).toBe(false);
     expect(row?.sessions).toEqual([]);
 
-    const token = await latestVerificationToken(db, email);
+    const token = await latestToken(mail, 'verification', email);
     expect(token.length).toBe(43);
     const sent = sentTo(email);
     expect(sent.map(({ kind, subject }) => ({ kind, subject }))).toEqual([{ kind: 'verification', subject: 'Verify your email' }]);
@@ -98,6 +98,8 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(sent[0].html.includes(`<a href="${TEST_ORIGIN}/verify-email?token=${token}">`)).toBe(true);
     // The link opens the web app; the API's own address never reaches a mailbox.
     expect(sent[0].html.includes('127.0.0.1')).toBe(false);
+    // At rest the link is only the SHA-256 of its token: a copy of the table cannot rebuild it.
+    expect((await storedVerificationLinks(db, email)).join() === `email-verification:${createHash('sha256').update(token).digest('hex')}`).toBe(true);
     const [link] = await db.select({ createdAt: authVerifications.createdAt, expiresAt: authVerifications.expiresAt })
       .from(authVerifications).where(eq(authVerifications.identifier, verificationIdentifier(token)));
     // The row is stamped by the database and its expiry by the API, so allow for the two clocks.
@@ -115,14 +117,14 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     // Only sign-up and resend send: a refused login leaves the one message and the one link.
     // Counts only, here and below: a failed assertion must not print a link, an address or a mail body.
     expect(sentTo(email).length).toBe(1);
-    expect((await verificationTokens(db, email)).length).toBe(1);
+    expect((await storedVerificationLinks(db, email)).length).toBe(1);
     const owner = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
     expect(await db.$count(authSessions, eq(authSessions.userId, owner!.id))).toBe(0);
   }, 30_000);
 
   it('verifies the email once through the link without a session and rejects unknown, used and malformed tokens', async () => {
     const invalid = { code: 'VERIFICATION_LINK_INVALID', message: 'This verification link has expired or was already used.' };
-    const token = await latestVerificationToken(db, email);
+    const token = await latestToken(mail, 'verification', email);
     const verified = () => db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true, emailVerified: true } });
     // A mail client opens the link, so the web route calls without a browser origin.
     const unknown = await client.post('/auth/verify-email', { token: `${token.slice(0, -1)}${token.endsWith('A') ? 'B' : 'A'}` }, { origin: null });
@@ -137,7 +139,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     const owner = await verified();
     expect(owner?.emailVerified).toBe(true);
     expect(await db.$count(authSessions, eq(authSessions.userId, owner!.id))).toBe(0);
-    expect((await verificationTokens(db, email)).length).toBe(0);
+    expect((await storedVerificationLinks(db, email)).length).toBe(0);
 
     const again = await client.post('/auth/verify-email', { token }, { origin: null });
     expect(again.status).toBe(400);
@@ -153,20 +155,22 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     const aged = track();
     const agedClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
     expect((await agedClient.post('/auth/signup', { displayName: 'Aged link', email: aged, password: testPassword() })).status).toBe(201);
-    const token = await latestVerificationToken(db, aged);
-    const issuedAgo = (ms: number) => db.update(authVerifications).set({ expiresAt: new Date(Date.now() - ms + DAY_MS) })
+    expect((await agedClient.post('/auth/resend-verification', { email: aged })).status).toBe(204);
+    const [second, first] = await mailedTokens(mail, 'verification', aged);
+    // Links are only ever aged forward: Better Auth deletes every expired verification row whenever it looks one up, so a
+    // link made expired can vanish at once when a Google flow runs anywhere on the database, and could not be revived.
+    const issuedAgo = (token: string, ms: number) => db.update(authVerifications).set({ expiresAt: new Date(Date.now() - ms + DAY_MS) })
       .where(eq(authVerifications.identifier, verificationIdentifier(token)));
 
-    await issuedAgo(DAY_MS + 1_000);
-    const expired = await agedClient.post('/auth/verify-email', { token });
+    await issuedAgo(second, DAY_MS + 1_000);
+    const expired = await agedClient.post('/auth/verify-email', { token: second });
     expect(expired.status).toBe(400);
     expect((await errorOf(expired)).code).toBe('VERIFICATION_LINK_INVALID');
     expect((await db.query.users.findFirst({ where: eq(users.email, aged), columns: { emailVerified: true } }))?.emailVerified).toBe(false);
 
-    // The same link an hour younger still works: the refusal above was its age, not the token.
-    // Opened twice at once it still verifies once.
-    await issuedAgo(DAY_MS - 3_600_000);
-    const opened = await Promise.all([1, 2].map(() => agedClient.post('/auth/verify-email', { token })));
+    // A link an hour short of its expiry still works, and opened twice at once it verifies once.
+    await issuedAgo(first, DAY_MS - 3_600_000);
+    const opened = await Promise.all([1, 2].map(() => agedClient.post('/auth/verify-email', { token: first })));
     expect(opened.map(({ status }) => status).sort()).toEqual([204, 400]);
     expect((await db.query.users.findFirst({ where: eq(users.email, aged), columns: { emailVerified: true } }))?.emailVerified).toBe(true);
   }, 30_000);
@@ -176,7 +180,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     const unknown = track();
     const resendClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
     expect((await resendClient.post('/auth/signup', { displayName: 'Pending', email: pending, password: testPassword() })).status).toBe(201);
-    const first = await latestVerificationToken(db, pending);
+    const first = await latestToken(mail, 'verification', pending);
 
     // `email` was verified above; `unknown` has no Account.
     for (const target of [pending, email, unknown]) {
@@ -191,10 +195,11 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(sentTo(unknown).length).toBe(0);
     expect(await db.$count(users, eq(users.email, unknown))).toBe(0);
 
-    const tokens = await verificationTokens(db, pending);
+    const tokens = await mailedTokens(mail, 'verification', pending);
     expect(tokens.length).toBe(2);
     expect(tokens[1] === first).toBe(true);
-    expect(sentTo(pending)[1].html.includes(`<a href="${TEST_ORIGIN}/verify-email?token=${tokens[0]}">`)).toBe(true);
+    // Both links are stored, newest first.
+    expect((await storedVerificationLinks(db, pending)).join() === tokens.map(verificationIdentifier).join()).toBe(true);
     // Either link verifies, and verifying retires the other one.
     expect((await resendClient.post('/auth/verify-email', { token: first })).status).toBe(204);
     expect((await resendClient.post('/auth/verify-email', { token: tokens[0] })).status).toBe(400);
@@ -351,9 +356,9 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
   it.each(['an unverified', 'a verified'])('mails one notice and no new link to %s Account when its email is signed up again', async (state) => {
     const taken = track();
     const owner = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
-    if (state === 'a verified') await signupUser(owner, db, taken);
+    if (state === 'a verified') await signupUser(owner, mail, taken);
     else expect((await owner.post('/auth/signup', { displayName: 'Owner', email: taken, password: testPassword() })).status).toBe(201);
-    const links = (await verificationTokens(db, taken)).length;
+    const links = (await storedVerificationLinks(db, taken)).length;
 
     const response = await owner.post('/auth/signup', { displayName: 'Other', email: ` ${taken.toUpperCase()} `, password: testPassword() });
     expect(response.status).toBe(409);
@@ -366,7 +371,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     // The link opens the web app's login page; the API's own address never reaches a mailbox.
     expect(notice.includes(`<a href="${TEST_ORIGIN}/">`)).toBe(true);
     expect(notice.includes('127.0.0.1')).toBe(false);
-    expect((await verificationTokens(db, taken)).length).toBe(links);
+    expect((await storedVerificationLinks(db, taken)).length).toBe(links);
     expect(await db.$count(users, eq(users.email, taken))).toBe(1);
   }, 60_000);
 
@@ -495,7 +500,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(empty.counts).toEqual({ total: 0, favorites: 0, categories: categoriesA.map(({ id, name }) => ({ id, name, total: 0 })) });
 
     const first = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
-    const other = await signupUser(apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]), db, track());
+    const other = await signupUser(apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]), mail, track());
     const categoriesB = await categoriesFor(other.cookie);
     if (!first) throw new Error('Temporary auth verification user missing.');
     const tagA = `verify-a-${randomUUID()}`, tagB = `verify-b-${randomUUID()}`;

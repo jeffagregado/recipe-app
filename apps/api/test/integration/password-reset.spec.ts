@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq, like } from 'drizzle-orm';
@@ -7,7 +7,7 @@ import { GOOGLE_ENDPOINTS } from '../../src/auth/auth.google.js';
 import { resetIdentifier } from '../../src/auth/auth.reset.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authAccounts, authRateLimits, authSessions, authVerifications, categories, users } from '../../src/database/schema.js';
-import { apiClient, cookiePair, latestResetToken, removeTestData, resetTokens, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword, verificationTokens } from '../auth-harness.js';
+import { apiClient, cookiePair, latestToken, removeTestData, signupUser, startApi, storedResetLinks, storedVerificationLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
 import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
 
@@ -39,7 +39,7 @@ describe('Forgot and reset password HTTP', () => {
   const requestLink = async (client: ReturnType<typeof apiClient>, email: string) => {
     const response = await client.post('/auth/forgot-password', { email });
     if (response.status !== 204) throw new Error(`Temporary reset request failed with HTTP ${response.status}.`);
-    return latestResetToken(db, email);
+    return latestToken(mail, 'password-reset', email);
   };
   const issuedAgo = (token: string, ms: number) => db.update(authVerifications).set({ expiresAt: new Date(Date.now() - ms + HOUR_MS) })
     .where(eq(authVerifications.identifier, resetIdentifier(token)));
@@ -84,24 +84,26 @@ describe('Forgot and reset password HTTP', () => {
 
     const sent = resetsSentTo(known.email);
     expect(sent.map(({ kind, subject }) => ({ kind, subject }))).toEqual([{ kind: 'password-reset', subject: 'Reset your password' }]);
-    const token = await latestResetToken(db, known.email);
+    const token = await latestToken(mail, 'password-reset', known.email);
     expect(token.length).toBe(43);
     // Compared without printing either side: a failure must not put a token or an address in the log.
     expect(sent[0].html.includes(`<a href="${TEST_ORIGIN}/reset-password?token=${token}">`)).toBe(true);
     // The link opens the web app; the API's own address never reaches a mailbox.
     expect(sent[0].html.includes('127.0.0.1')).toBe(false);
+    // At rest the link is only the SHA-256 of its token: a copy of the table cannot rebuild it.
+    expect((await storedResetLinks(db, known.email)).join() === `password-reset:${createHash('sha256').update(token).digest('hex')}`).toBe(true);
     const [link] = await db.select({ createdAt: authVerifications.createdAt, expiresAt: authVerifications.expiresAt })
       .from(authVerifications).where(eq(authVerifications.identifier, resetIdentifier(token)));
     // The row is stamped by the database and its expiry by the API, so allow for the two clocks.
     expect(Math.abs(link.expiresAt.getTime() - link.createdAt.getTime() - HOUR_MS)).toBeLessThan(5 * 60_000);
     // Asking changes nothing about the Account: the old password is still the password and the email is still unverified.
     expect((await account(known.email))?.emailVerified).toBe(false);
-    expect((await verificationTokens(db, known.email)).length).toBe(1);
+    expect((await storedVerificationLinks(db, known.email)).length).toBe(1);
   }, 60_000);
 
   it('sets the new password once, signs every session out, creates none and refuses the used and an unknown token', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const second = cookiePair(await client.post('/auth/login', { email: owner.email, password: owner.password }));
     expect(await db.$count(authSessions, eq(authSessions.userId, owner.user.id))).toBe(2);
     const token = await requestLink(client, owner.email);
@@ -119,7 +121,7 @@ describe('Forgot and reset password HTTP', () => {
     expect(reset.headers.getSetCookie()).toEqual([]);
     for (const cookie of [owner.cookie, second]) expect((await client.get('/auth/session', { cookie })).status).toBe(401);
     expect(await db.$count(authSessions, eq(authSessions.userId, owner.user.id))).toBe(0);
-    expect((await resetTokens(db, owner.email)).length).toBe(0);
+    expect((await storedResetLinks(db, owner.email)).length).toBe(0);
 
     // The old password is gone and the new one is never trimmed.
     for (const wrong of [owner.password, password.trim()]) {
@@ -143,41 +145,43 @@ describe('Forgot and reset password HTTP', () => {
     expect((await client.post('/auth/reset-password', { token: await requestLink(client, pending.email), password })).status).toBe(204);
     expect((await account(pending.email))?.emailVerified).toBe(true);
     // The sign-up link has nothing left to prove.
-    expect((await verificationTokens(db, pending.email)).length).toBe(0);
+    expect((await storedVerificationLinks(db, pending.email)).length).toBe(0);
     expect((await client.post('/auth/login', { email: pending.email, password })).status).toBe(200);
   }, 60_000);
 
   it('expires a link one hour after it was issued and lets two simultaneous submissions reset once', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
+    // Links are only ever aged forward: Better Auth deletes every expired verification row whenever it looks one up, so a
+    // link made expired can vanish at once when a Google flow runs anywhere on the database, and could not be revived.
     const token = await requestLink(client, owner.email);
-
-    await issuedAgo(token, HOUR_MS + 1_000);
-    const expired = await client.post('/auth/reset-password', { token, password: testPassword() });
-    expect(expired.status).toBe(400);
-    expect(await expired.json()).toEqual(INVALID);
-    // Nothing changed: the old password and the old session both still work.
-    expect((await client.post('/auth/login', { email: owner.email, password: owner.password })).status).toBe(200);
-    expect((await client.get('/auth/session', { cookie: owner.cookie })).status).toBe(200);
-
-    // The same link ten minutes younger still works: the refusal above was its age, not the token.
     await issuedAgo(token, HOUR_MS - 10 * 60_000);
     const passwords = [testPassword(), testPassword()];
     const submitted = await Promise.all(passwords.map((password) => client.post('/auth/reset-password', { token, password })));
     expect(submitted.map(({ status }) => status).sort()).toEqual([204, 400]);
     // Exactly the password of the submission that won is the password now.
-    const winner = submitted.findIndex(({ status }) => status === 204);
-    expect((await client.post('/auth/login', { email: owner.email, password: passwords[winner] })).status).toBe(200);
-    expect((await client.post('/auth/login', { email: owner.email, password: passwords[1 - winner] })).status).toBe(401);
+    const winner = passwords[submitted.findIndex(({ status }) => status === 204)];
+    const loggedIn = await client.post('/auth/login', { email: owner.email, password: winner });
+    expect(loggedIn.status).toBe(200);
+    expect((await client.post('/auth/login', { email: owner.email, password: passwords.find((password) => password !== winner) })).status).toBe(401);
+
+    const expiring = await requestLink(client, owner.email);
+    await issuedAgo(expiring, HOUR_MS + 1_000);
+    const expired = await client.post('/auth/reset-password', { token: expiring, password: testPassword() });
+    expect(expired.status).toBe(400);
+    expect(await expired.json()).toEqual(INVALID);
+    // Nothing changed: the password and the session both still work.
+    expect((await client.post('/auth/login', { email: owner.email, password: winner })).status).toBe(200);
+    expect((await client.get('/auth/session', { cookie: cookiePair(loggedIn) })).status).toBe(200);
   }, 60_000);
 
   it('retires every older link when a new one is requested, also for two requests at once', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const first = await requestLink(client, owner.email);
     const second = await requestLink(client, owner.email);
     expect(second === first).toBe(false);
-    expect((await resetTokens(db, owner.email)).length).toBe(1);
+    expect((await storedResetLinks(db, owner.email)).length).toBe(1);
     expect(resetsSentTo(owner.email).length).toBe(2);
 
     const older = await client.post('/auth/reset-password', { token: first, password: testPassword() });
@@ -188,10 +192,10 @@ describe('Forgot and reset password HTTP', () => {
     expect((await client.post('/auth/reset-password', { token: second, password })).status).toBe(204);
     expect((await client.post('/auth/login', { email: owner.email, password })).status).toBe(200);
 
-    const racer = await signupUser(newClient(), db, track());
+    const racer = await signupUser(newClient(), mail, track());
     const racing = [newClient(), newClient()];
     expect((await Promise.all(racing.map((each) => each.post('/auth/forgot-password', { email: racer.email })))).map(({ status }) => status)).toEqual([204, 204]);
-    expect((await resetTokens(db, racer.email)).length).toBe(1);
+    expect((await storedResetLinks(db, racer.email)).length).toBe(1);
     // Two sign-ups and ten more requests: measured at 43 s over the local link to Neon, so the usual 60 s leaves too little room.
   }, 90_000);
 
@@ -233,7 +237,7 @@ describe('Forgot and reset password HTTP', () => {
   }, 60_000);
 
   it('limits requests to 3 an hour per address without a different answer or another mail, and to 10 an hour per client', async () => {
-    const known = (await signupUser(newClient(), db, track())).email;
+    const known = (await signupUser(newClient(), mail, track())).email;
     const unknown = track();
     for (const target of [known, unknown]) {
       const targetClient = newClient();
@@ -248,8 +252,8 @@ describe('Forgot and reset password HTTP', () => {
     expect(resetsSentTo(known).length).toBe(3);
     expect(resetsSentTo(unknown).length).toBe(0);
     // The dropped requests left the third link alone: it is still the newest and it still works.
-    const token = await latestResetToken(db, known);
-    expect(resetsSentTo(known)[2].html.includes(`/reset-password?token=${token}">`)).toBe(true);
+    const token = await latestToken(mail, 'password-reset', known);
+    expect((await storedResetLinks(db, known)).join() === resetIdentifier(token)).toBe(true);
     expect((await newClient().post('/auth/reset-password', { token, password: testPassword() })).status).toBe(204);
 
     const floodClient = newClient();
@@ -269,7 +273,7 @@ describe('Forgot and reset password HTTP', () => {
 
   it('answers the same when the mail cannot be sent, and the next request sends again', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const send = vi.spyOn(mail, 'send').mockRejectedValueOnce(new Error('Test transport failed'));
     try {
       const response = await client.post('/auth/forgot-password', { email: owner.email });
@@ -284,7 +288,7 @@ describe('Forgot and reset password HTTP', () => {
 
   it('rejects other origins, unknown fields and invalid values, and keeps the native reset routes closed', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const token = await requestLink(client, owner.email);
     const password = testPassword();
     for (const origin of [null, 'null', 'https://untrusted.example.invalid', `${TEST_ORIGIN}.evil.example.invalid`]) {

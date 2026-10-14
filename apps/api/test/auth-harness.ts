@@ -5,17 +5,18 @@ import { and, desc, eq, inArray, like, or } from 'drizzle-orm';
 import { authUserResponseSchema } from '@recipe-app/contracts/schemas';
 import type { AuthUser } from '@recipe-app/contracts/types';
 import { mountAuth } from '../src/auth/auth.http.js';
-import { EMAIL_CHANGE_IDENTIFIERS, tokenOfEmailChangeIdentifier } from '../src/auth/auth.email-change.js';
+import { EMAIL_CHANGE_IDENTIFIERS } from '../src/auth/auth.email-change.js';
 import { rateLimitKey } from '../src/auth/auth.rate-limit.js';
-import { RESET_IDENTIFIERS, tokenOfResetIdentifier } from '../src/auth/auth.reset.js';
-import { tokenOfIdentifier, VERIFICATION_IDENTIFIERS } from '../src/auth/auth.verification.js';
+import { RESET_IDENTIFIERS } from '../src/auth/auth.reset.js';
+import { VERIFICATION_IDENTIFIERS } from '../src/auth/auth.verification.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import type { DrizzleDb } from '../src/database/database.service.js';
 import { authRateLimits, authVerifications, categories, recipeCategories, recipes, users } from '../src/database/schema.js';
 import type { SeedRecipe } from '../src/recipes/fixtures/fixture.js';
 import { seedRecipes } from '../src/recipes/seed-recipes.js';
+import type { MailKind, MailMessage } from '../src/mail/mail.transport.js';
 import { getDevDatabaseUrl } from './neon-dev.js';
-import type { ConfigureTestingModule, RecordingMailTransport } from './recording-mail.js';
+import type { ConfigureTestingModule, Inbox, RecordingMailTransport } from './recording-mail.js';
 
 export const TEST_ORIGIN = 'http://localhost:3000';
 
@@ -72,49 +73,50 @@ export function apiClient(baseUrl: string, defaultAddress: string, defaultOrigin
 /** Name=value pairs for a Cookie header; attributes stay on the response under test. */
 export const cookiePair = (response: Response) => response.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ');
 
-/** The tokens of one kind of link still stored for an address, newest first. The verifications table is the agreed seam for links. */
-async function storedTokens(db: DrizzleDb, email: string, identifiers: string, tokenOf: (identifier: string) => string): Promise<string[]> {
+/** The identifiers of one kind of link still stored for an Account, newest first. They hold no token, so they serve counts and the at-rest check. */
+async function storedLinks(db: DrizzleDb, email: string, identifiers: string): Promise<string[]> {
   const rows = await db.select({ identifier: authVerifications.identifier }).from(authVerifications)
     .innerJoin(users, eq(users.id, authVerifications.value))
     .where(and(eq(users.email, email), like(authVerifications.identifier, identifiers)))
     .orderBy(desc(authVerifications.createdAt));
-  return rows.map(({ identifier }) => tokenOf(identifier));
+  return rows.map(({ identifier }) => identifier);
 }
 
-export const verificationTokens = (db: DrizzleDb, email: string) => storedTokens(db, email, VERIFICATION_IDENTIFIERS, tokenOfIdentifier);
-export const resetTokens = (db: DrizzleDb, email: string) => storedTokens(db, email, RESET_IDENTIFIERS, tokenOfResetIdentifier);
-
+export const storedVerificationLinks = (db: DrizzleDb, email: string) => storedLinks(db, email, VERIFICATION_IDENTIFIERS);
+export const storedResetLinks = (db: DrizzleDb, email: string) => storedLinks(db, email, RESET_IDENTIFIERS);
 /** Looked up by the Account's current email: the link is stored for the Account, not for the address it was mailed to. */
-export const emailChangeTokens = (db: DrizzleDb, email: string) => storedTokens(db, email, EMAIL_CHANGE_IDENTIFIERS, tokenOfEmailChangeIdentifier);
+export const storedEmailChangeLinks = (db: DrizzleDb, email: string) => storedLinks(db, email, EMAIL_CHANGE_IDENTIFIERS);
 
-export async function latestVerificationToken(db: DrizzleDb, email: string): Promise<string> {
-  const [token] = await verificationTokens(db, email);
-  if (!token) throw new Error('No verification link is stored for the temporary account.');
+export type LinkKind = Extract<MailKind, 'verification' | 'password-reset' | 'email-change'>;
+
+/** The token in a mailed link. The database holds only its hash, so the mail is the one place a test can read it. */
+export function linkToken({ html }: MailMessage): string {
+  const token = /\?token=([\w-]+)"/.exec(html)?.[1];
+  if (!token) throw new Error('A mailed link carries no token.');
   return token;
 }
 
-export async function latestResetToken(db: DrizzleDb, email: string): Promise<string> {
-  const [token] = await resetTokens(db, email);
-  if (!token) throw new Error('No reset link is stored for the temporary account.');
+/** The tokens of one kind of link mailed to an address, newest first. An email-change link is mailed to the new address. */
+export async function mailedTokens(inbox: Inbox, kind: LinkKind, to: string): Promise<string[]> {
+  return (await inbox.sentTo(to)).filter((message) => message.kind === kind).map(linkToken).reverse();
+}
+
+export async function latestToken(inbox: Inbox, kind: LinkKind, to: string): Promise<string> {
+  const [token] = await mailedTokens(inbox, kind, to);
+  if (!token) throw new Error(`No ${kind} link was mailed to the temporary address.`);
   return token;
 }
 
-/** Signs up, opens the stored verification link and logs in: the one place a suite gets a session for a new Account. */
-export async function signupUser(client: ReturnType<typeof apiClient>, db: DrizzleDb, email = testEmail(), password = testPassword()) {
+/** Signs up, opens the mailed verification link and logs in: the one place a suite gets a session for a new Account. */
+export async function signupUser(client: ReturnType<typeof apiClient>, inbox: Inbox, email = testEmail(), password = testPassword()) {
   const signup = await client.post('/auth/signup', { displayName: 'Temporary verification', email, password });
   if (signup.status !== 201) throw new Error(`Temporary signup failed with HTTP ${signup.status}.`);
-  const verification = await client.post('/auth/verify-email', { token: await latestVerificationToken(db, email) });
+  const verification = await client.post('/auth/verify-email', { token: await latestToken(inbox, 'verification', email) });
   if (verification.status !== 204) throw new Error(`Temporary verification failed with HTTP ${verification.status}.`);
   const login = await client.post('/auth/login', { email, password });
   if (login.status !== 200) throw new Error(`Temporary login failed with HTTP ${login.status}.`);
   const { user } = authUserResponseSchema.parse(await login.json());
   return { user, email, password, cookie: cookiePair(login) };
-}
-
-export async function latestEmailChangeToken(db: DrizzleDb, email: string): Promise<string> {
-  const [token] = await emailChangeTokens(db, email);
-  if (!token) throw new Error('No email-change link is stored for the temporary account.');
-  return token;
 }
 
 export const ownedId = (tag: string, id: string) => `${tag}-${id}`;

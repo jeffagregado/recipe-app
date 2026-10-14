@@ -5,11 +5,13 @@ import { and, eq, like } from 'drizzle-orm';
 import { authSessionResponseSchema, googleStartResponseSchema } from '@recipe-app/contracts/schemas';
 import type { AuthUser } from '@recipe-app/contracts/types';
 import { SIGN_IN_METHOD_WRITE_LIMIT } from '../../src/account/account.controller.js';
+import { emailChangeIdentifier } from '../../src/auth/auth.email-change.js';
 import { GOOGLE_ENDPOINTS } from '../../src/auth/auth.google.js';
 import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authAccounts, authRateLimits, authSessions, authVerifications, users } from '../../src/database/schema.js';
-import { apiClient, cookiePair, emailChangeTokens, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
+import { apiClient, cookiePair, latestToken, removeTestData, signupUser, startApi, storedEmailChangeLinks, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
+import type { RecordingMailTransport } from '../recording-mail.js';
 import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { GoogleIdentity } from '../google-stand-in.js';
 
@@ -23,6 +25,7 @@ describe('Sign-in methods: connect and disconnect Google', () => {
   let app: NestExpressApplication;
   let baseUrl: string;
   let db: DrizzleDb;
+  let mail: RecordingMailTransport;
   let client: ReturnType<typeof apiClient>;
   let google: Awaited<ReturnType<typeof startGoogleStandIn>>;
   const addresses: string[] = [];
@@ -35,7 +38,7 @@ describe('Sign-in methods: connect and disconnect Google', () => {
   };
   /** A Verified Account with a password and one session. */
   const member = async (): Promise<Member> => {
-    const created = await signupUser(client, db);
+    const created = await signupUser(client, mail);
     emails.push(created.email);
     return created;
   };
@@ -81,7 +84,7 @@ describe('Sign-in methods: connect and disconnect Google', () => {
     process.env.GOOGLE_CLIENT_ID = STAND_IN_CLIENT.id;
     process.env.GOOGLE_CLIENT_SECRET = STAND_IN_CLIENT.secret;
     process.env.GOOGLE_REDIRECT_URI = WEB_CALLBACK;
-    ({ app, baseUrl, db } = await startApi((builder) => builder.overrideProvider(GOOGLE_ENDPOINTS).useValue(google.endpoints)));
+    ({ app, baseUrl, db, mail } = await startApi((builder) => builder.overrideProvider(GOOGLE_ENDPOINTS).useValue(google.endpoints)));
   }, 60_000);
   // Sign-up, start and callback are limited per client address, so each test calls from an address of its own.
   beforeEach(() => { client = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]); });
@@ -221,15 +224,15 @@ describe('Sign-in methods: connect and disconnect Google', () => {
     const newEmail = testEmail();
     emails.push(newEmail);
     expect((await client.post('/account/email-change', { newEmail, currentPassword: owner.password }, { cookie: owner.cookie })).status).toBe(200);
-    const [link] = await emailChangeTokens(db, owner.email);
+    const link = await latestToken(mail, 'email-change', newEmail);
     const person = identity();
 
     expect((await finish(await flowOf(await connect(owner.cookie)), person, owner.cookie)).status).toBe(200);
     expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: newEmail, hasPassword: true, google: { email: person.email } });
     // Compared without printing either side: a failure must not put a link in the log.
-    const links = await emailChangeTokens(db, owner.email);
+    const links = await storedEmailChangeLinks(db, owner.email);
     expect(links.length).toBe(1);
-    expect(links[0] === link).toBe(true);
+    expect(links[0] === emailChangeIdentifier(link)).toBe(true);
     // The link still moves the Account, and Google stays attached with its own address.
     expect((await client.post('/account/email-change/confirm', { token: link }, { cookie: owner.cookie })).status).toBe(200);
     expect(await sessionUser(owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: newEmail, pendingEmail: null, hasPassword: true, google: { email: person.email } });

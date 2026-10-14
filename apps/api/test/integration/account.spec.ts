@@ -22,10 +22,11 @@ describe('Account settings HTTP', () => {
   let original: string;
 
   beforeAll(async () => {
-    ({ app, baseUrl, db } = await startApi());
+    const started = await startApi();
+    ({ app, baseUrl, db } = started);
     client = apiClient(baseUrl, addresses[0]);
-    owner = await signupUser(client, db, emails[0]);
-    other = await signupUser(client, db, emails[1]);
+    owner = await signupUser(client, started.mail, emails[0]);
+    other = await signupUser(client, started.mail, emails[1]);
     limitKeys = [owner, other].map(({ user }) => `wrapper:display-name:user:${user.id}`);
     original = await sessionName();
   }, 60_000);

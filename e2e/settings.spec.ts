@@ -140,13 +140,13 @@ test('email journey: a link to the new address is confirmed with one button, Set
   await expect(emailPassword(page)).toHaveValue('');
 
   // Counts only: a failed assertion must not print a link.
-  const tokens = await workerData.emailChangeTokens(creator.email);
-  expect(tokens.length).toBe(1);
-  await page.goto(`/confirm-email-change?token=${tokens[0]}`);
+  expect((await workerData.storedEmailChangeLinks(creator.email)).length).toBe(1);
+  const [token] = await workerData.mailedTokens('email-change', address);
+  await page.goto(`/confirm-email-change?token=${token}`);
   await expect(page.getByRole('heading', { level: 1, name: 'Confirm your new email' })).toBeVisible();
   expect(await page.locator('meta[name="referrer"]').getAttribute('content')).toBe('no-referrer');
   // Opening the page used nothing up: the link is still stored, as it would be after a mail scanner opened it.
-  expect((await workerData.emailChangeTokens(creator.email)).length).toBe(1);
+  expect((await workerData.storedEmailChangeLinks(creator.email)).length).toBe(1);
   await page.setViewportSize({ width: 320, height: 720 });
   expect(await noOverflow(page)).toBe(true);
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -160,10 +160,10 @@ test('email journey: a link to the new address is confirmed with one button, Set
   await expect(currentEmail(page)).toHaveValue(address);
   await expect(pendingBanner(page)).toHaveCount(0);
   expect(await sessionStatus()).toBe(200);
-  expect((await workerData.emailChangeTokens(address)).length).toBe(0);
+  expect((await workerData.storedEmailChangeLinks(address)).length).toBe(0);
 
   // The link works once: pressing its button again shows the expired state with the way back to Settings.
-  await page.goto(`/confirm-email-change?token=${tokens[0]}`);
+  await page.goto(`/confirm-email-change?token=${token}`);
   await waitHydrated(confirm);
   await confirm.click();
   await expect(page.getByText('This link has expired or was already used.', { exact: true })).toBeVisible();
@@ -200,7 +200,7 @@ test('at 320px a pending change shows its banner inside the card, and Cancel rem
   await expect(toast.success(page, 'Email change cancelled')).toBeVisible();
   await expect(pendingBanner(page)).toHaveCount(0);
   await expect(currentEmail(page)).toHaveValue(creator.email);
-  expect((await workerData.emailChangeTokens(creator.email)).length).toBe(0);
+  expect((await workerData.storedEmailChangeLinks(creator.email)).length).toBe(0);
   expect(await noOverflow(page)).toBe(true);
 });
 
@@ -208,7 +208,7 @@ test('at 320px a link opened in a browser that is not signed in confirms the cha
   const address = workerData.newEmail();
   const started = await workerData.client.post('/account/email-change', { newEmail: address, currentPassword: creator.password }, { cookie: creator.cookie });
   expect(started.status).toBe(200);
-  const [token] = await workerData.emailChangeTokens(creator.email);
+  const [token] = await workerData.mailedTokens('email-change', address);
   // Another browser, as when the mail is read on a phone: it holds no session.
   const phone = await browser.newContext({ baseURL: WEB_URL, extraHTTPHeaders: { 'X-Forwarded-For': workerData.address }, viewport: { width: 320, height: 720 } });
   try {
