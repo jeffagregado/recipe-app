@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { LegalPage } from '@/components/layout/legal-page'
-import { CONTACT_EMAIL } from '@/lib/contact'
+import { ContactEmailLink } from '@/components/layout/contact-email-link'
 
 export const metadata: Metadata = { title: 'Privacy Policy' }
 
@@ -37,10 +37,10 @@ export default function PrivacyPage() {
 					<li>Photos you upload. Recapp keeps a resized, re-encoded copy; the original file and its metadata, such as camera location, are not kept.</li>
 					<li>For each sign-in: a session record with its expiry, your IP address and your browser&apos;s user agent. A session ends after seven days or when you log out.</li>
 					<li>Email links for verification, password reset and email change, stored only as a hash and valid for a limited time.</li>
-					<li>Short-lived attempt counters for rate limiting, keyed by your client IP address or email address in hashed form. They are cleared within about an hour.</li>
+					<li>Short-lived attempt counters for rate limiting, keyed by your client IP address or email address, in most cases hashed. Expired counters are removed as new attempts arrive.</li>
 				</ul>
 				<p>
-					Recapp&apos;s own logs record error types and codes, never your email address, password or recipe content. The hosting
+					Recapp&apos;s own logs record error types, codes and at most an internal account ID, never your email address, password or recipe content. The hosting
 					providers below keep their own request logs, which include IP addresses.
 				</p>
 			</section>
@@ -91,7 +91,7 @@ export default function PrivacyPage() {
 				<h2>Keeping and deleting your data</h2>
 				<p>
 					Your data is kept while your account exists. To delete your account and everything in it, or to ask what Recapp holds
-					about you, email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> from your account&apos;s address.
+					about you, email <ContactEmailLink /> from your account&apos;s address.
 				</p>
 			</section>
 
@@ -99,7 +99,7 @@ export default function PrivacyPage() {
 				<h2>Changes and contact</h2>
 				<p>
 					If this policy changes, the date at the top changes with it. Questions go
-					to <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
+					to <ContactEmailLink />.
 				</p>
 			</section>
 		</LegalPage>

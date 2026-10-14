@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { LegalPage } from '@/components/layout/legal-page'
-import { CONTACT_EMAIL } from '@/lib/contact'
+import { ContactEmailLink } from '@/components/layout/contact-email-link'
 
 export const metadata: Metadata = { title: 'Terms of Service' }
 
@@ -50,7 +50,7 @@ export default function TermsPage() {
 
 			<section>
 				<h2>Contact</h2>
-				<p>Questions go to <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.</p>
+				<p>Questions go to <ContactEmailLink />.</p>
 			</section>
 		</LegalPage>
 	)
