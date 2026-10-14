@@ -88,13 +88,14 @@ describe('Create recipe and private detail HTTP', () => {
   }
 
   beforeAll(async () => {
-    ({ app, db, baseUrl } = await startApi()); storage = app.get(StorageService);
+    const started = await startApi();
+    ({ app, db, baseUrl } = started); storage = app.get(StorageService);
     const upload = storage.upload.bind(storage);
     vi.spyOn(storage, 'upload').mockImplementation(async (key, bytes, mime) => {
       objectKeys.add(key); uploaded++; return upload(key, bytes, mime);
     });
     const client = apiClient(baseUrl, addresses[0]);
-    owner = await signupUser(client, db, emails[0]); other = await signupUser(client, db, emails[1]);
+    owner = await signupUser(client, started.mail, emails[0]); other = await signupUser(client, started.mail, emails[1]);
     for (const [who, user] of [['owner', owner], ['other', other]] as const) {
       const response = await fetch(`${baseUrl}/categories`, { headers: { Cookie: user.cookie } });
       expect(response.status).toBe(200);

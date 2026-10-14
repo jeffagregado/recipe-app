@@ -5,9 +5,10 @@ import { eq } from 'drizzle-orm';
 import { authErrorResponseSchema, authSessionResponseSchema, authUserResponseSchema, googleStartResponseSchema } from '@recipe-app/contracts/schemas';
 import { GOOGLE_ENDPOINTS } from '../../src/auth/auth.google.js';
 import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
+import { resetIdentifier } from '../../src/auth/auth.reset.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authRateLimits, authSessions, users } from '../../src/database/schema.js';
-import { apiClient, cookiePair, latestResetToken, removeTestData, resetTokens, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { apiClient, cookiePair, latestToken, removeTestData, signupUser, startApi, storedResetLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
 import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
 
@@ -65,7 +66,7 @@ describe('Account password HTTP', () => {
   const loginStatus = async (client: Client, email: string, password: string) => (await client.post('/auth/login', { email, password })).status;
   /** A signed-up Account with a second session, as if signed in on another device. */
   const ownerWithTwoSessions = async (client: Client) => {
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const elsewhere = cookiePair(await client.post('/auth/login', { email: owner.email, password: owner.password }));
     expect(await db.$count(authSessions, eq(authSessions.userId, owner.user.id))).toBe(2);
     return { ...owner, elsewhere };
@@ -88,7 +89,7 @@ describe('Account password HTTP', () => {
 
   it('reports whether a password is set wherever the public user is returned', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     expect(owner.user).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
     expect(await sessionOf(client, owner.cookie)).toEqual({ id: owner.user.id, displayName: 'Temporary verification', email: owner.email, pendingEmail: null, hasPassword: true, google: null });
 
@@ -103,10 +104,10 @@ describe('Account password HTTP', () => {
   it('changes the password with the current one, signs every other session out and keeps this one', async () => {
     const client = newClient();
     const owner = await ownerWithTwoSessions(client);
-    const stranger = await signupUser(client, db, track());
+    const stranger = await signupUser(client, mail, track());
     // A reset link asked for before the change must not outlive it.
     expect((await client.post('/auth/forgot-password', { email: owner.email })).status).toBe(204);
-    expect((await resetTokens(db, owner.email)).length).toBe(1);
+    expect((await storedResetLinks(db, owner.email)).length).toBe(1);
     const newPassword = `  ${testPassword()}  `;
 
     const response = await changePassword({ currentPassword: owner.password, newPassword }, { cookie: owner.cookie });
@@ -120,7 +121,7 @@ describe('Account password HTTP', () => {
     expect(await sessionStatus(client, owner.elsewhere)).toBe(401);
     expect(await db.$count(authSessions, eq(authSessions.userId, owner.user.id))).toBe(1);
     expect(await sessionStatus(client, stranger.cookie)).toBe(200);
-    expect((await resetTokens(db, owner.email)).length).toBe(0);
+    expect((await storedResetLinks(db, owner.email)).length).toBe(0);
     // The old password is gone and the new one is never trimmed.
     for (const wrong of [owner.password, newPassword.trim()]) expect(await loginStatus(client, owner.email, wrong)).toBe(401);
     expect(await loginStatus(client, owner.email, newPassword)).toBe(200);
@@ -153,7 +154,7 @@ describe('Account password HTTP', () => {
 
   it('requires a session and a trusted origin, and applies the strict schema to the change', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const valid = { currentPassword: owner.password, newPassword: testPassword() };
     const forged = owner.cookie.replace(/=[^;]+/, `=${randomUUID()}`);
     for (const cookie of [null, forged]) await expectError(await changePassword(valid, { cookie }), 401, 'UNAUTHENTICATED');
@@ -178,8 +179,8 @@ describe('Account password HTTP', () => {
 
   it('throttles attempts per Account at the login limit, right password or wrong, and leaves other Accounts free', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
-    const other = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
+    const other = await signupUser(client, mail, track());
     const newPassword = testPassword();
     // Nine attempts already made in this window: the tenth is still answered, the eleventh is not.
     await db.insert(authRateLimits).values({ id: randomUUID(), key: rateLimitKey('change-password:user', owner.user.id), count: 9, lastRequest: Date.now() });
@@ -207,7 +208,7 @@ describe('Account password HTTP', () => {
     expect(mail.messages.filter(({ kind }) => kind === 'password-reset').map(({ to }) => to).filter((to) => to === googleOnly.email).length).toBe(1);
     const [sent] = resetsSentTo(googleOnly.email);
     expect(sent.subject).toBe('Reset your password');
-    const token = await latestResetToken(db, googleOnly.email);
+    const token = await latestToken(mail, 'password-reset', googleOnly.email);
     // Compared without printing either side: a failure must not put a token or an address in the log.
     expect(sent.html.includes(`<a href="${TEST_ORIGIN}/reset-password?token=${token}">`)).toBe(true);
     // Asking changes nothing about the Account: it is still signed in and still has no password.
@@ -238,11 +239,11 @@ describe('Account password HTTP', () => {
 
   it('refuses the link to an Account that has a password, and mails nothing', async () => {
     const client = newClient();
-    const owner = await signupUser(client, db, track());
+    const owner = await signupUser(client, mail, track());
     const error = await expectError(await requestSetPassword({ cookie: owner.cookie }), 409, 'PASSWORD_ALREADY_SET');
     expect(error).toEqual({ code: 'PASSWORD_ALREADY_SET', message: 'This Account already has a password.' });
     expect(resetsSentTo(owner.email).length).toBe(0);
-    expect((await resetTokens(db, owner.email)).length).toBe(0);
+    expect((await storedResetLinks(db, owner.email)).length).toBe(0);
   }, 60_000);
 
   it('requires a session and a trusted origin, takes no input and mails nothing when refused', async () => {
@@ -259,7 +260,7 @@ describe('Account password HTTP', () => {
       expect(Object.getOwnPropertyDescriptor(error.fieldErrors ?? {}, field)?.value, field).toHaveLength(1);
     }
     expect(mail.messages.filter(({ to }) => emails.slice(-2).includes(to)).length).toBe(0);
-    expect((await resetTokens(db, googleOnly.email)).length).toBe(0);
+    expect((await storedResetLinks(db, googleOnly.email)).length).toBe(0);
   }, 60_000);
 
   it('limits links to 3 an hour per address, counted together with forgot-password, and says so', async () => {
@@ -269,7 +270,7 @@ describe('Account password HTTP', () => {
     for (let attempt = 1; attempt <= 2; attempt++) expect((await client.post('/auth/forgot-password', { email: googleOnly.email })).status).toBe(204);
     expect((await requestSetPassword({ cookie: googleOnly.cookie })).status).toBe(204);
     expect(resetsSentTo(googleOnly.email).length).toBe(3);
-    const third = await latestResetToken(db, googleOnly.email);
+    const third = await latestToken(mail, 'password-reset', googleOnly.email);
 
     // From another client address too: the counter belongs to the address the mail goes to.
     for (const address of [addresses.at(-1), addresses[addresses.push(testAddress()) - 1]]) {
@@ -283,7 +284,7 @@ describe('Account password HTTP', () => {
     expect((await client.post('/auth/forgot-password', { email: googleOnly.email })).status).toBe(204);
     expect(resetsSentTo(googleOnly.email).length).toBe(3);
     // The refused requests left the third link alone: it is still the newest and it still works.
-    expect(await latestResetToken(db, googleOnly.email) === third).toBe(true);
+    expect((await storedResetLinks(db, googleOnly.email)).join() === resetIdentifier(third)).toBe(true);
     expect((await client.post('/auth/reset-password', { token: third, password: testPassword() })).status).toBe(204);
   }, 60_000);
 

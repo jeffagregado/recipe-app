@@ -40,7 +40,8 @@ export default defineConfig({
       name: 'recipe-api',
       command: 'pnpm --filter @recipe/api run test:server',
       url: `${apiUrl}/api/auth/ok`,
-      env: { PORT: '4101' },
+      // The server records its mail and serves it on MAIL_READER_PORT: the tests read each link there (e2e/fixtures.ts).
+      env: { PORT: '4101', MAIL_READER_PORT: '4102' },
       reuseExistingServer: false,
       timeout: 60_000,
     },

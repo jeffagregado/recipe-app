@@ -7,7 +7,7 @@ import { drizzle } from '../apps/api/node_modules/drizzle-orm/node-postgres/inde
 import type { NodePgClient } from '../apps/api/node_modules/drizzle-orm/node-postgres/session.js';
 import * as schema from '../apps/api/src/database/schema.js';
 import type { DrizzleDb } from '../apps/api/src/database/database.service.js';
-import type { apiClient, signupUser } from '../apps/api/test/auth-harness.js';
+import type { apiClient, Inbox, LinkKind, signupUser } from '../apps/api/test/auth-harness.js';
 import type { openStorageCleanup } from '../apps/api/test/storage-cleanup.js';
 import { getDevDatabaseUrl } from '../apps/api/test/neon-dev.js';
 import { seedRecipes } from '../apps/api/src/recipes/seed-recipes.js';
@@ -16,6 +16,8 @@ import { loadAuthHarness, loadStorageCleanup } from './load-auth-harness.js';
 const requireApi = createRequire(resolve('apps/api/package.json'));
 const pg = requireApi('pg') as { Pool: new (options: { connectionString: string; ssl: { rejectUnauthorized: true }; max: number; connectionTimeoutMillis: number }) => NodePgClient & { end: () => Promise<void> } };
 const API_URL = 'http://127.0.0.1:4101';
+/** The test API server's record of the mail it sent (apps/api/test/dev-server.mjs). */
+const MAIL_URL = 'http://127.0.0.1:4102';
 export const WEB_URL = 'http://127.0.0.1:4100';
 type TestAccount = Awaited<ReturnType<typeof signupUser>> & { tag: string };
 type WorkerData = {
@@ -31,12 +33,14 @@ type WorkerData = {
   signupFreshAccount: () => Promise<TestAccount>;
   /** A new Account that has not opened its verification link, signed up from its own client address. */
   signupUnverified: () => Promise<{ email: string; password: string }>;
-  /** The tokens of the verification links stored for an address, newest first. */
-  verificationTokens: (email: string) => Promise<string[]>;
-  /** The tokens of the password reset links stored for an address, newest first. */
-  resetTokens: (email: string) => Promise<string[]>;
-  /** The tokens of the email-change links stored for the Account that currently has this address, newest first. */
-  emailChangeTokens: (email: string) => Promise<string[]>;
+  /** The tokens of one kind of link mailed to an address, newest first. An email-change link is mailed to the new address. */
+  mailedTokens: (kind: LinkKind, to: string) => Promise<string[]>;
+  /** The verification links still stored for an address. They hold only a hash of each token, so they serve counts. */
+  storedVerificationLinks: (email: string) => Promise<string[]>;
+  /** The password reset links still stored for an address. */
+  storedResetLinks: (email: string) => Promise<string[]>;
+  /** The email-change links still stored for the Account that currently has this address. */
+  storedEmailChangeLinks: (email: string) => Promise<string[]>;
   /** How many of these stored objects still answer 200. Keys stay inside the helper's callers; only counts leave. */
   countStoredObjects: (keys: string[]) => Promise<number>;
 };
@@ -87,7 +91,7 @@ async function removeWorkerData(db: DrizzleDb, emails: string[], addresses: stri
 
 export const authTest = base.extend<Record<never, never>, { workerData: WorkerData }>({
   workerData: [async ({}, use) => {
-    const { apiClient, signupUser, insertOwnedRecipes, testAddress, testEmail, testPassword, verificationTokens, resetTokens, emailChangeTokens } = await loadAuthHarness();
+    const { apiClient, signupUser, insertOwnedRecipes, testAddress, testEmail, testPassword, mailedTokens, storedVerificationLinks, storedResetLinks, storedEmailChangeLinks } = await loadAuthHarness();
     let connection: string;
     try { connection = await getDevDatabaseUrl(); } catch { throw new Error('Could not resolve the approved Neon dev target for E2E.'); }
     const pool = new pg.Pool({ connectionString: connection, ssl: { rejectUnauthorized: true }, max: 2, connectionTimeoutMillis: 10_000 });
@@ -96,6 +100,11 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
     const addresses = [address];
     const client = apiClient(API_URL, address, WEB_URL);
     const emails: string[] = [];
+    const inbox: Inbox = { sentTo: async (to) => {
+      const response = await fetch(`${MAIL_URL}/?${new URLSearchParams({ to })}`);
+      if (!response.ok) throw new Error(`The test server's mail record answered HTTP ${response.status}.`);
+      return response.json();
+    } };
     const newEmail = () => { const email = testEmail(); emails.push(email); return email; };
     let storage: Awaited<ReturnType<typeof openStorageCleanup>> | undefined;
     const countStoredObjects = async (keys: string[]) => {
@@ -105,7 +114,7 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
     const signupFreshAccount = async () => {
       const freshAddress = testAddress();
       addresses.push(freshAddress);
-      return { ...await signupUser(apiClient(API_URL, freshAddress, WEB_URL), db, newEmail()), tag: `e2e-${randomUUID()}` };
+      return { ...await signupUser(apiClient(API_URL, freshAddress, WEB_URL), inbox, newEmail()), tag: `e2e-${randomUUID()}` };
     };
     const signupUnverified = async () => {
       const freshAddress = testAddress();
@@ -116,15 +125,16 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
       return account;
     };
     try {
-      const owner = { ...await signupUser(client, db, newEmail()), tag: `e2e-${randomUUID()}` };
+      const owner = { ...await signupUser(client, inbox, newEmail()), tag: `e2e-${randomUUID()}` };
       await insertOwnedRecipes(db, owner.user, owner.tag);
-      const other = { ...await signupUser(client, db, newEmail()), tag: `e2e-${randomUUID()}` };
+      const other = { ...await signupUser(client, inbox, newEmail()), tag: `e2e-${randomUUID()}` };
       await insertOwnedRecipes(db, other.user, other.tag, seedRecipes.slice(0, 25).map((recipe) => ({ ...recipe, title: `Other kitchen: ${recipe.title}` })));
       await use({
         db, client, address, owner, other, emails, newEmail, newPassword: testPassword, signupFreshAccount, signupUnverified, countStoredObjects,
-        verificationTokens: (email) => verificationTokens(db, email),
-        resetTokens: (email) => resetTokens(db, email),
-        emailChangeTokens: (email) => emailChangeTokens(db, email),
+        mailedTokens: (kind, to) => mailedTokens(inbox, kind, to),
+        storedVerificationLinks: (email) => storedVerificationLinks(db, email),
+        storedResetLinks: (email) => storedResetLinks(db, email),
+        storedEmailChangeLinks: (email) => storedEmailChangeLinks(db, email),
       });
     } finally {
       try { await storage?.close(); await removeWorkerData(db, emails, addresses); }

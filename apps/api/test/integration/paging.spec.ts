@@ -40,11 +40,11 @@ describe('Owner-scoped SQL recipe pagination', () => {
     const started = await startApi();
     app = started.app;
     baseUrl = started.baseUrl;
-    ({ user, cookie } = await signupUser(apiClient(baseUrl, address), started.db, email));
+    ({ user, cookie } = await signupUser(apiClient(baseUrl, address), started.mail, email));
     const fetched = await fetchCategories(cookie);
     expect(fetched.map(({ name }) => name)).toEqual(DEFAULT_CATEGORY_NAMES);
     categories = fetched.map((category, index) => ({ ...category, name: DEFAULT_CATEGORY_NAMES[index] }));
-    other = await signupUser(apiClient(baseUrl, address), started.db, otherEmail);
+    other = await signupUser(apiClient(baseUrl, address), started.mail, otherEmail);
     otherCategories = await fetchCategories(other.cookie);
     await insertOwnedRecipes(started.db, user, tag);
   }, 60_000);

@@ -30,7 +30,7 @@ export const minimalRecipe = (name: string): CreateRecipeMetadata => ({
 
 /** Two temporary users on the dev API plus helpers that never surface cookies or signed URLs, and object keys only in `recordCleanup`. */
 export async function openRecipeSuite() {
-  const { app, db, baseUrl } = await startApi();
+  const { app, db, baseUrl, mail } = await startApi();
   const storage = app.get(StorageService);
   const addresses = [testAddress()]; const emails = [testEmail(), testEmail()];
   /** Prefix of every ingredient name a scenario invents, so canonical rows can be removed afterwards. */
@@ -43,7 +43,7 @@ export async function openRecipeSuite() {
   const categories: Record<'owner' | 'other', ReturnType<typeof categoryListSchema.parse>> = { owner: [], other: [] };
   try {
     const client = apiClient(baseUrl, addresses[0]);
-    owner = await signupUser(client, db, emails[0]); other = await signupUser(client, db, emails[1]);
+    owner = await signupUser(client, mail, emails[0]); other = await signupUser(client, mail, emails[1]);
     for (const [who, user] of [['owner', owner], ['other', other]] as const) {
       const response = await fetch(`${baseUrl}/categories`, { headers: { Cookie: user.cookie } });
       expect(response.status).toBe(200);

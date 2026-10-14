@@ -40,14 +40,14 @@ test('a forgotten password is reset through the emailed link, the new one signs 
     expect(await fits(page)).toBe(true);
 
     // Counts only: a failed assertion must not print a link.
-    const tokens = await workerData.resetTokens(account.email);
-    expect(tokens.length).toBe(1);
-    await page.goto(`/reset-password?token=${tokens[0]}`);
+    expect((await workerData.storedResetLinks(account.email)).length).toBe(1);
+    const [token] = await workerData.mailedTokens('password-reset', account.email);
+    await page.goto(`/reset-password?token=${token}`);
     await expect(page.getByRole('heading', { level: 1, name: 'Choose a new password' })).toBeVisible();
     expect(await page.locator('meta[name="referrer"]').getAttribute('content')).toBe('no-referrer');
     expect(await fits(page)).toBe(true);
     // Opening the page used nothing up: the link is still stored and the old session still works.
-    expect((await workerData.resetTokens(account.email)).length).toBe(1);
+    expect((await workerData.storedResetLinks(account.email)).length).toBe(1);
     expect(await sessionStatus(elsewhere)).toBe(200);
 
     await page.getByLabel('New password', { exact: true }).fill(password);
@@ -56,7 +56,7 @@ test('a forgotten password is reset through the emailed link, the new one signs 
     await expect(page).toHaveURL(`${WEB_URL}/`);
     // The reset signs nobody in.
     expect(await sessionCookies(context)).toEqual([]);
-    expect((await workerData.resetTokens(account.email)).length).toBe(0);
+    expect((await workerData.storedResetLinks(account.email)).length).toBe(0);
 
     // The browser that was signed in before the reset is out.
     expect(await sessionStatus(elsewhere)).toBe(401);
@@ -71,7 +71,7 @@ test('a forgotten password is reset through the emailed link, the new one signs 
     expect(await sessionStatus(context)).toBe(200);
 
     // The link works once: submitting it again shows the expired state with a way to ask for another.
-    await page.goto(`/reset-password?token=${tokens[0]}`);
+    await page.goto(`/reset-password?token=${token}`);
     await page.getByLabel('New password', { exact: true }).fill(workerData.newPassword());
     await page.getByRole('button', { name: 'Update password', exact: true }).click();
     await expect(page.getByText('This link has expired or was already used.', { exact: true })).toBeVisible();

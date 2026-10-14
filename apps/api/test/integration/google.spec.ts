@@ -9,7 +9,7 @@ import { DEFAULT_CATEGORY_NAMES } from '../../src/categories/default-categories.
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authAccounts, authRateLimits, authVerifications, categories, recipes, users } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
-import { apiClient, cookiePair, insertOwnedRecipes, latestResetToken, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { apiClient, cookiePair, insertOwnedRecipes, latestToken, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
 import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { GoogleIdentity } from '../google-stand-in.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
@@ -194,7 +194,7 @@ describe('Sign in with Google', () => {
   }, 30_000);
 
   it('attaches the identity to a Verified password Account with the same email and signs in, leaving one unchanged Account', async () => {
-    const { user, email } = await signupUser(client, db);
+    const { user, email } = await signupUser(client, mail);
     emails.push(email);
     await insertOwnedRecipes(db, user, `google-link-${randomBytes(4).toString('hex')}`, seedRecipes.slice(0, 2));
     // The owner renamed one Default category and deleted another; linking must not write the five again.
@@ -231,7 +231,7 @@ describe('Sign in with Google', () => {
   }, 60_000);
 
   it('keeps both Sign-in methods of a joined Account working and tells a manual sign-up over it that either can be used', async () => {
-    const { user, email, password } = await signupUser(client, db);
+    const { user, email, password } = await signupUser(client, mail);
     emails.push(email);
     const person = identity({ email });
     expect((await finish({ code: google.consent(person), ...(await start()) })).status).toBe(204);
@@ -287,7 +287,7 @@ describe('Sign in with Google', () => {
 
     expect((await client.post('/auth/forgot-password', { email })).status).toBe(204);
     const chosenAtReset = testPassword();
-    expect((await client.post('/auth/reset-password', { token: await latestResetToken(db, email), password: chosenAtReset })).status).toBe(204);
+    expect((await client.post('/auth/reset-password', { token: await latestToken(mail, 'password-reset', email), password: chosenAtReset })).status).toBe(204);
     expect((await finish({ code: google.consent(person), ...(await start()) })).status).toBe(204);
 
     const after = await userOf(email);
@@ -317,7 +317,7 @@ describe('Sign in with Google', () => {
   }, 60_000);
 
   it('attaches nothing to the Account of a signed-in session that completes a Google sign-in for another email', async () => {
-    const signedIn = await signupUser(client, db);
+    const signedIn = await signupUser(client, mail);
     emails.push(signedIn.email);
     const person = identity();
     const flow = await start();

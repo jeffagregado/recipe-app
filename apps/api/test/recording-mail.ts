@@ -14,6 +14,11 @@ export class RecordingMailTransport implements MailTransport {
     this.messages.push(message);
     return Promise.resolve();
   }
+
+  /** The messages mailed to one address, in send order. */
+  sentTo(to: string): Promise<MailMessage[]> {
+    return Promise.resolve(this.messages.filter((message) => message.to === to));
+  }
 }
 
 /** Replaces further providers before the application is compiled, such as the endpoints a provider stand-in answers. */
