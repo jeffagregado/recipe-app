@@ -65,7 +65,7 @@ Each app's `.env.example` describes its variables: [`apps/api/.env.example`](app
 | `TRUST_PROXY_HOPS` | `2` |
 | `DATABASE_URL` | secret: the database URL of the Neon `production` branch |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | secret: the Neon storage access key pair |
-| `BETTER_AUTH_SECRET` | secret: at least 32 characters, for example `openssl rand -base64 48` |
+| `BETTER_AUTH_SECRET` | secret: at least 32 characters, for example `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
 | `RESEND_API_KEY` | secret: the Resend API key |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | secret: the Google OAuth client |
 | `MAIL_FROM` | the sender address. Not secret, but set in the dashboard. Empty means Resend's testing sender |
@@ -92,7 +92,7 @@ The API is publicly reachable, so a caller can skip the web app and arrive with 
 
 To set it:
 
-1. Generate one value of at least 32 characters with no whitespace, for example `openssl rand -base64 48`.
+1. Generate one value of at least 32 characters with no whitespace, for example `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`.
 2. Set it on **Vercel** (Production) and redeploy the web app. While the API has no secret, it ignores the header.
 3. Set the same value on **Render** and redeploy the API.
 
