@@ -6,8 +6,13 @@ import type { TestingModuleBuilder } from '@nestjs/testing';
 import { MAIL_TRANSPORT } from '../src/mail/mail.transport.js';
 import type { MailMessage, MailTransport } from '../src/mail/mail.transport.js';
 
+/** The messages mailed to one address, in send order: the recording transport in process, or the e2e test server's reader. */
+export interface Inbox {
+  sentTo(to: string): Promise<MailMessage[]>;
+}
+
 /** Keeps every message in send order and delivers none. */
-export class RecordingMailTransport implements MailTransport {
+export class RecordingMailTransport implements MailTransport, Inbox {
   readonly messages: MailMessage[] = [];
 
   send(message: MailMessage): Promise<void> {
@@ -15,7 +20,6 @@ export class RecordingMailTransport implements MailTransport {
     return Promise.resolve();
   }
 
-  /** The messages mailed to one address, in send order. */
   sentTo(to: string): Promise<MailMessage[]> {
     return Promise.resolve(this.messages.filter((message) => message.to === to));
   }

@@ -1,8 +1,8 @@
 'use client'
 
-import { unstable_rethrow } from 'next/navigation'
-import { useState, useTransition, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
+import { useSingleFlight } from '@/lib/use-single-flight'
 import { verifyEmail } from './verify-email'
 
 type VerifyEmailFormProps = {
@@ -17,18 +17,13 @@ type VerifyEmailFormProps = {
  */
 export function VerifyEmailForm({ token = '', onVerify = verifyEmail }: VerifyEmailFormProps) {
 	const [message, setMessage] = useState<string>()
-	const [pending, startTransition] = useTransition()
+	// Every answer redirects, so only a call that threw ever settles here.
+	const { pending, run } = useSingleFlight<[{ token: string }], string>(onVerify, () => 'We could not verify your email. Please try again.', setMessage)
 
 	function submit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault()
-		if (pending) return
 		setMessage(undefined)
-		startTransition(async () => {
-			try { await onVerify({ token }) } catch (error) {
-				unstable_rethrow(error)
-				setMessage('We could not verify your email. Please try again.')
-			}
-		})
+		run({ token })
 	}
 
 	return (

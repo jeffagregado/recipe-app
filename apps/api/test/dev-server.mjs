@@ -8,13 +8,15 @@ try {
   // The Playwright web server runs at this origin; process environment overrides the env file.
   process.env.AUTH_TRUSTED_ORIGINS = 'http://127.0.0.1:4100';
   process.env.PORT ||= '4101';
+  process.env.MAIL_READER_PORT ||= '4102';
   const { Test } = await import('@nestjs/testing');
   const { AppModule } = await import('../dist/app.module.js');
   const { mountAuth } = await import('../dist/auth/auth.http.js');
   const { MAIL_TRANSPORT } = await import('../dist/mail/mail.transport.js');
 
   // E2E signs up Accounts through this server, so its mail is recorded and never reaches Resend. The database holds only
-  // a hash of each link's token, so the tests read the links here, from loopback only.
+  // a hash of each link's token, so the tests read the links here, from loopback only. Node cannot load the TypeScript
+  // RecordingMailTransport, whose imports name compiled `.js` files, so this plain-object copy stands in for it.
   const messages = [];
   const mail = { send: (message) => { messages.push(message); return Promise.resolve(); } };
   createServer((request, response) => {

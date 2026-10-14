@@ -2,7 +2,7 @@ import { unstable_rethrow } from 'next/navigation'
 import { useRef, useTransition } from 'react'
 
 /**
- * Runs a Settings card's action one at a time: a second call while one is in flight is dropped, and an action that
+ * Runs a form's action one at a time: a second call while one is in flight is dropped, and an action that
  * throws settles with `thrown` instead. An action that redirects rejects its promise: that is the framework's control
  * flow and is passed on. `pending` is true until the result has been shown.
  */

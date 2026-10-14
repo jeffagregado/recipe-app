@@ -6,7 +6,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { confirmEmailChange } from '../actions/confirm-email-change'
 import { CONFIRM_EMAIL_MESSAGES, type ConfirmEmailChangeResult } from '../actions/results'
-import { useSingleFlight } from '../lib/use-single-flight'
+import { useSingleFlight } from '@/lib/use-single-flight'
 
 type ConfirmEmailChangeFormProps = {
 	token?: string

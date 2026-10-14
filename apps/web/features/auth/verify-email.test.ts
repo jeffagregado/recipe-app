@@ -63,13 +63,9 @@ it('marks the cleared cookie secure on an https origin', async () => {
 	expect(next.set).toHaveBeenCalledExactlyOnceWith('pending-verification-email', '', { httpOnly: true, sameSite: 'lax', path: '/', secure: true, maxAge: 0 })
 })
 
-it.each([
-	['no token', {}],
-	['an empty token', { token: '' }],
-	['a token longer than 128 characters', { token: 'a'.repeat(129) }],
-	['no input', undefined],
-])('sends a link with %s to the invalid page without contacting the API', async (_case, input) => {
-	await expect(verifyEmail(input)).rejects.toThrow('NEXT_REDIRECT:/verify-email/invalid')
+// The schema's own tests own its limits; this is the link without a token, which the page sends as an empty one.
+it('sends a link without a token to the invalid page without contacting the API', async () => {
+	await expect(verifyEmail({ token: '' })).rejects.toThrow('NEXT_REDIRECT:/verify-email/invalid')
 	expect(next.set).not.toHaveBeenCalled()
 	expect(fetchMock).not.toHaveBeenCalled()
 })

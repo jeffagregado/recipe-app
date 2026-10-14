@@ -16,7 +16,7 @@ import type { SeedRecipe } from '../src/recipes/fixtures/fixture.js';
 import { seedRecipes } from '../src/recipes/seed-recipes.js';
 import type { MailKind, MailMessage } from '../src/mail/mail.transport.js';
 import { getDevDatabaseUrl } from './neon-dev.js';
-import type { ConfigureTestingModule, RecordingMailTransport } from './recording-mail.js';
+import type { ConfigureTestingModule, Inbox, RecordingMailTransport } from './recording-mail.js';
 
 export const TEST_ORIGIN = 'http://localhost:3000';
 
@@ -87,8 +87,6 @@ export const storedResetLinks = (db: DrizzleDb, email: string) => storedLinks(db
 /** Looked up by the Account's current email: the link is stored for the Account, not for the address it was mailed to. */
 export const storedEmailChangeLinks = (db: DrizzleDb, email: string) => storedLinks(db, email, EMAIL_CHANGE_IDENTIFIERS);
 
-/** The messages mailed to one address, in send order: the recording transport in process, or the e2e test server's reader. */
-export type Inbox = { sentTo(to: string): Promise<MailMessage[]> };
 export type LinkKind = Extract<MailKind, 'verification' | 'password-reset' | 'email-change'>;
 
 /** The token in a mailed link. The database holds only its hash, so the mail is the one place a test can read it. */

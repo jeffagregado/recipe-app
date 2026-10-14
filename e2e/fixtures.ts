@@ -7,7 +7,8 @@ import { drizzle } from '../apps/api/node_modules/drizzle-orm/node-postgres/inde
 import type { NodePgClient } from '../apps/api/node_modules/drizzle-orm/node-postgres/session.js';
 import * as schema from '../apps/api/src/database/schema.js';
 import type { DrizzleDb } from '../apps/api/src/database/database.service.js';
-import type { apiClient, Inbox, LinkKind, signupUser } from '../apps/api/test/auth-harness.js';
+import type { apiClient, LinkKind, signupUser } from '../apps/api/test/auth-harness.js';
+import type { Inbox } from '../apps/api/test/recording-mail.js';
 import type { openStorageCleanup } from '../apps/api/test/storage-cleanup.js';
 import { getDevDatabaseUrl } from '../apps/api/test/neon-dev.js';
 import { seedRecipes } from '../apps/api/src/recipes/seed-recipes.js';

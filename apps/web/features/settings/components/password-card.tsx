@@ -13,7 +13,7 @@ import { changePassword } from '../actions/change-password'
 import { requestSetPassword } from '../actions/request-set-password'
 import { PASSWORD_MESSAGES, SET_PASSWORD_MESSAGES, type ChangePasswordResult, type RequestSetPasswordResult } from '../actions/results'
 import { showRefusal } from '../lib/show-refusal'
-import { useSingleFlight } from '../lib/use-single-flight'
+import { useSingleFlight } from '@/lib/use-single-flight'
 import { PasswordField } from './password-field'
 
 type PasswordCardProps = {

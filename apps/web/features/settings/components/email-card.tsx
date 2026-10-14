@@ -19,7 +19,7 @@ import { changeEmail } from '../actions/change-email'
 import { cancelEmailChange, resendEmailChange } from '../actions/pending-email-change'
 import { EMAIL_MESSAGES, type ChangeEmailResult, type PendingEmailChangeResult } from '../actions/results'
 import { showRefusal } from '../lib/show-refusal'
-import { useSingleFlight } from '../lib/use-single-flight'
+import { useSingleFlight } from '@/lib/use-single-flight'
 import { PasswordField } from './password-field'
 
 type EmailCardProps = {
