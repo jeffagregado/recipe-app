@@ -10,7 +10,7 @@ This guide records how production runs and how to set it up from nothing. The li
 | API (`apps/api`, NestJS) | Render | web service `recapp-api` (`srv-db7kvo2d0e5s73e8gh9g`), free plan, region `singapore` | https://recapp-api-9984.onrender.com |
 | Postgres and object storage | Neon | project `recipe-app-v2` (`round-term-82774312`), branch `production` (`br-sweet-hall-b3d1oqg9`) | |
 
-The browser talks to the web app only. The web server calls the API server to server.
+The browser talks to the web app only. The web server calls the API server-to-server.
 
 The API runs on Render, not Vercel, because Vercel functions refuse request bodies over 4.5 MB, and recipe photo uploads are larger than that.
 
@@ -26,7 +26,7 @@ Do these steps in order.
 6. **Proxy secret.** Set `RECIPE_WEB_PROXY_SECRET` as described in [Proxy secret](#proxy-secret).
 7. **Check.** Open https://recapp-api-9984.onrender.com/api/auth/ok, which answers `{"ok":true}`. Then sign in at https://recapp-recipe-app.vercel.app.
 
-If you change the URLs, update `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS`, `GOOGLE_REDIRECT_URI` and `RECIPE_API_URL` to match.
+`render.yaml` fixes the production storage endpoint and both URLs. For another Neon branch or other URLs, edit `AWS_ENDPOINT_URL_S3`, `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS` and `GOOGLE_REDIRECT_URI` there before step 3, and set `RECIPE_API_URL` on Vercel to match.
 
 ### Render service settings
 
@@ -113,9 +113,9 @@ Rotate a secret by setting the new value on the host, redeploying, and then revo
 
 ## Production migrations
 
-Migrations do not run when the API starts. Run them yourself, before the API deploy that needs them. Merging to `master` deploys the API on Render, so migrate production first.
+Migrations do not run when the API starts. Run them yourself, before the API deploy that needs them. Merging to `master` deploys the API on Render, so migrate production before you merge.
 
-From a checkout of the commit you are about to deploy:
+From a checkout of the branch you are about to merge:
 
 ```
 pnpm install
