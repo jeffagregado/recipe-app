@@ -146,6 +146,7 @@ describe('SMTP configuration', () => {
       ['a port out of range', { SMTP_PORT: '70000' }, 'SMTP_PORT'],
       ['a sender other than the SMTP user', { MAIL_FROM: 'Kitchen <other@marker-value.example>' }, 'MAIL_FROM'],
       ['the default sender', { MAIL_FROM: undefined }, 'MAIL_FROM'],
+      ['a sender other than the SMTP user on Gmail\'s other host name', { SMTP_HOST: 'SMTP.GoogleMail.com', MAIL_FROM: 'other@marker-value.example' }, 'MAIL_FROM'],
     ] as const,
   ].flat())('rejects %s with a key-only error that never echoes values', (_name, input, key) => {
     const message = messageOf({ ...smtp, SMTP_PASSWORD: 'marker-value', ...input });

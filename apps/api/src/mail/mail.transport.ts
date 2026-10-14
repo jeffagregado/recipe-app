@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import nodemailer from 'nodemailer';
 import { Resend } from 'resend';
-import type { Environment } from '../config/environment.js';
+import type { Environment, SmtpServer } from '../config/environment.js';
 
 /** A closed list, so the one thing the logging transport prints can never carry caller data. */
 export type MailKind = 'verification' | 'account-exists' | 'password-reset' | 'email-change' | 'email-change-notice';
@@ -52,13 +52,11 @@ class ResendMailTransport implements MailTransport {
   }
 }
 
-type SmtpSettings = NonNullable<Environment['SMTP']>;
-
 /** TLS throughout with the certificate verified: implicit TLS on port 465, a required STARTTLS upgrade on any other. */
 class SmtpMailTransport implements MailTransport {
   private readonly transporter;
 
-  constructor({ host, port, user, password }: SmtpSettings, private readonly from: string) {
+  constructor({ host, port, user, password }: SmtpServer, private readonly from: string) {
     // Logging stays off: nodemailer's debug output carries the envelope and the message itself.
     this.transporter = nodemailer.createTransport({
       host,

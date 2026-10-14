@@ -47,25 +47,29 @@ const mailSender = new RegExp(String.raw`^(?:${mailAddress}|[^<>,;"@\p{Cc}]+ <${
 /** An env example line left empty means "not set". */
 const blankAsUnset = (value: unknown) => (typeof value === 'string' && !value.trim() ? undefined : value);
 
-type SmtpSettings = { SMTP_HOST?: string; SMTP_PORT?: number; SMTP_USER?: string; SMTP_PASSWORD?: string };
-const smtpKeys = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD'] as const;
+/** The SMTP server the mail transport signs in to. */
+export type SmtpServer = { host: string; port: number; user: string; password: string };
 
-const isCompleteSmtp = (settings: SmtpSettings): settings is Required<SmtpSettings> => smtpKeys.every((key) => settings[key] !== undefined);
+type SmtpEnv = { SMTP_HOST?: string; SMTP_PORT?: number; SMTP_USER?: string; SMTP_PASSWORD?: string };
+const smtpKeys = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD'] as const;
+const gmailHost = /^smtp\.(?:gmail|googlemail)\.com$/i;
+
+const isCompleteSmtp = (env: SmtpEnv): env is Required<SmtpEnv> => smtpKeys.every((key) => env[key] !== undefined);
 
 /** Gmail replaces any From address other than the signed-in account's own, so the configured sender would never show. */
-function isGmailSenderMismatch({ SMTP_HOST, SMTP_USER }: Required<SmtpSettings>, mailFrom: string): boolean {
+function isGmailSenderMismatch({ SMTP_HOST, SMTP_USER }: Required<SmtpEnv>, mailFrom: string): boolean {
   const sender = /<([^<>]+)>$/.exec(mailFrom)?.[1] ?? mailFrom;
-  return SMTP_HOST.toLowerCase() === 'smtp.gmail.com' && sender.toLowerCase() !== SMTP_USER.toLowerCase();
+  return gmailHost.test(SMTP_HOST) && sender.toLowerCase() !== SMTP_USER.toLowerCase();
 }
 
-/** The SMTP server and its login, set all together or not at all. */
-function smtpSettings(settings: SmtpSettings, mailFrom: string): { smtp?: { host: string; port: number; user: string; password: string }; missing: [string, string][] } {
-  if (!isCompleteSmtp(settings)) {
-    const unset = smtpKeys.filter((key) => settings[key] === undefined);
-    return { missing: unset.length < smtpKeys.length ? unset.map((key) => [key, 'is required with the other SMTP settings']) : [] };
+/** The SMTP server when all four settings are set, or the issues with them: a partial set, or a sender Gmail would replace. */
+function parseSmtpServer(env: SmtpEnv, mailFrom: string): { server?: SmtpServer; issues: [string, string][] } {
+  if (!isCompleteSmtp(env)) {
+    const unset = smtpKeys.filter((key) => env[key] === undefined);
+    return { issues: unset.length < smtpKeys.length ? unset.map((key) => [key, 'is required with the other SMTP settings']) : [] };
   }
-  if (isGmailSenderMismatch(settings, mailFrom)) return { missing: [['MAIL_FROM', 'must be the SMTP_USER address with Gmail']] };
-  return { smtp: { host: settings.SMTP_HOST, port: settings.SMTP_PORT, user: settings.SMTP_USER, password: settings.SMTP_PASSWORD }, missing: [] };
+  if (isGmailSenderMismatch(env, mailFrom)) return { issues: [['MAIL_FROM', 'must be the SMTP_USER address with Gmail']] };
+  return { server: { host: env.SMTP_HOST, port: env.SMTP_PORT, user: env.SMTP_USER, password: env.SMTP_PASSWORD }, issues: [] };
 }
 
 /** The path of the web route handler that receives Google's redirect; the origin in front of it is the web app's. */
@@ -120,14 +124,14 @@ const environmentSchema = z.object({
   TRUST_PROXY_HOPS: z.preprocess(blankAsUnset, z.coerce.number().int().min(0).default(0)),
 }).transform(({ NODE_ENV, AUTH_TRUSTED_ORIGINS, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, ...config }, context) => {
   const production = NODE_ENV === 'production';
-  const { smtp, missing: smtpMissing } = smtpSettings({ SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD }, config.MAIL_FROM);
-  const missing: [string, string][] = [...missingGoogleSettings(config, production), ...smtpMissing];
+  const smtp = parseSmtpServer({ SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD }, config.MAIL_FROM);
+  const missing: [string, string][] = [...missingGoogleSettings(config, production), ...smtp.issues];
   if (production && AUTH_TRUSTED_ORIGINS.length === 0) missing.push(['AUTH_TRUSTED_ORIGINS', 'is required in production']);
   for (const [key, message] of missing) context.issues.push({ code: 'custom', message, input: undefined, path: [key] });
   if (missing.length > 0) return z.NEVER;
   return {
     ...config,
-    ...(smtp && { SMTP: smtp }),
+    ...(smtp.server && { SMTP: smtp.server }),
     GOOGLE_REDIRECT_URI: config.GOOGLE_REDIRECT_URI ?? (production ? undefined : localGoogleRedirectUri),
     AUTH_TRUSTED_ORIGINS: AUTH_TRUSTED_ORIGINS.length > 0 ? AUTH_TRUSTED_ORIGINS : localAuthOrigins,
   };
