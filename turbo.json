@@ -63,6 +63,9 @@
     },
     "typecheck": {
       "dependsOn": ["^build", "^typecheck"]
+    },
+    "@recipe/web#typecheck": {
+      "dependsOn": ["^build", "^typecheck", "build"]
     }
   }
 }
