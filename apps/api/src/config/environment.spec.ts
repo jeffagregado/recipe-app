@@ -182,3 +182,26 @@ describe('TRUST_PROXY_HOPS parsing', () => {
     expect(message.includes('TRUST_PROXY_HOPS')).toBe(true);
   });
 });
+
+describe('RECIPE_WEB_PROXY_SECRET parsing', () => {
+  const secret = (input: Record<string, unknown>) => validateEnvironment({ ...base, ...input }).RECIPE_WEB_PROXY_SECRET;
+  const value = 'w'.repeat(32);
+
+  it.each([undefined, '', '  '])('leaves %j unset', (input) => {
+    expect(secret({ RECIPE_WEB_PROXY_SECRET: input })).toBeUndefined();
+  });
+
+  it('keeps a secret of 32 or more characters', () => {
+    expect(secret({ RECIPE_WEB_PROXY_SECRET: value })).toBe(value);
+  });
+
+  it.each([
+    ['31 characters', 'w'.repeat(31)],
+    ['inner whitespace', `${'w'.repeat(16)} ${'w'.repeat(16)}`],
+  ])('rejects %s with a key-only error', (_name, input) => {
+    const message = messageOf({ RECIPE_WEB_PROXY_SECRET: input });
+    expect(message.startsWith('Invalid API configuration:')).toBe(true);
+    expect(message.includes('RECIPE_WEB_PROXY_SECRET')).toBe(true);
+    expect(message.includes(input)).toBe(false);
+  });
+});

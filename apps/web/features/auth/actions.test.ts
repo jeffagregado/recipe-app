@@ -83,6 +83,16 @@ it('forwards only origin and client address, applies the session cookie and redi
 	expect(next.set).toHaveBeenCalledExactlyOnceWith('better-auth.session_token', 'abc', { httpOnly: true, sameSite: 'lax', path: '/', secure: false, maxAge: 604800 })
 })
 
+it('sends the web proxy secret to the API only, never back to the caller', async () => {
+	const secret = 'w'.repeat(40)
+	vi.stubEnv('RECIPE_WEB_PROXY_SECRET', secret)
+	fetchMock.mockResolvedValue(json({ code: 'INVALID_CREDENTIALS', message: 'raw upstream text' }, 401))
+	const result = await login(credentials)
+	const [, init] = fetchMock.mock.calls[0]
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', 'x-recipe-web-secret': secret })
+	expect(result).toEqual(invalidLogin)
+})
+
 it('maps an email conflict to the exact message', async () => {
 	fetchMock.mockResolvedValueOnce(json({ code: 'EMAIL_ALREADY_EXISTS', message: 'raw upstream text' }, 409))
 	expect(await signup({ displayName: 'Owner', ...credentials })).toMatchObject({ ok: false, message: 'Email already exists.' })

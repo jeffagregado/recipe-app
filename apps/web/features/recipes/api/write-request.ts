@@ -3,7 +3,7 @@ import 'server-only'
 import { apiErrorEnvelopeSchema } from '@recipe-app/contracts/schemas'
 import type { ApiErrorEnvelope } from '@recipe-app/contracts/types'
 import { cookies, headers } from 'next/headers'
-import { getApiOrigin } from '@/features/auth/api'
+import { apiHeaders, getApiOrigin } from '@/features/auth/api'
 import { sessionCookieHeader } from '@/features/auth/session-cookie'
 
 /** The only request details a write forwards to the API: the trusted origin, the session cookie and the client address. */
@@ -39,7 +39,7 @@ export type WriteOutcome = { response: Response } | { problem: 'not-sent' | 'unk
 export async function sendWrite({ context, request }: { context: WriteContext; request: WriteRequest }): Promise<WriteOutcome> {
 	let apiOrigin: string
 	try { apiOrigin = getApiOrigin() } catch { return { problem: 'not-sent' } }
-	const outgoing = new Headers({ Cookie: context.cookie, Origin: context.origin })
+	const outgoing = apiHeaders({ Cookie: context.cookie, Origin: context.origin })
 	if (request.idempotencyKey) outgoing.set('Idempotency-Key', request.idempotencyKey)
 	if (request.contentType) outgoing.set('Content-Type', request.contentType)
 	if (context.address) outgoing.set('X-Forwarded-For', context.address)

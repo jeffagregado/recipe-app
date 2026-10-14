@@ -28,13 +28,13 @@
       "dependsOn": ["^build"],
       "cache": false,
       "persistent": true,
-      "passThroughEnv": ["PORT", "DATABASE_URL", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_ENDPOINT_URL_S3", "AWS_REGION", "S3_BUCKET", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "AUTH_TRUSTED_ORIGINS", "TRUST_PROXY_HOPS", "RESEND_API_KEY", "MAIL_FROM", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI"]
+      "passThroughEnv": ["PORT", "DATABASE_URL", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_ENDPOINT_URL_S3", "AWS_REGION", "S3_BUCKET", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "AUTH_TRUSTED_ORIGINS", "TRUST_PROXY_HOPS", "RECIPE_WEB_PROXY_SECRET", "RESEND_API_KEY", "MAIL_FROM", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI"]
     },
     "@recipe/web#dev": {
       "dependsOn": ["^build"],
       "cache": false,
       "persistent": true,
-      "passThroughEnv": ["RECIPE_API_URL", "RECIPE_STORAGE_HOST", "CONTACT_EMAIL"]
+      "passThroughEnv": ["RECIPE_API_URL", "RECIPE_WEB_PROXY_SECRET", "RECIPE_STORAGE_HOST", "CONTACT_EMAIL"]
     },
     "lint": {
       "dependsOn": ["^lint"]

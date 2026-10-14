@@ -4,7 +4,7 @@ import { categoryListSchema } from '@recipe-app/contracts/schemas'
 import type { CategoryWithUsage } from '@recipe-app/contracts/types'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { getApiOrigin } from '@/features/auth/api'
+import { apiHeaders, getApiOrigin } from '@/features/auth/api'
 import { requireSession } from '@/features/auth/queries'
 import { sessionCookieHeader } from '@/features/auth/session-cookie'
 
@@ -20,7 +20,7 @@ class CategoryReadError extends Error {
 async function fetchCategories(cookie: string): Promise<Response> {
 	const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
 	try {
-		return await fetch(`${getApiOrigin()}/categories`, { cache: 'no-store', redirect: 'error', signal, headers: { Cookie: cookie } })
+		return await fetch(`${getApiOrigin()}/categories`, { cache: 'no-store', redirect: 'error', signal, headers: apiHeaders({ Cookie: cookie }) })
 	} catch (cause) {
 		if (signal.aborted) throw new CategoryReadError(`GET /categories timed out after ${REQUEST_TIMEOUT_MS / 1_000} seconds. Check recipe API availability.`, { cause })
 		if (cause instanceof TypeError || cause instanceof DOMException) throw new CategoryReadError('GET /categories failed during transport. Check recipe API availability.', { cause })
