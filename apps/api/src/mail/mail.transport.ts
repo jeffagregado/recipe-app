@@ -24,7 +24,7 @@ class LoggingMailTransport implements MailTransport {
   }
 }
 
-const SAFE_CODE = /^[a-z][a-z_]{1,63}$/;
+export const MAIL_CODE = /^[a-z][a-z_]{1,63}$/;
 
 /** Carries the provider's error code when it has the safe shape; never its message, which can quote the recipient. */
 export class MailError extends Error {
@@ -47,7 +47,7 @@ class ResendMailTransport implements MailTransport {
 
   async send({ to, subject, html }: MailMessage): Promise<void> {
     const { error } = await this.client.emails.send({ from: this.from, to, subject, html });
-    if (error) throw new MailError(SAFE_CODE.test(error.name) ? error.name : undefined);
+    if (error) throw new MailError(MAIL_CODE.test(error.name) ? error.name : undefined);
   }
 }
 
