@@ -51,12 +51,20 @@ test('signup sends to check-your-email, the link verifies once without a session
   await expect(page).toHaveURL(`${WEB_URL}/`);
 
   const [token] = await workerData.verificationTokens(email);
-  await page.goto(`/verify-email?token=${token}`);
+  const opened = await page.goto(`/verify-email?token=${token}`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Verify your email' })).toBeVisible();
+  expect(await page.locator('meta[name="referrer"]').getAttribute('content')).toBe('no-referrer');
+  expect(opened?.headers()['cache-control']).toContain('no-store');
+  expect(await fits(page)).toBe(true);
+  // Opening the page used nothing up, as a mail scanner that opens the link first would not.
+  expect((await workerData.verificationTokens(email)).length).toBe(1);
+  await page.getByRole('button', { name: 'Verify my email', exact: true }).click();
   await expect(page.getByText('Email verified. Log in to continue.', { exact: true })).toBeVisible();
   await expect(page).toHaveURL(`${WEB_URL}/`);
   expect(await sessionCookies(context)).toEqual([]);
-  // The link works once: opening it again shows the expired state with a way to ask for another.
+  // The link works once: submitting it again shows the expired state with a way to ask for another.
   await page.goto(`/verify-email?token=${token}`);
+  await page.getByRole('button', { name: 'Verify my email', exact: true }).click();
   await expect(page).toHaveURL(`${WEB_URL}/verify-email/invalid`);
   await expect(page.getByRole('heading', { level: 1, name: 'This link has expired or was already used' })).toBeVisible();
   await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
@@ -101,6 +109,7 @@ test('the right password before verifying shows the verify message with a resend
   const tokens = await workerData.verificationTokens(email);
   expect(tokens.length).toBe(2);
   await page.goto(`/verify-email?token=${tokens[0]}`);
+  await page.getByRole('button', { name: 'Verify my email', exact: true }).click();
   await expect(page.getByText('Email verified. Log in to continue.', { exact: true })).toBeVisible();
   await login(page, email, password);
   await expect(page).toHaveURL(`${WEB_URL}/recipes`);
