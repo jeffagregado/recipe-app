@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import nodemailer from 'nodemailer';
 import { Resend } from 'resend';
 import type { Environment } from '../config/environment.js';
 
@@ -16,10 +17,10 @@ export const MAIL_TRANSPORT = Symbol('MAIL_TRANSPORT');
 
 const logger = new Logger('Mail');
 
-/** Stands in when no key is set. Logs the kind only; never the address, subject or body. */
+/** Stands in when no mail service is set. Logs the kind only; never the address, subject or body. */
 class LoggingMailTransport implements MailTransport {
   send({ kind }: MailMessage): Promise<void> {
-    logger.log(`Mail not sent, no Resend key is set: a ${kind} message was produced.`);
+    logger.log(`Mail not sent, no SMTP server or Resend key is set: a ${kind} message was produced.`);
     return Promise.resolve();
   }
 }
@@ -51,6 +52,39 @@ class ResendMailTransport implements MailTransport {
   }
 }
 
-export function createMailTransport({ RESEND_API_KEY, MAIL_FROM }: Pick<Environment, 'RESEND_API_KEY' | 'MAIL_FROM'>): MailTransport {
+type SmtpSettings = NonNullable<Environment['SMTP']>;
+
+/** TLS throughout with the certificate verified: implicit TLS on port 465, a required STARTTLS upgrade on any other. */
+class SmtpMailTransport implements MailTransport {
+  private readonly transporter;
+
+  constructor({ host, port, user, password }: SmtpSettings, private readonly from: string) {
+    // Logging stays off: nodemailer's debug output carries the envelope and the message itself.
+    this.transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      requireTLS: true,
+      auth: { user, pass: password },
+      tls: { rejectUnauthorized: true },
+      logger: false,
+      debug: false,
+    });
+  }
+
+  async send({ to, subject, html }: MailMessage): Promise<void> {
+    try {
+      await this.transporter.sendMail({ from: this.from, to, subject, html });
+    } catch (error) {
+      // The message and the server's response can quote the recipient or the account; nodemailer's code, such as EAUTH, cannot.
+      const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code.toLowerCase() : undefined;
+      throw new MailError(code && MAIL_CODE.test(code) ? code : undefined);
+    }
+  }
+}
+
+/** SMTP when a server is set, else Resend when a key is set, else the logging transport. */
+export function createMailTransport({ SMTP, RESEND_API_KEY, MAIL_FROM }: Pick<Environment, 'SMTP' | 'RESEND_API_KEY' | 'MAIL_FROM'>): MailTransport {
+  if (SMTP) return new SmtpMailTransport(SMTP, MAIL_FROM);
   return RESEND_API_KEY ? new ResendMailTransport(RESEND_API_KEY, MAIL_FROM) : new LoggingMailTransport();
 }

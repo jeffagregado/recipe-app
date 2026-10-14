@@ -117,6 +117,44 @@ describe('mail configuration', () => {
   });
 });
 
+describe('SMTP configuration', () => {
+  const smtp = { SMTP_HOST: 'smtp.gmail.com', SMTP_PORT: '465', SMTP_USER: 'kitchen@example.com', SMTP_PASSWORD: 'unit-app-password', MAIL_FROM: 'Kitchen <kitchen@example.com>' };
+  const read = (input: Record<string, unknown>) => validateEnvironment({ ...base, ...input }).SMTP;
+
+  it.each([{}, { SMTP_HOST: '', SMTP_PORT: '', SMTP_USER: '', SMTP_PASSWORD: '' }, { SMTP_HOST: '  ', SMTP_PORT: ' ', SMTP_USER: ' ', SMTP_PASSWORD: ' ' }])('runs without SMTP (%j)', (input) => {
+    expect(read(input)).toBeUndefined();
+  });
+
+  it('accepts all four values together, the port as an integer', () => {
+    expect(read({ ...smtp, SMTP_HOST: ' smtp.gmail.com ' })).toEqual({ host: 'smtp.gmail.com', port: 465, user: 'kitchen@example.com', password: 'unit-app-password' });
+  });
+
+  it.each([
+    ['the Gmail user as a bare sender, in any letter case', { MAIL_FROM: 'Kitchen@Example.com' }, 'Kitchen@Example.com'],
+    ['any sender on a host that is not Gmail', { SMTP_HOST: 'smtp.example.com', MAIL_FROM: 'Kitchen <mail@send.example.com>' }, 'Kitchen <mail@send.example.com>'],
+  ])('accepts %s', (_name, input, expected) => {
+    expect(validateEnvironment({ ...base, ...smtp, ...input }).MAIL_FROM).toBe(expected);
+  });
+
+  it.each([
+    ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD'].map((key) => [`a missing ${key}`, { [key]: undefined }, key] as const),
+    [
+      ['only a host', { SMTP_PORT: undefined, SMTP_USER: undefined, SMTP_PASSWORD: undefined }, 'SMTP_PORT'],
+      ['only a password', { SMTP_HOST: undefined, SMTP_PORT: undefined, SMTP_USER: undefined }, 'SMTP_HOST'],
+      ['a port with a fraction', { SMTP_PORT: '465.5' }, 'SMTP_PORT'],
+      ['a port that is not a number', { SMTP_PORT: 'marker-value' }, 'SMTP_PORT'],
+      ['a port out of range', { SMTP_PORT: '70000' }, 'SMTP_PORT'],
+      ['a sender other than the SMTP user', { MAIL_FROM: 'Kitchen <other@marker-value.example>' }, 'MAIL_FROM'],
+      ['the default sender', { MAIL_FROM: undefined }, 'MAIL_FROM'],
+    ] as const,
+  ].flat())('rejects %s with a key-only error that never echoes values', (_name, input, key) => {
+    const message = messageOf({ ...smtp, SMTP_PASSWORD: 'marker-value', ...input });
+    expect(message.startsWith('Invalid API configuration:')).toBe(true);
+    expect(message.split('.')[0]).toContain(key);
+    expect(message.includes('marker-value')).toBe(false);
+  });
+});
+
 describe('Google sign-in configuration', () => {
   const localCallback = 'http://localhost:3000/api/auth/callback/google';
   const google = { GOOGLE_CLIENT_ID: 'unit-client-id', GOOGLE_CLIENT_SECRET: 'unit-client-marker-value' };
