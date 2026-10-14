@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import { toNodeHandler } from 'better-auth/node';
 import type { Environment } from '../config/environment.js';
+import { keyDirectCaller } from './auth.request.js';
 import { AUTH } from './auth.tokens.js';
 import type { RecipeAuth } from './auth.js';
 
@@ -15,6 +16,14 @@ export function mountAuth(app: NestExpressApplication): void {
   // local web server, on loopback, as the one trusted hop; a bare `true` would let any caller name its own address.
   const hops = config.get('TRUST_PROXY_HOPS', { infer: true });
   express.set('trust proxy', hops > 0 ? hops : 'loopback');
+  // Only the web server knows the secret; without one configured, every request keeps all the hops, as before.
+  const webProxySecret = config.get('RECIPE_WEB_PROXY_SECRET', { infer: true });
+  if (webProxySecret) {
+    app.use((request: IncomingMessage, _response: ServerResponse, next: () => void) => {
+      keyDirectCaller(request, hops, webProxySecret);
+      next();
+    });
+  }
   app.use((_request: IncomingMessage, response: ServerResponse, next: () => void) => {
     response.setHeader('Cache-Control', 'private, no-store');
     next();

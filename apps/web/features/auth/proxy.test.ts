@@ -21,6 +21,13 @@ it('rewrites only allowed reads at runtime and refuses arbitrary backend paths/m
 	expect(proxy(new NextRequest('http://localhost:3000/recipes')).headers.get('location')).toBe('http://localhost:3000/')
 })
 
+it('adds the web proxy secret to a rewritten read on its way to the API', () => {
+	vi.stubEnv('RECIPE_API_URL', 'http://api.example')
+	vi.stubEnv('RECIPE_WEB_PROXY_SECRET', 'w'.repeat(40))
+	const response = proxy(new NextRequest('http://localhost:3000/backend/auth/session'))
+	expect(response.headers.get('x-middleware-request-x-recipe-web-secret')).toBe('w'.repeat(40))
+})
+
 it('redirects cookie-less page navigations but lets other methods (Server Actions) through', () => {
 	for (const method of ['GET', 'HEAD']) {
 		expect(proxy(new NextRequest('http://localhost:3000/recipes/abc', { method })).headers.get('location')).toBe('http://localhost:3000/')

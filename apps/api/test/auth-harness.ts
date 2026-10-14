@@ -54,10 +54,11 @@ export async function startApi(configure?: ConfigureTestingModule): Promise<{ ap
   return { app, baseUrl, db: app.get(DatabaseService).db, mail };
 }
 
-type RequestOptions = { cookie?: string; origin?: string | null; address?: string };
+type RequestOptions = { cookie?: string; origin?: string | null; address?: string; headers?: Record<string, string> };
 
 export function apiClient(baseUrl: string, defaultAddress: string, defaultOrigin = TEST_ORIGIN) {
-  const headers = ({ cookie, origin = defaultOrigin, address = defaultAddress }: RequestOptions) => ({
+  const headers = ({ cookie, origin = defaultOrigin, address = defaultAddress, headers: extra }: RequestOptions) => ({
+    ...extra,
     'X-Forwarded-For': address,
     ...(origin === null ? {} : { Origin: origin }),
     ...(cookie ? { Cookie: cookie } : {}),

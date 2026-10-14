@@ -4,7 +4,7 @@ import { recipeDetailSchema } from '@recipe-app/contracts/schemas'
 import type { RecipeDetail } from '@recipe-app/contracts/types'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { getApiOrigin } from '@/features/auth/api'
+import { apiHeaders, getApiOrigin } from '@/features/auth/api'
 import { requireSession } from '@/features/auth/queries'
 import { sessionCookieHeader } from '@/features/auth/session-cookie'
 import { isValidRecipeId } from '../lib/recipe-id'
@@ -25,7 +25,7 @@ async function fetchRecipe(id: string, cookie: string): Promise<Response> {
 			cache: 'no-store',
 			redirect: 'error',
 			signal,
-			headers: { Cookie: cookie },
+			headers: apiHeaders({ Cookie: cookie }),
 		})
 	} catch (cause) {
 		if (signal.aborted) throw new RecipeDetailError(`GET /recipes/:id timed out after ${REQUEST_TIMEOUT_MS / 1_000} seconds. Check recipe API availability.`, { cause })

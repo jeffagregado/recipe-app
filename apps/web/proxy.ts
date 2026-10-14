@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { getApiOrigin } from '@/features/auth/api'
+import { apiHeaders, getApiOrigin } from '@/features/auth/api'
 import { SESSION_COOKIE_NAMES, sessionCookieHeader } from '@/features/auth/session-cookie'
 
 // Next's image optimizer fetches bundled public artwork without a user cookie.
@@ -12,7 +12,7 @@ function rewriteBackendRead(request: NextRequest, path: string) {
 	if (request.method !== 'GET') return new NextResponse(null, { status: 405, headers: { Allow: 'GET' } })
 	const url = new URL(target, getApiOrigin())
 	url.search = request.nextUrl.search
-	const forwarded = new Headers({ Accept: 'application/json' })
+	const forwarded = apiHeaders({ Accept: 'application/json' })
 	const cookie = sessionCookieHeader(request.cookies)
 	if (cookie) forwarded.set('Cookie', cookie)
 	return NextResponse.rewrite(url, { request: { headers: forwarded }, headers: { 'Cache-Control': 'private, no-store' } })

@@ -28,7 +28,8 @@ it('forwards only the session cookie and returns the authenticated user', async 
 	fetchMock.mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }))
 	expect(await getSession()).toEqual({ status: 'authenticated', ...body })
 	expect(fetchMock.mock.calls[0][0]).toBe('http://api.example/auth/session')
-	expect(fetchMock.mock.calls[0][1]).toMatchObject({ cache: 'no-store', headers: { Cookie: 'better-auth.session_token=abc' } })
+	expect(fetchMock.mock.calls[0][1]).toMatchObject({ cache: 'no-store' })
+	expect(Object.fromEntries(new Headers(fetchMock.mock.calls[0][1]?.headers))).toEqual({ cookie: 'better-auth.session_token=abc' })
 })
 
 it('treats 401 as signed out and redirects private routes to the root', async () => {

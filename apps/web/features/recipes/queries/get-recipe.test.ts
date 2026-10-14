@@ -27,7 +27,8 @@ it('forwards only the session cookie, uncached, and returns the validated recipe
 	await expect(getRecipe('a b/c')).resolves.toEqual(recipe)
 	const [url, init] = fetchMock.mock.calls[0]
 	expect(url).toBe('http://api.test/recipes/a%20b%2Fc')
-	expect(init).toMatchObject({ cache: 'no-store', redirect: 'error', headers: { Cookie: 'better-auth.session_token=tok%20en' } })
+	expect(init).toMatchObject({ cache: 'no-store', redirect: 'error' })
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ cookie: 'better-auth.session_token=tok%20en' })
 	expect(init?.signal).toBeInstanceOf(AbortSignal)
 })
 

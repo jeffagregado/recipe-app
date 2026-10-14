@@ -26,7 +26,8 @@ it('forwards only the session cookie, uncached, and returns the validated list i
 	await expect(getCategories()).resolves.toEqual(categories)
 	const [url, init] = fetchMock.mock.calls[0]
 	expect(url).toBe('http://api.test/categories')
-	expect(init).toMatchObject({ cache: 'no-store', redirect: 'error', headers: { Cookie: 'better-auth.session_token=tok%20en' } })
+	expect(init).toMatchObject({ cache: 'no-store', redirect: 'error' })
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ cookie: 'better-auth.session_token=tok%20en' })
 	expect(init?.signal).toBeInstanceOf(AbortSignal)
 })
 

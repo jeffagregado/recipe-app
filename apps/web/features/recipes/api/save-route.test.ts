@@ -73,6 +73,15 @@ it('forwards multipart parts with only the session cookie, origin, key and clien
 	expect(JSON.parse(body.get('recipe') as string)).toEqual(metadata)
 })
 
+it('sends the web proxy secret, without surrounding whitespace, on a recipe write and never back to the browser', async () => {
+	vi.stubEnv('RECIPE_WEB_PROXY_SECRET', ` ${'w'.repeat(40)}
+`)
+	fetchMock.mockResolvedValue(json({ id: 'recipe/1' }, 201))
+	expect(await saveRecipe(payload())).toEqual({ status: 'saved', id: 'recipe/1' })
+	const [, init] = fetchMock.mock.calls[0]
+	expect(new Headers(init?.headers).get('x-recipe-web-secret')).toBe('w'.repeat(40))
+})
+
 it('treats a 200 replay like a first save', async () => {
 	fetchMock.mockResolvedValue(json({ id: 'r1' }, 200))
 	expect(await saveRecipe(payload())).toEqual({ status: 'saved', id: 'r1' })
