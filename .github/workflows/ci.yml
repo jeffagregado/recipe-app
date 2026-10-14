@@ -220,12 +220,12 @@ jobs:
           set -euo pipefail
           neon() { pnpm exec neon --no-analytics "$@" --project-id "$NEON_PROJECT_ID"; }
           # The id of the one direct child of dev with this name, or nothing. dev and production are never its children.
-          child() {
+          dev_child_id() {
             neon branches list --output json | jq -r --arg name "$1" --arg parent "$NEON_PARENT_BRANCH" \
               '[.[] | select(.name == $name and .id != $parent and .parent_id == $parent) | .id] | if length == 1 then .[0] else "" end'
           }
           branch=""
-          if [[ -n "$WORKTREE_BRANCH" ]]; then branch=$(child "$WORKTREE_BRANCH"); fi
+          if [[ -n "$WORKTREE_BRANCH" ]]; then branch=$(dev_child_id "$WORKTREE_BRANCH"); fi
           if [[ -n "$branch" ]]; then
             # Back to dev's rows and schema, as a new child would start: this drops the worktree's local test data, the
             # migrations of a branch that later regenerated them, and the gap to a dev that moved on. Object storage is
@@ -236,7 +236,7 @@ jobs:
             # A run cancelled before cleanup still loses its branch within 3 hours. The longest test job is 45 minutes.
             expires_at=$(date -u -d '+3 hours' +%Y-%m-%dT%H:%M:%SZ)
             neon branches create --name "$NEON_RUN_BRANCH" --parent "$NEON_PARENT_BRANCH" --expires-at "$expires_at" --no-secrets > /dev/null
-            branch=$(child "$NEON_RUN_BRANCH")
+            branch=$(dev_child_id "$NEON_RUN_BRANCH")
             if [[ -z "$branch" ]]; then echo "::error::The new Neon branch $NEON_RUN_BRANCH was not found."; exit 1; fi
             summary="Tests run on \`$NEON_RUN_BRANCH\` ($branch), created for this run and deleted when it ends."
             if [[ -n "$WORKTREE_BRANCH" ]]; then summary="$summary There is no worktree branch \`$WORKTREE_BRANCH\`."; fi
@@ -245,10 +245,10 @@ jobs:
           echo "$summary" | tee -a "$GITHUB_STEP_SUMMARY"
 
           # The CLI returns once Neon accepts the reset or create, and a migration started before Neon finishes would have
-          # its connection cut. Wait until none of the branch's operations is still pending.
+          # its connection cut. Wait until none of the branch's operations is still pending; a failed poll just polls again.
           for _ in $(seq 60); do
             pending=$(curl -sSf -H "Authorization: Bearer $NEON_API_KEY" "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/operations?limit=50" |
-              jq --arg branch "$branch" '[.operations[] | select(.branch_id == $branch and (.status | IN("scheduling", "running", "cancelling")))] | length')
+              jq --arg branch "$branch" '[.operations[] | select(.branch_id == $branch and (.status | IN("scheduling", "running", "cancelling")))] | length') || pending=""
             if [[ "$pending" == 0 ]]; then exit 0; fi
             sleep 5
           done
@@ -406,11 +406,16 @@ jobs:
           NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
         run: |
           set -euo pipefail
-          api() { curl -sSf -H "Authorization: Bearer $NEON_API_KEY" "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches$1" "${@:2}"; }
-          branch=$(api "" | jq -r --arg name "$NEON_RUN_BRANCH" --arg parent "$NEON_PARENT_BRANCH"             '[.branches[] | select(.name == $name and .parent_id == $parent) | .id] | if length == 1 then .[0] else "" end')
+          branches_api() { curl -sSf -H "Authorization: Bearer $NEON_API_KEY" "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches$1" "${@:2}"; }
+          branch=$(branches_api "" | jq -r --arg name "$NEON_RUN_BRANCH" --arg parent "$NEON_PARENT_BRANCH" \
+            '[.branches[] | select(.name == $name and .id != $parent and .parent_id == $parent) | .id] | if length == 1 then .[0] else "" end')
           if [[ -z "$branch" ]]; then
             echo "No branch $NEON_RUN_BRANCH to delete: this run tested on a worktree branch or created none."
             exit 0
           fi
-          api "/$branch" -X DELETE > /dev/null
-          echo "Deleted $NEON_RUN_BRANCH ($branch)."
+          # Neon refuses the delete while an operation on the branch is still running, such as a compute suspending.
+          for _ in $(seq 12); do
+            if branches_api "/$branch" -X DELETE > /dev/null; then echo "Deleted $NEON_RUN_BRANCH ($branch)."; exit 0; fi
+            sleep 10
+          done
+          echo "::warning::Could not delete $NEON_RUN_BRANCH ($branch); it expires 3 hours after it was created."
