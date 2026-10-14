@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
@@ -98,6 +98,8 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     expect(sent[0].html.includes(`<a href="${TEST_ORIGIN}/verify-email?token=${token}">`)).toBe(true);
     // The link opens the web app; the API's own address never reaches a mailbox.
     expect(sent[0].html.includes('127.0.0.1')).toBe(false);
+    // At rest the link is only the SHA-256 of its token: a copy of the table cannot rebuild it.
+    expect((await storedVerificationLinks(db, email)).join() === `email-verification:${createHash('sha256').update(token).digest('hex')}`).toBe(true);
     const [link] = await db.select({ createdAt: authVerifications.createdAt, expiresAt: authVerifications.expiresAt })
       .from(authVerifications).where(eq(authVerifications.identifier, verificationIdentifier(token)));
     // The row is stamped by the database and its expiry by the API, so allow for the two clocks.

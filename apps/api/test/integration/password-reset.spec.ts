@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq, like } from 'drizzle-orm';
@@ -90,6 +90,8 @@ describe('Forgot and reset password HTTP', () => {
     expect(sent[0].html.includes(`<a href="${TEST_ORIGIN}/reset-password?token=${token}">`)).toBe(true);
     // The link opens the web app; the API's own address never reaches a mailbox.
     expect(sent[0].html.includes('127.0.0.1')).toBe(false);
+    // At rest the link is only the SHA-256 of its token: a copy of the table cannot rebuild it.
+    expect((await storedResetLinks(db, known.email)).join() === `password-reset:${createHash('sha256').update(token).digest('hex')}`).toBe(true);
     const [link] = await db.select({ createdAt: authVerifications.createdAt, expiresAt: authVerifications.expiresAt })
       .from(authVerifications).where(eq(authVerifications.identifier, resetIdentifier(token)));
     // The row is stamped by the database and its expiry by the API, so allow for the two clocks.

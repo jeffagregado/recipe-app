@@ -3,6 +3,7 @@ import type { DrizzleDb } from '../database/database.service.js';
 import { authVerifications, users } from '../database/schema.js';
 import type { MailMessage } from '../mail/mail.transport.js';
 import { AuthError } from './auth.errors.js';
+import { hashLinkToken } from './auth.verification.js';
 
 export const EMAIL_CHANGE_LIFETIME_MS = 24 * 60 * 60 * 1000;
 /** Per target address, shared by starting a change and resending its link, so together they mail it at most three an hour. */
@@ -10,10 +11,9 @@ export const EMAIL_CHANGE_LINKS_PER_EMAIL = { scope: 'email-change:email', limit
 
 const IDENTIFIER_PREFIX = 'email-change:';
 
-/** The verifications row of one email-change link: the identifier carries the token and the value names the Account. The new address is the Account's pending email. */
-export const emailChangeIdentifier = (token: string) => `${IDENTIFIER_PREFIX}${token}`;
+/** The verifications row of one email-change link: the identifier carries the token's hash and the value names the Account. The new address is the Account's pending email. */
+export const emailChangeIdentifier = (token: string) => `${IDENTIFIER_PREFIX}${hashLinkToken(token)}`;
 export const EMAIL_CHANGE_IDENTIFIERS = `${IDENTIFIER_PREFIX}%`;
-export const tokenOfEmailChangeIdentifier = (identifier: string) => identifier.slice(IDENTIFIER_PREFIX.length);
 
 /** A stored link as it is needed to store it again. */
 export type EmailChangeLink = { identifier: string; value: string; expiresAt: Date };

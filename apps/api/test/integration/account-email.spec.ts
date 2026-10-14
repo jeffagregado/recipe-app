@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, like } from 'drizzle-orm';
@@ -126,7 +126,8 @@ describe('Account email HTTP', () => {
     const token = linkToken(link);
     // Compared without printing either side: a failure must not put a token or an address in the log.
     expect(link.html.includes(`<a href="${TEST_ORIGIN}/confirm-email-change?token=${token}">`)).toBe(true);
-    expect((await storedEmailChangeLinks(db, owner.email)).join() === emailChangeIdentifier(token)).toBe(true);
+    // At rest the link is only the SHA-256 of its token: a copy of the table cannot rebuild it.
+    expect((await storedEmailChangeLinks(db, owner.email)).join() === `email-change:${createHash('sha256').update(token).digest('hex')}`).toBe(true);
     const [stored] = await db.select({ expiresAt: authVerifications.expiresAt }).from(authVerifications)
       .where(and(eq(authVerifications.value, owner.user.id), like(authVerifications.identifier, 'email-change:%')));
     // Valid 24 hours from the request.
