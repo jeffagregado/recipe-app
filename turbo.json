@@ -17,7 +17,7 @@
         "!.next/cache/**",
         "!.next/dev/**"
       ],
-      "env": ["RECIPE_STORAGE_HOST"]
+      "env": ["RECIPE_STORAGE_HOST", "CONTACT_EMAIL"]
     },
     "dev": {
       "dependsOn": ["^build"],
@@ -34,7 +34,7 @@
       "dependsOn": ["^build"],
       "cache": false,
       "persistent": true,
-      "passThroughEnv": ["RECIPE_API_URL", "RECIPE_STORAGE_HOST"]
+      "passThroughEnv": ["RECIPE_API_URL", "RECIPE_STORAGE_HOST", "CONTACT_EMAIL"]
     },
     "lint": {
       "dependsOn": ["^lint"]
