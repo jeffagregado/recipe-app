@@ -12,6 +12,8 @@ Session and recipe reads are private, session-gated and fetched with `cache: 'no
 
 Login and sign-up live on `/` and require the request `Origin` to be trusted by the API. Set `AUTH_TRUSTED_ORIGINS` in the API environment to the exact frontend origins, comma-separated (for example `https://recipes.example.com`); it is required when `NODE_ENV=production` and falls back to `http://localhost:3000` and `http://127.0.0.1:3000` otherwise. When every listed origin is HTTPS the session cookie is always issued as Secure.
 
+Rate limits key on the browser's address, which the web app forwards to the API in `X-Forwarded-For`. Behind a hosting proxy, set `TRUST_PROXY_HOPS` in the API environment to the number of hops in front of the API that are yours: the host's proxy plus the web app (for example `2` for the API on Render called from Vercel). The client is then the address that many entries from the right of `X-Forwarded-For`, and an entry a client prepends is ignored. Unset or `0` trusts loopback only, for local development; a count higher than the real hops would let a caller choose its own address.
+
 Use `pnpm build` for production builds and `pnpm typecheck` / `pnpm lint` for checks. A running API is not required during the web build; it is required when visiting `/recipes`. For an individual app build, run `pnpm exec turbo build --filter=@recipe/api` or `--filter=@recipe/web` so contracts are built first.
 
 ```bash

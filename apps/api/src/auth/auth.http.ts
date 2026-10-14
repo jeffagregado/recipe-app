@@ -9,7 +9,12 @@ import type { RecipeAuth } from './auth.js';
 /** Only native health remains public; wrappers own all credential and session operations. */
 export function mountAuth(app: NestExpressApplication): void {
   const express = app.getHttpAdapter().getInstance();
-  express.set('trust proxy', 'loopback');
+  const config = app.get<ConfigService<Environment, true>>(ConfigService);
+  // Express counts a number from the socket: N trusts the socket peer and the N - 1 rightmost X-Forwarded-For entries, and
+  // the client is the address N hops from the right, so an entry the client added in front never moves it. 0 keeps the
+  // local web server, on loopback, as the one trusted hop; a bare `true` would let any caller name its own address.
+  const hops = config.get('TRUST_PROXY_HOPS', { infer: true });
+  express.set('trust proxy', hops > 0 ? hops : 'loopback');
   app.use((_request: IncomingMessage, response: ServerResponse, next: () => void) => {
     response.setHeader('Cache-Control', 'private, no-store');
     next();
@@ -23,7 +28,7 @@ export function mountAuth(app: NestExpressApplication): void {
     response.setHeader('Content-Type', 'application/json');
     response.end(JSON.stringify({ message: 'Not found.' }));
   });
-  app.enableCors({ origin: app.get<ConfigService<Environment, true>>(ConfigService).get('AUTH_TRUSTED_ORIGINS', { infer: true }), credentials: true });
+  app.enableCors({ origin: config.get('AUTH_TRUSTED_ORIGINS', { infer: true }), credentials: true });
   express.get('/api/auth/ok', toNodeHandler(app.get<RecipeAuth>(AUTH)));
   app.useBodyParser('json', { limit: '8kb', type: (request: IncomingMessage) => {
     // Recipe create and update own their multipart boundary; even malformed/large JSON must reach their guards and 415 response.

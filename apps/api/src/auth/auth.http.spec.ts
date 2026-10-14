@@ -11,7 +11,7 @@ describe('Native auth HTTP boundary', () => {
     const handler = vi.fn(() => new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } }));
     const module = await Test.createTestingModule({ providers: [
       { provide: AUTH, useValue: { handler } },
-      { provide: ConfigService, useValue: { get: () => ['http://localhost:3000'] } },
+      { provide: ConfigService, useValue: { get: (key: string) => ({ AUTH_TRUSTED_ORIGINS: ['http://localhost:3000'], TRUST_PROXY_HOPS: 0 })[key] } },
     ] }).compile();
     const app = module.createNestApplication<NestExpressApplication>({ logger: false, bodyParser: false });
     mountAuth(app);

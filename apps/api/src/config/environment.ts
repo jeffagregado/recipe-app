@@ -90,6 +90,8 @@ const environmentSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S+$/).optional()),
   GOOGLE_REDIRECT_URI: z.preprocess(blankAsUnset, z.string().trim().pipe(googleRedirectUriSchema).optional()),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+  /** Proxies in front of the API whose X-Forwarded-For entries are trusted; 0 trusts loopback only. See mountAuth. */
+  TRUST_PROXY_HOPS: z.preprocess(blankAsUnset, z.coerce.number().int().min(0).default(0)),
 }).transform(({ NODE_ENV, AUTH_TRUSTED_ORIGINS, ...config }, context) => {
   const production = NODE_ENV === 'production';
   const missing: [string, string][] = missingGoogleSettings(config, production);
@@ -114,7 +116,7 @@ export function validateEnvironment(input: Record<string, unknown>): Environment
   const result = environmentSchema.safeParse(input);
   if (!result.success) {
     const keys = [...new Set(result.error.issues.map((issue) => issue.path[0]))];
-    throw new ConfigurationError(`Invalid API configuration: ${keys.join(', ')}. Check required values and URL formats; PORT must be an integer between 1 and 65535; AUTH_TRUSTED_ORIGINS must list exact http(s) origins and is required in production; MAIL_FROM must be one address, bare or as Name <address>; RESEND_API_KEY must not contain whitespace; GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set together, and GOOGLE_REDIRECT_URI is the web origin followed by ${GOOGLE_CALLBACK_PATH}, required in production when Google is configured.`);
+    throw new ConfigurationError(`Invalid API configuration: ${keys.join(', ')}. Check required values and URL formats; PORT must be an integer between 1 and 65535; TRUST_PROXY_HOPS must be an integer of 0 or more; AUTH_TRUSTED_ORIGINS must list exact http(s) origins and is required in production; MAIL_FROM must be one address, bare or as Name <address>; RESEND_API_KEY must not contain whitespace; GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set together, and GOOGLE_REDIRECT_URI is the web origin followed by ${GOOGLE_CALLBACK_PATH}, required in production when Google is configured.`);
   }
   return result.data;
 }
