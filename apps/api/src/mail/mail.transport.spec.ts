@@ -185,6 +185,8 @@ describe('mail transport', () => {
         [TOKEN_URL, null],
         [SEND_URL, 'Bearer unit-access-2'],
       ]);
+      // One deadline covers every call of a send, so a retry never extends how long the request is held.
+      expect(new Set(fetch.mock.calls.map(([, init]) => init?.signal)).size).toBe(1);
     });
 
     it('gives up after one retry when Google refuses the fresh token too', async () => {
@@ -239,16 +241,14 @@ describe('mail transport', () => {
 
       await transport().send({ ...message, subject });
 
-      const { mime } = sentMessage(fetch.mock.calls[1][1]);
-      const folded = /\r\nSubject: (.*?)\r\nMIME-Version/s.exec(mime)?.[1] ?? '';
-      const words = folded.split('\r\n ');
-      expect(words.length).toBeGreaterThan(1);
-      expect(`Subject: ${folded}`.split('\r\n').map((line) => line.length).every((length) => length <= 76)).toBe(true);
-      for (const word of words) {
-        expect(word).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
-        expect(Buffer.from(word.slice(10, -2), 'base64').toString('utf8')).not.toContain('�');
-      }
-      expect(words.map((word) => Buffer.from(word.slice(10, -2), 'base64').toString('utf8')).join('')).toBe(subject);
+      // The words decode to "Réinitialisez votre mot de passe 🍲 ", "pour votre compte de recettes, s’il v" and "ous plaît".
+      const { headers } = sentMessage(fetch.mock.calls[1][1]);
+      expect(headers.slice(2, 5)).toEqual([
+        'Subject: =?UTF-8?B?UsOpaW5pdGlhbGlzZXogdm90cmUgbW90IGRlIHBhc3NlIPCfjbIg?=',
+        ' =?UTF-8?B?cG91ciB2b3RyZSBjb21wdGUgZGUgcmVjZXR0ZXMsIHPigJlpbCB2?=',
+        ' =?UTF-8?B?b3VzIHBsYcOudA==?=',
+      ]);
+      expect(Math.max(...headers.slice(2, 5).map((line) => line.length))).toBe(73);
     });
 
     it.each([

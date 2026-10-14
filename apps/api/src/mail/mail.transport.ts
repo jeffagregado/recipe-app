@@ -16,11 +16,6 @@ export const MAIL_TRANSPORT = Symbol('MAIL_TRANSPORT');
 
 const logger = new Logger('Mail');
 
-/** Each Google call gives up after this long, so a hung call never holds a request. */
-const GOOGLE_TIMEOUT_MS = 10_000;
-/** An access token is replaced this many seconds before Google's `expires_in` runs out. */
-const TOKEN_REFRESH_MARGIN_S = 60;
-
 /** Stands in when no mail service is set. Logs the kind only; never the address, subject or body. */
 class LoggingMailTransport implements MailTransport {
   send({ kind }: MailMessage): Promise<void> {
@@ -30,6 +25,7 @@ class LoggingMailTransport implements MailTransport {
 }
 
 export const MAIL_CODE = /^[a-z][a-z_]{1,63}$/;
+const safeCode = (code: unknown) => (typeof code === 'string' && MAIL_CODE.test(code) ? code : undefined);
 
 /** Carries the provider's error code when it has the safe shape; never its message, which can quote the recipient. */
 export class MailError extends Error {
@@ -52,20 +48,23 @@ class ResendMailTransport implements MailTransport {
 
   async send({ to, subject, html }: MailMessage): Promise<void> {
     const { error } = await this.client.emails.send({ from: this.from, to, subject, html });
-    if (error) throw new MailError(MAIL_CODE.test(error.name) ? error.name : undefined);
+    if (error) throw new MailError(safeCode(error.name));
   }
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
-const safeCode = (code: unknown) => (typeof code === 'string' && MAIL_CODE.test(code) ? code : undefined);
-
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GMAIL_SEND_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send';
+/** Every Google call of one send, a token refresh and a retry included, ends by then, so a hung call never holds a request. */
+const SEND_DEADLINE_MS = 10_000;
+/** An access token is replaced this many seconds before Google's `expires_in` runs out. */
+const TOKEN_REFRESH_MARGIN_S = 60;
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 /** One Google call with its JSON body; an unreachable or hung service fails without a code, since its error can quote the request. */
-async function callGoogle(url: string, init: RequestInit): Promise<{ status: number; body: unknown }> {
+async function callGoogle(url: string, init: RequestInit & { signal: AbortSignal }): Promise<{ status: number; body: unknown }> {
   try {
-    const response = await fetch(url, { ...init, method: 'POST', signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS) });
+    const response = await fetch(url, { ...init, method: 'POST' });
     return { status: response.status, body: await response.json().catch(() => undefined) };
   } catch {
     throw new MailError();
@@ -94,7 +93,7 @@ function encodeSender(sender: string): string {
 }
 
 /** An RFC 5322 message with an HTML body; Gmail adds the Date and Message-ID. */
-function mimeMessage(from: string, to: string, subject: string, html: string): string {
+function mimeMessage(from: string, { to, subject, html }: MailMessage): string {
   // A line break in a header value would start a new header, such as a Bcc.
   if ([from, to, subject].some((value) => /[\r\n]/.test(value))) throw new MailError();
   const headers = [`From: ${encodeSender(from)}`, `To: ${to}`, `Subject: ${encodeHeaderText(subject)}`, 'MIME-Version: 1.0', 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64'];
@@ -110,13 +109,14 @@ class GmailMailTransport implements MailTransport {
 
   constructor(private readonly account: GmailAccount, private readonly from: string) {}
 
-  async send({ to, subject, html }: MailMessage): Promise<void> {
-    const raw = Buffer.from(mimeMessage(this.from, to, subject, html), 'utf8').toString('base64url');
-    let response = await this.post(raw, await this.currentAccessToken());
+  async send(message: MailMessage): Promise<void> {
+    const raw = Buffer.from(mimeMessage(this.from, message), 'utf8').toString('base64url');
+    const signal = AbortSignal.timeout(SEND_DEADLINE_MS);
+    let response = await this.post(raw, await this.currentAccessToken(signal), signal);
     if (response.status === 401) {
       // Google revoked or expired the token early: one fresh token, one retry.
       this.accessToken = undefined;
-      response = await this.post(raw, await this.currentAccessToken());
+      response = await this.post(raw, await this.currentAccessToken(signal), signal);
     }
     if (response.status < 200 || response.status > 299) {
       // Google's message can quote the recipient; its upper-case status, such as PERMISSION_DENIED, cannot.
@@ -126,21 +126,24 @@ class GmailMailTransport implements MailTransport {
     }
   }
 
-  private post(raw: string, accessToken: string) {
+  private post(raw: string, accessToken: string, signal: AbortSignal) {
     return callGoogle(GMAIL_SEND_URL, {
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ raw }),
+      signal,
     });
   }
 
-  private currentAccessToken(): Promise<string> {
+  /** A send that joins a refresh already under way waits at most for that refresh's earlier deadline. */
+  private currentAccessToken(signal: AbortSignal): Promise<string> {
     if (this.accessToken && Date.now() < this.accessToken.refreshAt) return Promise.resolve(this.accessToken.value);
-    this.refreshing ??= this.refreshAccessToken().finally(() => { this.refreshing = undefined; });
+    this.refreshing ??= this.refreshAccessToken(signal).finally(() => { this.refreshing = undefined; });
     return this.refreshing;
   }
 
-  private async refreshAccessToken(): Promise<string> {
+  private async refreshAccessToken(signal: AbortSignal): Promise<string> {
     const { body } = await callGoogle(GOOGLE_TOKEN_URL, {
+      signal,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         client_id: this.account.clientId,
