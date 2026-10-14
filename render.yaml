@@ -1,0 +1,54 @@
+# Render Blueprint for the API. It mirrors the live service recapp-api (srv-db7kvo2d0e5s73e8gh9g); see DEPLOY.md.
+# Secrets are declared with sync: false and hold no value here: Render asks for them when the Blueprint is first applied.
+services:
+  - type: web
+    name: recapp-api
+    runtime: node
+    plan: free
+    region: singapore
+    branch: master
+    autoDeployTrigger: commit
+    previews:
+      generation: off
+    # corepack enable fails on Render (read-only /usr/bin), so pnpm runs through npx. --prod=false keeps the
+    # devDependencies the build needs, which NODE_ENV=production would otherwise skip.
+    buildCommand: npx --yes pnpm@12.9.1 install --frozen-lockfile --prod=false && npx --yes pnpm@12.9.1 exec turbo build --filter=@recipe/api
+    startCommand: node apps/api/dist/main.js
+    healthCheckPath: /api/auth/ok
+    envVars:
+      - key: NODE_VERSION
+        value: "25"
+      - key: NODE_ENV
+        value: production
+      - key: AWS_REGION
+        value: ap-southeast-1
+      - key: S3_BUCKET
+        value: recipe-app-v2-production
+      - key: AWS_ENDPOINT_URL_S3
+        value: https://br-sweet-hall-b3d1oqg9.storage.c-4.ap-southeast-1.aws.neon.tech
+      - key: BETTER_AUTH_URL
+        value: https://recapp-api-9984.onrender.com
+      - key: AUTH_TRUSTED_ORIGINS
+        value: https://recapp-recipe-app.vercel.app
+      - key: GOOGLE_REDIRECT_URI
+        value: https://recapp-recipe-app.vercel.app/api/auth/callback/google
+      - key: TRUST_PROXY_HOPS
+        value: "2"
+      - key: DATABASE_URL
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: BETTER_AUTH_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: RECIPE_WEB_PROXY_SECRET
+        sync: false

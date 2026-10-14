@@ -12,9 +12,7 @@ Session and recipe reads are private, session-gated and fetched with `cache: 'no
 
 Login and sign-up live on `/` and require the request `Origin` to be trusted by the API. Set `AUTH_TRUSTED_ORIGINS` in the API environment to the exact frontend origins, comma-separated (for example `https://recipes.example.com`); it is required when `NODE_ENV=production` and falls back to `http://localhost:3000` and `http://127.0.0.1:3000` otherwise. When every listed origin is HTTPS the session cookie is always issued as Secure.
 
-Rate limits key on the browser's address, which the web app forwards to the API in `X-Forwarded-For`. Behind a hosting proxy, set `TRUST_PROXY_HOPS` in the API environment to the number of hops in front of the API that are yours: the host's proxy plus the web app (for example `2` for the API on Render called from Vercel). The client is then the address that many entries from the right of `X-Forwarded-For`, and an entry a client prepends is ignored. Unset or `0` trusts loopback only, for local development; a count higher than the real hops would let a caller choose its own address.
-
-When the API is publicly reachable, a caller can skip the web app and so have one hop fewer. Set the same `RECIPE_WEB_PROXY_SECRET` (at least 32 characters, for example `openssl rand -base64 48`) in both environments: the web server sends it in `X-Recipe-Web-Secret` on every API call, and the API trusts the web app's hop only on requests carrying it. Any other request is keyed one hop nearer, on the address the host's proxy saw. Unset in the API keeps every request on `TRUST_PROXY_HOPS`, so set it in the web environment first, redeploy the web app, then set it in the API environment.
+Production runs the web app on Vercel and the API on Render; see [DEPLOY.md](DEPLOY.md) for hosts, variables, rate-limit proxy settings, migrations and secret rotation.
 
 Use `pnpm build` for production builds and `pnpm typecheck` / `pnpm lint` for checks. A running API is not required during the web build; it is required when visiting `/recipes`. For an individual app build, run `pnpm exec turbo build --filter=@recipe/api` or `--filter=@recipe/web` so contracts are built first.
 
@@ -42,9 +40,3 @@ To learn more about Next.js, take a look at the following resources:
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
