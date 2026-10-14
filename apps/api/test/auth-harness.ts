@@ -19,15 +19,18 @@ import type { ConfigureTestingModule, RecordingMailTransport } from './recording
 
 export const TEST_ORIGIN = 'http://localhost:3000';
 
-const ADDRESS_POOL = 250;
 const issuedAddresses = new Set<string>();
 
-/** Loopback callers may name a documentation-range client address; counters stay isolated per suite. */
+/** Loopback callers may name a private-range client address; counters stay isolated per suite. */
 export function testAddress(): string {
-  // Signup is capped per address, so a repeat inside one suite would spend another test's allowance.
-  if (issuedAddresses.size === ADDRESS_POOL) issuedAddresses.clear();
+  // Signup is capped per address, so a repeat would spend another test's allowance. In CI the integration shards and the
+  // E2E workers are separate processes on one database, so the address is drawn from all of 10.0.0.0/8, where two
+  // processes rarely pick the same one. From 250 addresses, some address was shared in nearly every run.
   let address: string;
-  do { address = `198.51.100.${Math.floor(Math.random() * ADDRESS_POOL) + 1}`; } while (issuedAddresses.has(address));
+  do {
+    const [a, b, c] = randomBytes(3);
+    address = `10.${a}.${b}.${(c % 254) + 1}`;
+  } while (issuedAddresses.has(address));
   issuedAddresses.add(address);
   return address;
 }
@@ -146,5 +149,7 @@ export async function removeTestData(db: DrizzleDb, data: { emails: string[]; ad
     ...data.emails.flatMap((email) => ['login:email', 'resend:email', 'notice:email', 'forgot:email', 'email-change:email'].map((scope) => rateLimitKey(scope, email))),
     ...data.addresses.flatMap((address) => ['login:address', 'signup:address', 'resend:address', 'verify:address', 'google-start:address', 'google-callback:address', 'forgot:address', 'reset:address', 'set-password:address', 'email-change:address', 'email-change-confirm:address'].map((scope) => rateLimitKey(scope, address))),
   ];
-  await db.delete(authRateLimits).where(or(inArray(authRateLimits.key, keys), ...data.addresses.map((address) => like(authRateLimits.key, `${address}%`))));
+  // Better Auth keys its own counters `<address>|<path>`. Without the separator, 10.1.2.3 would also clear 10.1.2.34,
+  // which may belong to a suite running in another process.
+  await db.delete(authRateLimits).where(or(inArray(authRateLimits.key, keys), ...data.addresses.map((address) => like(authRateLimits.key, `${address}|%`))));
 }

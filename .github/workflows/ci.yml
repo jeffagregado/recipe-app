@@ -21,8 +21,9 @@ permissions:
 env:
   # The dev branch of the recipe-app-v2 Neon project; the same target apps/api/test/neon-dev.ts pins locally.
   NEON_PARENT_BRANCH: br-hidden-waterfall-b3dj0mm5
-  # Unique per run and attempt, so a cancelled run's cleanup can never delete a newer run's branch.
-  NEON_BRANCH_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
+  # The branch a run creates when it has no worktree branch. Unique per run and attempt, so a cancelled run's cleanup can
+  # never delete a newer run's branch.
+  NEON_RUN_BRANCH: ci/run-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   check:
@@ -187,13 +188,91 @@ jobs:
           done
           run_suite "no pull request run of $head finished with check, every integration shard and end-to-end successful"
 
+  # Every integration shard and end-to-end test on one Neon branch, so a run uses at most one of the Free plan's ten.
+  # A pull request from a worktree tests on that worktree's branch, wt/<head branch>; any other run creates
+  # NEON_RUN_BRANCH, which cleanup deletes when the run ends. The branch is migrated here, once, so the test jobs
+  # never migrate it at the same time.
+  neon:
+    name: Prepare the Neon test branch
+    needs: gate
+    # Beside check rather than after it, so the branch is ready when check passes. The gate and draft rules are the
+    # test jobs': a skipped gate on pull request and manual runs leaves an empty output, which runs this job.
+    if: ${{ !cancelled() && needs.gate.outputs.suite != 'skip' && github.event.pull_request.draft != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: dev
+    outputs:
+      branch: ${{ steps.choose.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+
+      - name: Choose the branch
+        id: choose
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          # Only a pull request from this repository can have a worktree. Pushes and manual runs always get a branch of
+          # their own: they are in another concurrency group, so they could reset a branch a pull request run is testing on.
+          WORKTREE_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && format('wt/{0}', github.head_ref) || '' }}
+        run: |
+          set -euo pipefail
+          neon() { pnpm exec neon --no-analytics "$@" --project-id "$NEON_PROJECT_ID"; }
+          # The id of the one direct child of dev with this name, or nothing. dev and production are never its children.
+          child() {
+            neon branches list --output json | jq -r --arg name "$1" --arg parent "$NEON_PARENT_BRANCH" \
+              '[.[] | select(.name == $name and .id != $parent and .parent_id == $parent) | .id] | if length == 1 then .[0] else "" end'
+          }
+          branch=""
+          if [[ -n "$WORKTREE_BRANCH" ]]; then branch=$(child "$WORKTREE_BRANCH"); fi
+          if [[ -n "$branch" ]]; then
+            # Back to dev's rows and schema, as a new child would start: this drops the worktree's local test data, the
+            # migrations of a branch that later regenerated them, and the gap to a dev that moved on. Object storage is
+            # not part of a reset, so the worktree's objects stay; every suite deletes the objects it uploads.
+            neon branches reset "$branch" --parent > /dev/null
+            summary="Tests run on the worktree branch \`$WORKTREE_BRANCH\` ($branch), reset to dev."
+          else
+            # A run cancelled before cleanup still loses its branch within 3 hours. The longest test job is 45 minutes.
+            expires_at=$(date -u -d '+3 hours' +%Y-%m-%dT%H:%M:%SZ)
+            neon branches create --name "$NEON_RUN_BRANCH" --parent "$NEON_PARENT_BRANCH" --expires-at "$expires_at" --no-secrets > /dev/null
+            branch=$(child "$NEON_RUN_BRANCH")
+            if [[ -z "$branch" ]]; then echo "::error::The new Neon branch $NEON_RUN_BRANCH was not found."; exit 1; fi
+            summary="Tests run on \`$NEON_RUN_BRANCH\` ($branch), created for this run and deleted when it ends."
+            if [[ -n "$WORKTREE_BRANCH" ]]; then summary="$summary There is no worktree branch \`$WORKTREE_BRANCH\`."; fi
+          fi
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "$summary" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # The CLI returns once Neon accepts the reset or create, and a migration started before Neon finishes would have
+          # its connection cut. Wait until none of the branch's operations is still pending.
+          for _ in $(seq 60); do
+            pending=$(curl -sSf -H "Authorization: Bearer $NEON_API_KEY" "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/operations?limit=50" |
+              jq --arg branch "$branch" '[.operations[] | select(.branch_id == $branch and (.status | IN("scheduling", "running", "cancelling")))] | length')
+            if [[ "$pending" == 0 ]]; then exit 0; fi
+            sleep 5
+          done
+          echo "::error::Neon operations on $branch were still running after 5 minutes."
+          exit 1
+
+      - uses: ./.github/actions/neon-branch
+        with:
+          branch: ${{ steps.choose.outputs.branch }}
+          parent: ${{ env.NEON_PARENT_BRANCH }}
+          project-id: ${{ vars.NEON_PROJECT_ID }}
+          api-key: ${{ secrets.NEON_API_KEY }}
+
+      # A no-op when every migration in apps/api/drizzle is already applied.
+      - name: Apply migrations
+        run: pnpm --filter @recipe/api run db:migrate
+
   integration:
     name: API integration tests (${{ matrix.shard }})
-    needs: [check, gate]
+    needs: [check, gate, neon]
     # The gate is skipped on pull request and manual runs, and a skipped dependency skips this job unless the
     # condition has a status function. Only the gate's explicit "skip" holds the job back: an empty output,
     # from a skipped or failed gate, runs it.
-    if: ${{ !cancelled() && needs.check.result == 'success' && needs.gate.outputs.suite != 'skip' && github.event.pull_request.draft != true }}
+    if: ${{ !cancelled() && needs.check.result == 'success' && needs.neon.result == 'success' && needs.gate.outputs.suite != 'skip' && github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     # Suites within a shard run serially against a database in another region; unsplit, they took 19 minutes.
     timeout-minutes: 25
@@ -201,8 +280,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Each shard gets its own Neon branch, so shards cannot disturb each other's count assertions.
-        # The two named shards hold the slowest suites. "rest" excludes exactly those files, so a new
+        # Every shard tests on the run's one Neon branch, beside end-to-end, so a suite asserts only on rows, counters
+        # and objects it created itself. The two named shards hold the slowest suites. "rest" excludes exactly those files, so a new
         # spec file always runs there without editing this list. When moving a file into a named shard,
         # also add it to `named` in the run step below, or it will run twice.
         include:
@@ -222,13 +301,10 @@ jobs:
 
       - uses: ./.github/actions/neon-branch
         with:
-          name: ci/integration-${{ matrix.shard }}-${{ env.NEON_BRANCH_SUFFIX }}
+          branch: ${{ needs.neon.outputs.branch }}
           parent: ${{ env.NEON_PARENT_BRANCH }}
           project-id: ${{ vars.NEON_PROJECT_ID }}
           api-key: ${{ secrets.NEON_API_KEY }}
-
-      - name: Apply migrations
-        run: pnpm --filter @recipe/api run db:migrate
 
       - name: Run integration tests
         working-directory: apps/api
@@ -245,27 +321,19 @@ jobs:
           SHARD_FILES: ${{ matrix.files }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           BETTER_AUTH_URL: http://127.0.0.1:4101
-          # AWS_ENDPOINT_URL_S3 is this shard's own storage, exported by the Neon branch step; a value here would override it.
+          # AWS_ENDPOINT_URL_S3 is the run's storage, exported by the Neon branch step; a value here would override it.
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           S3_BUCKET: ${{ vars.S3_BUCKET }}
 
-      - name: Delete database branch
-        if: always()
-        run: pnpm exec neon --no-analytics branches delete "ci/integration-$SHARD-$NEON_BRANCH_SUFFIX" --project-id "$NEON_PROJECT_ID" || true
-        env:
-          SHARD: ${{ matrix.shard }}
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
-
   e2e:
     name: End-to-end tests
-    needs: [check, gate]
+    needs: [check, gate, neon]
     # The gate is skipped on pull request and manual runs, and a skipped dependency skips this job unless the
     # condition has a status function. Only the gate's explicit "skip" holds the job back: an empty output,
     # from a skipped or failed gate, runs it.
-    if: ${{ !cancelled() && needs.check.result == 'success' && needs.gate.outputs.suite != 'skip' && github.event.pull_request.draft != true }}
+    if: ${{ !cancelled() && needs.check.result == 'success' && needs.neon.result == 'success' && needs.gate.outputs.suite != 'skip' && github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: dev
@@ -280,7 +348,7 @@ jobs:
       # for the run's own storage. The build and the server Playwright starts both read it from the job environment.
       - uses: ./.github/actions/neon-branch
         with:
-          name: ci/e2e-${{ env.NEON_BRANCH_SUFFIX }}
+          branch: ${{ needs.neon.outputs.branch }}
           parent: ${{ env.NEON_PARENT_BRANCH }}
           project-id: ${{ vars.NEON_PROJECT_ID }}
           api-key: ${{ secrets.NEON_API_KEY }}
@@ -293,9 +361,6 @@ jobs:
       # run on demand through "Run workflow" until they are known to pass.
       - name: Install browsers
         run: pnpm exec playwright install --with-deps ${{ env.E2E_PROJECTS == 'chromium' && 'chromium' || '' }}
-
-      - name: Apply migrations
-        run: pnpm --filter @recipe/api run db:migrate
 
       - name: Run Playwright
         run: |
@@ -324,9 +389,28 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Delete database branch
-        if: always()
-        run: pnpm exec neon --no-analytics branches delete "ci/e2e-$NEON_BRANCH_SUFFIX" --project-id "$NEON_PROJECT_ID" || true
+  # Deletes NEON_RUN_BRANCH once the test jobs have ended, whether they passed, failed or were cancelled. A worktree
+  # branch is never deleted here: it stays for the worktree until the cleanup after its merge.
+  cleanup:
+    name: Delete the run's Neon branch
+    needs: [neon, integration, e2e]
+    if: ${{ always() && needs.neon.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: dev
+    steps:
+      # The Neon API directly, so the job needs no checkout or install and starts at once.
+      - name: Delete the branch
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          api() { curl -sSf -H "Authorization: Bearer $NEON_API_KEY" "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches$1" "${@:2}"; }
+          branch=$(api "" | jq -r --arg name "$NEON_RUN_BRANCH" --arg parent "$NEON_PARENT_BRANCH"             '[.branches[] | select(.name == $name and .parent_id == $parent) | .id] | if length == 1 then .[0] else "" end')
+          if [[ -z "$branch" ]]; then
+            echo "No branch $NEON_RUN_BRANCH to delete: this run tested on a worktree branch or created none."
+            exit 0
+          fi
+          api "/$branch" -X DELETE > /dev/null
+          echo "Deleted $NEON_RUN_BRANCH ($branch)."

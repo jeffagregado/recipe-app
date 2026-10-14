@@ -1,16 +1,16 @@
-name: Create Neon test branch
+name: Connect to the Neon test branch
 description: >
-  Create a disposable child of the Neon dev branch and export, for later steps, its connection string as DATABASE_URL
-  and its own object storage as AWS_ENDPOINT_URL_S3 and RECIPE_STORAGE_HOST.
+  Check that a branch is a child of the Neon dev branch, then export, for later steps, its connection string as
+  DATABASE_URL and its own object storage as AWS_ENDPOINT_URL_S3 and RECIPE_STORAGE_HOST.
   Uses the repository's Neon CLI rather than neondatabase/create-branch-action because that action leaves the
   connection string and role password unmasked in its outputs, and child branches inherit the parent's password.
 
 inputs:
-  name:
-    description: Name of the branch to create
+  branch:
+    description: Id of the test branch, as the workflow's Neon job reports it
     required: true
   parent:
-    description: Parent branch name or id
+    description: Id of the branch the test branch must be a direct child of
     required: true
   project-id:
     description: Neon project id
@@ -22,24 +22,34 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Create branch
+    # The Neon job already chose the branch; this repeats its check in every job that writes to it, so a wrong id
+    # can never reach dev, production or a branch that is not a test branch.
+    - name: Check the branch
       shell: bash
       env:
         NEON_API_KEY: ${{ inputs.api-key }}
         NEON_PROJECT_ID: ${{ inputs.project-id }}
-        BRANCH_NAME: ${{ inputs.name }}
+        BRANCH: ${{ inputs.branch }}
         PARENT_BRANCH: ${{ inputs.parent }}
       run: |
         set -euo pipefail
-        # A run that is cancelled before its delete step still disappears within 3 hours. The longest job limit is
-        # 45 minutes, so a running job never loses its branch.
-        expires_at=$(date -u -d '+3 hours' +%Y-%m-%dT%H:%M:%SZ)
-        pnpm exec neon --no-analytics branches create --project-id "$NEON_PROJECT_ID" --name "$BRANCH_NAME" \
-          --parent "$PARENT_BRANCH" --expires-at "$expires_at" --no-secrets > /dev/null
+        name=$(pnpm exec neon --no-analytics branches list --project-id "$NEON_PROJECT_ID" --output json |
+          jq -r --arg id "$BRANCH" --arg parent "$PARENT_BRANCH" \
+            '[.[] | select(.id == $id and .id != $parent and .parent_id == $parent) | .name] | if length == 1 then .[0] else "" end')
+        if [[ -z "$name" ]]; then
+          # A re-run of failed jobs reuses the Neon job's branch, and a run's own branch is deleted when its first attempt ends.
+          echo "::error::Neon branch $BRANCH is not a child of $PARENT_BRANCH or no longer exists. Re-run all jobs."
+          exit 1
+        fi
+        if [[ "$name" != wt/* && "$name" != ci/run-* ]]; then
+          echo "::error::Neon branch $BRANCH is named $name, which is neither a worktree branch nor a run branch."
+          exit 1
+        fi
+        echo "Testing on Neon branch $name ($BRANCH)"
 
     - uses: ./.github/actions/neon-connection
       with:
-        branch: ${{ inputs.name }}
+        branch: ${{ inputs.branch }}
         project-id: ${{ inputs.project-id }}
         api-key: ${{ inputs.api-key }}
 
@@ -50,14 +60,14 @@ runs:
       env:
         NEON_API_KEY: ${{ inputs.api-key }}
         NEON_PROJECT_ID: ${{ inputs.project-id }}
-        BRANCH_NAME: ${{ inputs.name }}
+        BRANCH: ${{ inputs.branch }}
         PARENT_BRANCH: ${{ inputs.parent }}
       run: |
         set -euo pipefail
         file=$(mktemp "$RUNNER_TEMP/neon-storage.XXXXXX")
         trap 'rm -f "$file"' EXIT
         # Writes the one named variable to the file. Its summary, on stderr, lists variable names only.
-        pnpm exec neon --no-analytics env pull --project-id "$NEON_PROJECT_ID" --branch "$BRANCH_NAME" \
+        pnpm exec neon --no-analytics env pull --project-id "$NEON_PROJECT_ID" --branch "$BRANCH" \
           --file "$file" -e AWS_ENDPOINT_URL_S3 > /dev/null
         mapfile -t lines < "$file"
         # The file is never printed: accept exactly one line holding an https origin, and nothing else.
@@ -67,7 +77,7 @@ runs:
         fi
         host=${BASH_REMATCH[1]}
         # A storage host starts with its branch id, and the workflow names the parent by id. Refuse the parent's
-        # host, so a run can never write its objects there. A parent given by name is not caught here.
+        # host, so a run can never write its objects there.
         if [[ "$host" == "$PARENT_BRANCH".* ]]; then
           echo "::error::The Neon branch resolved to its parent's storage endpoint."
           exit 1
@@ -75,4 +85,4 @@ runs:
         # The endpoint holds no credential, so it is exported unmasked and its host is logged as evidence of the target.
         echo "AWS_ENDPOINT_URL_S3=https://$host" >> "$GITHUB_ENV"
         echo "RECIPE_STORAGE_HOST=$host" >> "$GITHUB_ENV"
-        echo "Object storage host for $BRANCH_NAME: $host"
+        echo "Object storage host for $BRANCH: $host"
