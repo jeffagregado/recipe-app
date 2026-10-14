@@ -155,20 +155,22 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     const aged = track();
     const agedClient = apiClient(baseUrl, addresses[addresses.push(testAddress()) - 1]);
     expect((await agedClient.post('/auth/signup', { displayName: 'Aged link', email: aged, password: testPassword() })).status).toBe(201);
-    const token = await latestToken(mail, 'verification', aged);
-    const issuedAgo = (ms: number) => db.update(authVerifications).set({ expiresAt: new Date(Date.now() - ms + DAY_MS) })
+    expect((await agedClient.post('/auth/resend-verification', { email: aged })).status).toBe(204);
+    const [second, first] = await mailedTokens(mail, 'verification', aged);
+    // Links are only ever aged forward: Better Auth deletes every expired verification row whenever it looks one up, so a
+    // link made expired can vanish at once when a Google flow runs anywhere on the database, and could not be revived.
+    const issuedAgo = (token: string, ms: number) => db.update(authVerifications).set({ expiresAt: new Date(Date.now() - ms + DAY_MS) })
       .where(eq(authVerifications.identifier, verificationIdentifier(token)));
 
-    await issuedAgo(DAY_MS + 1_000);
-    const expired = await agedClient.post('/auth/verify-email', { token });
+    await issuedAgo(second, DAY_MS + 1_000);
+    const expired = await agedClient.post('/auth/verify-email', { token: second });
     expect(expired.status).toBe(400);
     expect((await errorOf(expired)).code).toBe('VERIFICATION_LINK_INVALID');
     expect((await db.query.users.findFirst({ where: eq(users.email, aged), columns: { emailVerified: true } }))?.emailVerified).toBe(false);
 
-    // The same link an hour younger still works: the refusal above was its age, not the token.
-    // Opened twice at once it still verifies once.
-    await issuedAgo(DAY_MS - 3_600_000);
-    const opened = await Promise.all([1, 2].map(() => agedClient.post('/auth/verify-email', { token })));
+    // A link an hour short of its expiry still works, and opened twice at once it verifies once.
+    await issuedAgo(first, DAY_MS - 3_600_000);
+    const opened = await Promise.all([1, 2].map(() => agedClient.post('/auth/verify-email', { token: first })));
     expect(opened.map(({ status }) => status).sort()).toEqual([204, 400]);
     expect((await db.query.users.findFirst({ where: eq(users.email, aged), columns: { emailVerified: true } }))?.emailVerified).toBe(true);
   }, 30_000);

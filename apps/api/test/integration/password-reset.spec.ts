@@ -152,25 +152,27 @@ describe('Forgot and reset password HTTP', () => {
   it('expires a link one hour after it was issued and lets two simultaneous submissions reset once', async () => {
     const client = newClient();
     const owner = await signupUser(client, mail, track());
+    // Links are only ever aged forward: Better Auth deletes every expired verification row whenever it looks one up, so a
+    // link made expired can vanish at once when a Google flow runs anywhere on the database, and could not be revived.
     const token = await requestLink(client, owner.email);
-
-    await issuedAgo(token, HOUR_MS + 1_000);
-    const expired = await client.post('/auth/reset-password', { token, password: testPassword() });
-    expect(expired.status).toBe(400);
-    expect(await expired.json()).toEqual(INVALID);
-    // Nothing changed: the old password and the old session both still work.
-    expect((await client.post('/auth/login', { email: owner.email, password: owner.password })).status).toBe(200);
-    expect((await client.get('/auth/session', { cookie: owner.cookie })).status).toBe(200);
-
-    // The same link ten minutes younger still works: the refusal above was its age, not the token.
     await issuedAgo(token, HOUR_MS - 10 * 60_000);
     const passwords = [testPassword(), testPassword()];
     const submitted = await Promise.all(passwords.map((password) => client.post('/auth/reset-password', { token, password })));
     expect(submitted.map(({ status }) => status).sort()).toEqual([204, 400]);
     // Exactly the password of the submission that won is the password now.
-    const winner = submitted.findIndex(({ status }) => status === 204);
-    expect((await client.post('/auth/login', { email: owner.email, password: passwords[winner] })).status).toBe(200);
-    expect((await client.post('/auth/login', { email: owner.email, password: passwords[1 - winner] })).status).toBe(401);
+    const winner = passwords[submitted.findIndex(({ status }) => status === 204)];
+    const loggedIn = await client.post('/auth/login', { email: owner.email, password: winner });
+    expect(loggedIn.status).toBe(200);
+    expect((await client.post('/auth/login', { email: owner.email, password: passwords.find((password) => password !== winner) })).status).toBe(401);
+
+    const expiring = await requestLink(client, owner.email);
+    await issuedAgo(expiring, HOUR_MS + 1_000);
+    const expired = await client.post('/auth/reset-password', { token: expiring, password: testPassword() });
+    expect(expired.status).toBe(400);
+    expect(await expired.json()).toEqual(INVALID);
+    // Nothing changed: the password and the session both still work.
+    expect((await client.post('/auth/login', { email: owner.email, password: winner })).status).toBe(200);
+    expect((await client.get('/auth/session', { cookie: cookiePair(loggedIn) })).status).toBe(200);
   }, 60_000);
 
   it('retires every older link when a new one is requested, also for two requests at once', async () => {
