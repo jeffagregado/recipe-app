@@ -281,14 +281,19 @@ jobs:
       fail-fast: false
       matrix:
         # Every shard tests on the run's one Neon branch, beside end-to-end, so a suite asserts only on rows, counters
-        # and objects it created itself. The two named shards hold the slowest suites. "rest" excludes exactly those files, so a new
-        # spec file always runs there without editing this list. When moving a file into a named shard,
-        # also add it to `named` in the run step below, or it will run twice.
+        # and objects it created itself. The named shards each hold 5 to 8 minutes of suites, as run #38518266316
+        # timed them. "rest" excludes exactly those files, so a new spec file always runs there without editing this
+        # list. When moving a file into a named shard, also add it to `named` in the run step below, or it will run twice.
         include:
           - shard: update
             files: update-recipe.spec
           - shard: create-delete
             files: create-recipe.spec recipe-favorite-delete.spec
+          - shard: account
+            files: account-email.spec account-password.spec account.spec
+          # Both Google suites clear every unfinished sign-in state when they end, so they share one serial shard.
+          - shard: auth
+            files: auth.spec password-reset.spec google.spec google-connect.spec
           - shard: rest
             files: ""
     steps:
@@ -309,7 +314,8 @@ jobs:
       - name: Run integration tests
         working-directory: apps/api
         run: |
-          named="update-recipe.spec create-recipe.spec recipe-favorite-delete.spec"
+          named="update-recipe.spec create-recipe.spec recipe-favorite-delete.spec account-email.spec account-password.spec
+            account.spec auth.spec password-reset.spec google.spec google-connect.spec"
           args=()
           if [ -n "$SHARD_FILES" ]; then
             for file in $SHARD_FILES; do args+=("$file"); done
