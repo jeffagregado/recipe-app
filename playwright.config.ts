@@ -16,8 +16,7 @@ export default defineConfig({
   reporter: [['list']],
   outputDir: './test-results',
   // The e2e job is killed at 45 minutes, which would lose the failure screenshots. Playwright stops itself first:
-  // it starts about 1.5 minutes into the job and normally runs 5 to 6, so 35 leaves 8 for the upload and the
-  // Neon branch deletion.
+  // it starts about 1.5 minutes into the job and normally runs 5 to 6, so 35 leaves 8 for the upload.
   globalTimeout: process.env.CI ? 35 * 60_000 : undefined,
   // CI runners are in another region from the database, so a login or save can take longer than the default five seconds.
   // The longer waits change how long an assertion may take to become true, not what it asserts.

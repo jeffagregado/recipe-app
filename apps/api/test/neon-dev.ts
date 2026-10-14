@@ -80,7 +80,7 @@ async function lookUpBranch(run: NeonCli, branch: string): Promise<object | unde
 
 /** Resolve only the approved dev branch, or the child of it this checkout pins; credentials stay in process memory. */
 export async function getDevDatabaseUrl({ env = process.env, startDir = dirname(fileURLToPath(import.meta.url)), neon: run = neon }: DevTargetOptions = {}): Promise<string> {
-  // CI has no Neon CLI login: the workflow creates a disposable child of the dev branch and passes its connection string.
+  // CI has no Neon CLI login: the workflow checks that its test branch is a child of the dev branch and passes its connection string.
   if (env.CI && env.DATABASE_URL) {
     return requireDirectVerifiedConnection(env.DATABASE_URL, 'CI database mismatch: DATABASE_URL must be a direct neondb owner connection with verified TLS.');
   }
