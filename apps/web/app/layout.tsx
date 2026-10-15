@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "My Recipes",
+  title: { default: "Recapp", template: "%s · Recapp" },
   description: "Your private recipe collection, just for you.",
 };
 

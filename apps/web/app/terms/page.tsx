@@ -7,10 +7,10 @@ export const metadata: Metadata = { title: 'Terms of Service' }
 
 export default function TermsPage() {
 	return (
-		<LegalPage title="Terms of Service" updated="14 October 2026">
+		<LegalPage title="Terms of Service" updated="15 October 2026">
 			<section>
 				<p>
-					Recapp (Recipe App) is a personal project, offered free of charge. By using it you agree to these terms. How your data
+					Recapp is a personal project, offered free of charge. By using it you agree to these terms. How your data
 					is handled is described in the <Link href="/privacy">Privacy Policy</Link>.
 				</p>
 			</section>

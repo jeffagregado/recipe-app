@@ -13,7 +13,7 @@ export function Brand() {
 			</div>
 
 			<div className="min-w-0">
-				<p className="truncate text-[15px] font-semibold leading-5 text-neutral-950">My Recipes</p>
+				<p className="truncate text-[15px] font-semibold leading-5 text-neutral-950">Recapp</p>
 
 				<p className="mt-0.5 truncate text-[11px] leading-4 text-neutral-500">
 					Private · Just for you

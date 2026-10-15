@@ -9,6 +9,13 @@ const PAGES = [
 test.describe('at 320×720 without a session', () => {
   test.use({ viewport: { width: 320, height: 720 } });
 
+  // Google verifies that the home page names the app as the consent screen does (#86).
+  test('the home page names the app Recapp in its title and on the page', async ({ page }) => {
+    await page.goto('/');
+    await expect(page).toHaveTitle('Recapp');
+    await expect(page.getByText('Recapp', { exact: true })).toBeVisible();
+  });
+
   for (const { link, path, tabsFromGoogle } of PAGES) {
     test(`the sign-in footer reaches ${path} by keyboard, and the page fits the width`, async ({ page, baseURL }) => {
       await page.goto('/');
@@ -27,6 +34,7 @@ test.describe('at 320×720 without a session', () => {
       expect(response?.status()).toBe(200);
       expect(response?.request().redirectedFrom()).toBeNull();
       await expect(page).toHaveURL(`${baseURL}${path}`);
+      await expect(page).toHaveTitle(`${link} · Recapp`);
       await expect(page.getByRole('heading', { level: 1, name: link })).toBeVisible();
     });
   }

@@ -40,7 +40,7 @@ const authTrustedOriginsSchema = z.string().optional().transform((value, context
 });
 
 /** Resend's shared sender; it delivers only to the account owner until a verified domain replaces it. */
-const defaultMailSender = 'Recipe App <onboarding@resend.dev>';
+const defaultMailSender = 'Recapp <onboarding@resend.dev>';
 const mailAddress = String.raw`[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+`;
 /** One address, bare or as `Name <address>`; the name holds no separator, quote, `@` or control character, so it cannot add a recipient or a header. */
 const mailSender = new RegExp(String.raw`^(?:${mailAddress}|[^<>,;"@\p{Cc}]+ <${mailAddress}>)$`, 'u');

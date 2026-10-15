@@ -33,7 +33,7 @@ type AuthConfig = Pick<Environment, 'BETTER_AUTH_SECRET' | 'BETTER_AUTH_URL' | '
 export function createAuth(db: DrizzleDb, config: AuthConfig, endpoints: GoogleEndpoints = googleEndpoints) {
   const { GOOGLE_CLIENT_ID: clientId, GOOGLE_CLIENT_SECRET: clientSecret, GOOGLE_REDIRECT_URI: redirectUri } = config;
   return betterAuth({
-    appName: 'Recipe App',
+    appName: 'Recapp',
     baseURL: config.BETTER_AUTH_URL,
     secret: config.BETTER_AUTH_SECRET,
     logger: { log: logAuthEvent },

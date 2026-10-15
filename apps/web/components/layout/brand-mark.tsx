@@ -1,6 +1,11 @@
 import { Utensils } from 'lucide-react'
 
-/** The round utensils badge at the top of the auth card and the legal pages. */
+/** The round utensils badge and the app's name, at the top of the auth card and the legal pages. */
 export function BrandMark() {
-	return <span className="flex size-11 items-center justify-center rounded-full bg-[#526619] text-white"><Utensils aria-hidden="true" size={22} /></span>
+	return (
+		<span className="flex w-fit items-center gap-3 text-sm font-semibold">
+			<span className="flex size-11 items-center justify-center rounded-full bg-[#526619] text-white"><Utensils aria-hidden="true" size={22} /></span>
+			Recapp
+		</span>
+	)
 }

@@ -176,8 +176,8 @@ describe('Sign in with Google', () => {
       kind: 'account-exists',
       to: person.email,
       subject: 'Someone tried to sign up with your email',
-      html: '<p>Someone tried to sign up for Recipe App with this email address, which already has an account.</p>'
-        + `<p>If it was you, sign in with Google: <a href="${TEST_ORIGIN}/">Log in to Recipe App</a></p>`
+      html: '<p>Someone tried to sign up for Recapp with this email address, which already has an account.</p>'
+        + `<p>If it was you, sign in with Google: <a href="${TEST_ORIGIN}/">Log in to Recapp</a></p>`
         + '<p>If it was not you, no action is needed. Your account has not changed.</p>',
     }]);
   }, 60_000);
@@ -243,8 +243,8 @@ describe('Sign in with Google', () => {
 
     expect((await client.post('/auth/signup', { displayName: 'Someone Else', email, password: randomBytes(24).toString('base64url') })).status).toBe(409);
     expect(mail.messages.filter(({ to, kind }) => to === email && kind === 'account-exists').map(({ html }) => html)).toEqual([
-      '<p>Someone tried to sign up for Recipe App with this email address, which already has an account.</p>'
-        + `<p>If it was you, log in with your email and password, or sign in with Google: <a href="${TEST_ORIGIN}/">Log in to Recipe App</a></p>`
+      '<p>Someone tried to sign up for Recapp with this email address, which already has an account.</p>'
+        + `<p>If it was you, log in with your email and password, or sign in with Google: <a href="${TEST_ORIGIN}/">Log in to Recapp</a></p>`
         + '<p>If it was not you, no action is needed. Your account has not changed.</p>',
     ]);
   }, 60_000);

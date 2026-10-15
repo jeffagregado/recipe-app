@@ -15,10 +15,10 @@ const PROCESSORS = [
 
 export default function PrivacyPage() {
 	return (
-		<LegalPage title="Privacy Policy" updated="14 October 2026">
+		<LegalPage title="Privacy Policy" updated="15 October 2026">
 			<section>
 				<p>
-					Recapp (Recipe App) is a private recipe collection at recapp-recipe-app.vercel.app, run by one person as a personal,
+					Recapp is a private recipe collection at recapp.site, run by one person as a personal,
 					non-commercial project. This page says what Recapp stores about you, why, and who handles it.
 				</p>
 			</section>

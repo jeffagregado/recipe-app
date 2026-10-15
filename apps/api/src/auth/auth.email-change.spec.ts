@@ -15,7 +15,7 @@ describe('email change notice', () => {
       kind: 'email-change-notice',
       to: 'ana@example.com',
       subject: 'A change of your email was requested',
-      html: '<p>Someone asked to change the email of your Recipe App account to a***@example.com. Your email stays the same until the new address confirms it.</p>'
+      html: '<p>Someone asked to change the email of your Recapp account to a***@example.com. Your email stays the same until the new address confirms it.</p>'
         + '<p>If it was you, no action is needed here: open the link we sent to the new address.</p>'
         + '<p>If it was not you, change your password. That cancels the request and signs out your other devices: <a href="https://recipes.example/settings">Open Settings</a></p>',
     });

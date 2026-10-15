@@ -89,7 +89,7 @@ describe('mail configuration', () => {
   it.each([{}, { RESEND_API_KEY: '', MAIL_FROM: '' }, { RESEND_API_KEY: '  ', MAIL_FROM: '  ' }])('runs without a key and with the onboarding sender by default (%j)', (input) => {
     const config = validateEnvironment({ ...base, ...input });
     expect(config.RESEND_API_KEY).toBeUndefined();
-    expect(config.MAIL_FROM).toBe('Recipe App <onboarding@resend.dev>');
+    expect(config.MAIL_FROM).toBe('Recapp <onboarding@resend.dev>');
   });
 
   it.each([

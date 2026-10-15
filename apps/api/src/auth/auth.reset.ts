@@ -22,7 +22,7 @@ export function resetMessage(to: string, origin: string, token: string): MailMes
     to,
     subject: 'Reset your password',
     html: [
-      '<p>We received a request to reset the password of your Recipe App account.</p>',
+      '<p>We received a request to reset the password of your Recapp account.</p>',
       `<p><a href="${origin}/reset-password?token=${token}">Choose a new password</a></p>`,
       '<p>The link works once and expires in one hour. If you did not ask for it, you can ignore this email and your password stays the same.</p>',
     ].join(''),
