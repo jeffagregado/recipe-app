@@ -84,8 +84,9 @@ Each app's `.env.example` describes its variables: [`apps/api/.env.example`](app
 | `RECIPE_STORAGE_HOST` | the bare host of the Neon `production` storage endpoint, without `https://` |
 | `CONTACT_EMAIL` | `hello@recapp.site`, the address on the privacy and terms pages. Cloudflare Email Routing forwards it to the owner. Unset shows a placeholder that reaches nobody |
 | `RECIPE_WEB_PROXY_SECRET` | secret: the same value as on Render. Never give it a `NEXT_PUBLIC_` name |
+| `NEXT_PUBLIC_GA_ID` | the Google Analytics 4 measurement ID (`G-XXXXXXXXXX`). Production only: unset in Preview and locally, so no Google script loads there |
 
-The build and the server both read `RECIPE_STORAGE_HOST`, so redeploy the web app after you change it.
+The build inlines `NEXT_PUBLIC_GA_ID`, and the build and the server both read `RECIPE_STORAGE_HOST`, so redeploy the web app after you change either.
 
 ### Client addresses and `TRUST_PROXY_HOPS`
 
