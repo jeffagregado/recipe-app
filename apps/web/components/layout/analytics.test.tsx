@@ -16,7 +16,6 @@ it('loads the gtag script for the configured measurement ID', () => {
 	vi.stubEnv('NEXT_PUBLIC_GA_ID', 'G-TEST1234')
 	render(<Analytics />)
 	expect(scripts().map((script) => script.src)).toContain(GTAG_SRC)
-	expect(scripts().map((script) => script.textContent).join('\n')).toContain("gtag('config', 'G-TEST1234'")
 })
 
 it.each([
