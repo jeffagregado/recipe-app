@@ -27,7 +27,7 @@ services:
       - key: AWS_ENDPOINT_URL_S3
         value: https://br-sweet-hall-b3d1oqg9.storage.c-4.ap-southeast-1.aws.neon.tech
       - key: BETTER_AUTH_URL
-        value: https://recapp-api-9984.onrender.com
+        value: https://api.recapp.site
       - key: AUTH_TRUSTED_ORIGINS
         value: https://recapp.site,https://recapp-recipe-app.vercel.app
       - key: GOOGLE_REDIRECT_URI
