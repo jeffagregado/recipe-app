@@ -1,11 +1,11 @@
-import { Utensils } from 'lucide-react'
+import { RecipeCardMark, Wordmark } from './logo'
 
-/** The round utensils badge and the app's name, at the top of the auth card and the legal pages. */
+/** The recipe-card mark and the Rec/App wordmark, at the top of the auth card and the legal pages. */
 export function BrandMark() {
 	return (
-		<span className="flex w-fit items-center gap-3 text-sm font-semibold">
-			<span className="flex size-11 items-center justify-center rounded-full bg-[#526619] text-white"><Utensils aria-hidden="true" size={22} /></span>
-			Recapp
+		<span className="flex w-fit items-center gap-3 text-sm">
+			<RecipeCardMark size={44} />
+			<span><Wordmark /></span>
 		</span>
 	)
 }
