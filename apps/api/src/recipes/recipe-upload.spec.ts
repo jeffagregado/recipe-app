@@ -16,10 +16,10 @@ const rejectedPart = Buffer.from('--verification-boundary\r\nContent-Disposition
 type FirstConnection = { answered: Promise<void>; closed: Promise<void> };
 
 async function parserServer(test: (url: string, received: () => number, first: FirstConnection) => Promise<void>, limit = 4096) {
-  let received = 0; let answer = () => {}; let close = () => {};
-  const first: FirstConnection = { answered: new Promise((resolve) => { answer = resolve; }), closed: new Promise((resolve) => { close = resolve; }) };
+  let received = 0; let markAnswered = () => {}; let markClosed = () => {};
+  const first: FirstConnection = { answered: new Promise((resolve) => { markAnswered = resolve; }), closed: new Promise((resolve) => { markClosed = resolve; }) };
   const server = createServer((req, res) => {
-    res.once('finish', answer); req.socket.once('close', close);
+    res.once('finish', markAnswered); req.socket.once('close', markClosed);
     req.on('data', (chunk: Buffer) => { received += chunk.length; });
     const request = req as RecipeUploadRequest; request.writeDeadline = Date.now() + 150;
     void parseRecipeUpload(request, res, limit).then(() => { res.end('{}'); }, (cause: unknown) => {
@@ -75,7 +75,8 @@ describe('Upload admission and wire byte bound', () => {
       }
       const response = await rawRecipeRequest(url, multipartHeaders, chunks());
       expect(response.status).toBe(415); expect(JSON.parse(response.body).code).toBe('UNSUPPORTED_MEDIA_TYPE');
-      expect(written).toBeGreaterThan(0);
+      // The client wrote more than the 4096-byte limit after the answer.
+      expect(written).toBeGreaterThan(4);
       // A server still reading the body reads every sent byte before its socket closes; a halted one closes after its 1 s bound.
       await closed;
       expect(received()).toBe(rejectedPart.length);
