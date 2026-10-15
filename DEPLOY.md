@@ -6,9 +6,12 @@ This guide records how production runs and how to set it up from nothing. The li
 
 | Part | Host | Name | URL |
 | --- | --- | --- | --- |
-| Web (`apps/web`, Next.js) | Vercel | project `recipe-app`, Node 24.x, region `sin1` | https://recapp-recipe-app.vercel.app |
+| Web (`apps/web`, Next.js) | Vercel | project `recipe-app`, Node 24.x, region `sin1` | https://recapp.site |
 | API (`apps/api`, NestJS) | Render | web service `recapp-api` (`srv-db7kvo2d0e5s73e8gh9g`), free plan, region `singapore` | https://recapp-api-9984.onrender.com |
 | Postgres and object storage | Neon | project `recipe-app-v2` (`round-term-82774312`), branch `production` (`br-sweet-hall-b3d1oqg9`) | |
+| Mail | Resend | sending domain `mail.recapp.site` | |
+
+The web app's old address, https://recapp-recipe-app.vercel.app, still serves it and stays in `AUTH_TRUSTED_ORIGINS` for now.
 
 The browser talks to the web app only. The web server calls the API server-to-server.
 
@@ -22,11 +25,11 @@ Do these steps in order.
 2. **Migrations.** Apply the schema to the production database, as described in [Production migrations](#production-migrations).
 3. **API on Render.** In the Render dashboard, select **New > Blueprint** and connect this repository. Render reads [`render.yaml`](render.yaml) from the repository root and creates `recapp-api` with every setting below. It then asks for each secret, the variables marked `sync: false`. Enter the values from [Variables](#variables), but leave `RECIPE_WEB_PROXY_SECRET` empty for now.
 4. **Web on Vercel.** Import the repository as a Next.js project for `apps/web`, with Node 24.x and the function region `sin1`. Set the variables from [Variables](#variables), except `RECIPE_WEB_PROXY_SECRET`.
-5. **Google sign-in.** In the Google Cloud OAuth client, register `https://recapp-recipe-app.vercel.app/api/auth/callback/google` as a redirect URI. This is the web origin, not the API's own address.
+5. **Google sign-in.** In the Google Cloud OAuth client, register `https://recapp.site/api/auth/callback/google` as a redirect URI. This is the web origin, not the API's own address.
 6. **Proxy secret.** Set `RECIPE_WEB_PROXY_SECRET` as described in [Proxy secret](#proxy-secret).
-7. **Check.** Open https://recapp-api-9984.onrender.com/api/auth/ok, which answers `{"ok":true}`. Then sign in at https://recapp-recipe-app.vercel.app.
+7. **Check.** Open https://recapp-api-9984.onrender.com/api/auth/ok, which answers `{"ok":true}`. Then sign in at https://recapp.site.
 
-`render.yaml` fixes the production storage endpoint and both URLs. For another Neon branch or other URLs, edit `AWS_ENDPOINT_URL_S3`, `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS` and `GOOGLE_REDIRECT_URI` there before step 3, and set `RECIPE_API_URL` on Vercel to match.
+`render.yaml` fixes the production storage endpoint, the URLs and the sender. For another Neon branch, other URLs or another sender, edit `AWS_ENDPOINT_URL_S3`, `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS`, `GOOGLE_REDIRECT_URI` and `MAIL_FROM` there before step 3, and set `RECIPE_API_URL` on Vercel to match.
 
 ### Render service settings
 
@@ -60,15 +63,15 @@ Each app's `.env.example` describes its variables: [`apps/api/.env.example`](app
 | `S3_BUCKET` | `recipe-app-v2-production` |
 | `AWS_ENDPOINT_URL_S3` | the storage endpoint of the Neon `production` branch |
 | `BETTER_AUTH_URL` | the API URL, `https://recapp-api-9984.onrender.com` |
-| `AUTH_TRUSTED_ORIGINS` | the web URL, `https://recapp-recipe-app.vercel.app` |
-| `GOOGLE_REDIRECT_URI` | `https://recapp-recipe-app.vercel.app/api/auth/callback/google` |
+| `AUTH_TRUSTED_ORIGINS` | the web URLs, `https://recapp.site,https://recapp-recipe-app.vercel.app` |
+| `GOOGLE_REDIRECT_URI` | `https://recapp.site/api/auth/callback/google` |
+| `MAIL_FROM` | `Recapp <no-reply@mail.recapp.site>`. Its domain is verified in Resend |
 | `TRUST_PROXY_HOPS` | `2` |
 | `DATABASE_URL` | secret: the database URL of the Neon `production` branch |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | secret: the Neon storage access key pair |
 | `BETTER_AUTH_SECRET` | secret: at least 32 characters, for example `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
 | `RESEND_API_KEY` | secret: the Resend API key |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | secret: the Google OAuth client |
-| `MAIL_FROM` | the sender address. Not secret, but set in the dashboard. Empty means Resend's testing sender |
 | `RECIPE_WEB_PROXY_SECRET` | secret: the same value as on Vercel |
 
 ### Vercel (web, Production environment)
@@ -77,7 +80,7 @@ Each app's `.env.example` describes its variables: [`apps/api/.env.example`](app
 | --- | --- |
 | `RECIPE_API_URL` | the API URL, `https://recapp-api-9984.onrender.com` |
 | `RECIPE_STORAGE_HOST` | the bare host of the Neon `production` storage endpoint, without `https://` |
-| `CONTACT_EMAIL` | optional: the owner's address on the privacy and terms pages |
+| `CONTACT_EMAIL` | `hello@recapp.site`, the address on the privacy and terms pages. Cloudflare Email Routing forwards it to the owner. Unset shows a placeholder that reaches nobody |
 | `RECIPE_WEB_PROXY_SECRET` | secret: the same value as on Render. Never give it a `NEXT_PUBLIC_` name |
 
 The build and the server both read `RECIPE_STORAGE_HOST`, so redeploy the web app after you change it.
@@ -130,5 +133,4 @@ Write migrations that the running API can tolerate, because the old API still se
 
 - The free Render service sleeps after 15 minutes without requests, so the first request after that is slow.
 - Render's free plan blocks outbound SMTP. Mail goes through the Resend API over HTTPS.
-- Preview deployments cannot sign in. Only the production web origin is in `AUTH_TRUSTED_ORIGINS`.
-- Mail uses Resend's testing sender, so it reaches only the Resend account owner until a domain is verified. Google would not verify a Gmail sender on a shared `vercel.app` domain.
+- Preview deployments cannot sign in. Only the production web origins are in `AUTH_TRUSTED_ORIGINS`.
