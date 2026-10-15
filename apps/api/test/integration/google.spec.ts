@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { asc, eq, like } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { authErrorResponseSchema, authSessionResponseSchema, googleStartResponseSchema } from '@recipe-app/contracts/schemas';
 import { GOOGLE_ENDPOINTS } from '../../src/auth/auth.google.js';
 import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
@@ -63,8 +63,6 @@ describe('Sign in with Google', () => {
   afterAll(async () => {
     try {
       if (app) {
-        // A flow that was started and never finished leaves its state row behind until it expires.
-        await db.delete(authVerifications).where(like(authVerifications.identifier, 'auth-state:%'));
         await removeTestData(db, { emails, addresses });
         await app.close();
       }
