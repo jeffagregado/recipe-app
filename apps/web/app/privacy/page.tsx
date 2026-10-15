@@ -9,7 +9,7 @@ const PROCESSORS = [
 	['Vercel', 'hosts the web app'],
 	['Render', 'hosts the API'],
 	['Neon', 'hosts the database and the photo storage'],
-	['Google', 'provides Sign in with Google'],
+	['Google', 'provides Sign in with Google and Google Analytics'],
 	['Resend', 'delivers account emails'],
 ] as const
 
@@ -79,12 +79,25 @@ export default function PrivacyPage() {
 
 			<section>
 				<h2>Cookies</h2>
-				<p>Recapp uses only the cookies it needs to sign you in. There are no tracking, advertising or analytics cookies.</p>
+				<p>Recapp uses the cookies it needs to sign you in, and Google Analytics cookies to measure how the site is used. There are no advertising cookies.</p>
 				<ul>
 					<li>A session cookie that keeps you signed in, for up to seven days.</li>
 					<li>A sign-in state cookie while Continue with Google runs, for up to five minutes.</li>
 					<li>A cookie holding the address you signed up with, so the check-your-email page can show it, for up to one hour.</li>
 				</ul>
+				<p>
+					On the live site, Google Analytics sets cookies that tell one browser from another and keep the state of a visit, so
+					Recapp can see which pages are used and how often. They do not hold your name, email address or recipes.
+				</p>
+				<ul>
+					<li><code>_ga</code>, which gives your browser a random ID, for up to two years.</li>
+					<li><code>_ga_</code> followed by the site&apos;s measurement ID, which keeps the state of your visit, for up to two years.</li>
+				</ul>
+				<p>
+					Google processes this usage data in line with its <a href="https://policies.google.com/privacy">privacy policy</a>. You can
+					block these cookies in your browser or with Google&apos;s <a href="https://tools.google.com/dlpage/gaoptout">opt-out add-on</a>;
+					Recapp works the same without them.
+				</p>
 			</section>
 
 			<section>
