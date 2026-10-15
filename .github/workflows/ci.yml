@@ -291,7 +291,7 @@ jobs:
             files: create-recipe.spec recipe-favorite-delete.spec
           - shard: account
             files: account-email.spec account-password.spec account.spec
-          # Both Google suites clear every unfinished sign-in state when they end, so they share one serial shard.
+          # Both Google suites exercise the Google sign-in flow, so they stay together in one serial shard.
           - shard: auth
             files: auth.spec password-reset.spec google.spec google-connect.spec
           - shard: rest

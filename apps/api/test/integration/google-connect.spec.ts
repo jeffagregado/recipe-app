@@ -91,8 +91,6 @@ describe('Sign-in methods: connect and disconnect Google', () => {
   afterAll(async () => {
     try {
       if (app) {
-        // A flow that was started and never finished leaves its state row behind until it expires.
-        await db.delete(authVerifications).where(like(authVerifications.identifier, 'auth-state:%'));
         await removeTestData(db, { emails, addresses });
         await app.close();
       }
