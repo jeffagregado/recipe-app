@@ -25,7 +25,7 @@ export function verificationMessage(to: string, origin: string, token: string): 
     to,
     subject: 'Verify your email',
     html: [
-      '<p>Welcome to Recipe App. Verify your email to finish signing up.</p>',
+      '<p>Welcome to Recapp. Verify your email to finish signing up.</p>',
       `<p><a href="${origin}/verify-email?token=${token}">Verify my email</a></p>`,
       '<p>The link works once and expires in 24 hours. If you did not sign up, you can ignore this email.</p>',
     ].join(''),

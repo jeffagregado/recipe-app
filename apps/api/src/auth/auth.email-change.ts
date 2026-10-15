@@ -51,7 +51,7 @@ export function emailChangeMessage(to: string, origin: string, token: string): M
     to,
     subject: 'Confirm your new email',
     html: [
-      '<p>A Recipe App account asked to use this address as its email.</p>',
+      '<p>A Recapp account asked to use this address as its email.</p>',
       `<p><a href="${origin}/confirm-email-change?token=${token}">Confirm my new email</a></p>`,
       '<p>The link works once and expires in 24 hours. The account keeps its current email until you confirm. If you did not ask for this, do not confirm: ignore this email and nothing changes.</p>',
     ].join(''),
@@ -68,7 +68,7 @@ export function emailChangeNoticeMessage(to: string, origin: string, newEmail: s
     to,
     subject: 'A change of your email was requested',
     html: [
-      `<p>Someone asked to change the email of your Recipe App account to ${maskEmail(newEmail)}. Your email stays the same until the new address confirms it.</p>`,
+      `<p>Someone asked to change the email of your Recapp account to ${maskEmail(newEmail)}. Your email stays the same until the new address confirms it.</p>`,
       '<p>If it was you, no action is needed here: open the link we sent to the new address.</p>',
       `<p>If it was not you, change your password. That cancels the request and signs out your other devices: <a href="${origin}/settings">Open Settings</a></p>`,
     ].join(''),

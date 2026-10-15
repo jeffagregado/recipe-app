@@ -14,8 +14,8 @@ export function accountExistsMessage(to: string, origin: string, methods: readon
     to,
     subject: 'Someone tried to sign up with your email',
     html: [
-      '<p>Someone tried to sign up for Recipe App with this email address, which already has an account.</p>',
-      `<p>If it was you, ${signIn}: <a href="${origin}/">Log in to Recipe App</a></p>`,
+      '<p>Someone tried to sign up for Recapp with this email address, which already has an account.</p>',
+      `<p>If it was you, ${signIn}: <a href="${origin}/">Log in to Recapp</a></p>`,
       '<p>If it was not you, no action is needed. Your account has not changed.</p>',
     ].join(''),
   };

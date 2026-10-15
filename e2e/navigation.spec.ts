@@ -58,8 +58,8 @@ test.describe('at 390×844', () => {
 
   test('the header shows the brand and a Log out button without the account name, and Log out signs out', async ({ page, creator }) => {
     await page.goto('/recipes');
-    const header = page.locator('header').filter({ hasText: 'My Recipes' });
-    await expect(header.getByRole('link', { name: /My Recipes/ })).toHaveAttribute('href', '/recipes');
+    const header = page.locator('header').filter({ hasText: 'Recapp' });
+    await expect(header.getByRole('link', { name: /Recapp/ })).toHaveAttribute('href', '/recipes');
     await expect(header.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
     await expect(header).not.toContainText(creator.user.displayName);
     await expect(header).not.toContainText(creator.email);
@@ -75,6 +75,6 @@ test.describe('at 1280×720', () => {
     await expect(sidebar(page)).toBeVisible();
     await expect(sidebar(page).getByRole('link', { name: 'Create Recipe' })).toBeVisible();
     await expect(mainNav(page)).toBeHidden();
-    await expect(page.locator('header').filter({ hasText: 'My Recipes' })).toBeHidden();
+    await expect(page.locator('header').filter({ hasText: 'Recapp' })).toBeHidden();
   });
 });
