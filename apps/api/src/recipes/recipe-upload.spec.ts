@@ -13,9 +13,13 @@ import { lastValueFrom, of } from 'rxjs';
 
 const rejectedPart = Buffer.from('--verification-boundary\r\nContent-Disposition: form-data; name="cover"; filename="bad.gif"\r\nContent-Type: image/gif\r\n\r\nGIF89a');
 
-async function parserServer(test: (url: string, received: () => number) => Promise<void>, limit = 4096) {
-  let received = 0;
+type FirstConnection = { answered: Promise<void>; closed: Promise<void> };
+
+async function parserServer(test: (url: string, received: () => number, first: FirstConnection) => Promise<void>, limit = 4096) {
+  let received = 0; let answer = () => {}; let close = () => {};
+  const first: FirstConnection = { answered: new Promise((resolve) => { answer = resolve; }), closed: new Promise((resolve) => { close = resolve; }) };
   const server = createServer((req, res) => {
+    res.once('finish', answer); req.socket.once('close', close);
     req.on('data', (chunk: Buffer) => { received += chunk.length; });
     const request = req as RecipeUploadRequest; request.writeDeadline = Date.now() + 150;
     void parseRecipeUpload(request, res, limit).then(() => { res.end('{}'); }, (cause: unknown) => {
@@ -24,7 +28,7 @@ async function parserServer(test: (url: string, received: () => number) => Promi
     });
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  try { await test(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, () => received); }
+  try { await test(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, () => received, first); }
   finally { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); }
 }
 
@@ -60,17 +64,21 @@ describe('Upload admission and wire byte bound', () => {
     });
   });
   it('survives overflow after a multer abort without buffering the rest of a chunked body', async () => {
-    await parserServer(async (url, received) => {
+    await parserServer(async (url, received, { answered, closed }) => {
+      let written = 0;
       async function* chunks() {
         yield rejectedPart;
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        for (let i = 0; i < 1000; i++) yield Buffer.alloc(1024);
+        // The overflow starts only once the server has answered, so it always follows the abort.
+        await answered;
+        // The writer asks for the next chunk only after writing this one.
+        for (let i = 0; i < 1000; i++) { yield Buffer.alloc(1024); written++; }
       }
-      const start = Date.now(); const response = await rawRecipeRequest(url, multipartHeaders, chunks());
-      expect(response.status === 415 || response.status === 413).toBe(true);
-      expect(Date.now() - start).toBeLessThan(150);
-      expect(received()).toBeLessThanOrEqual(4096 + 65536);
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const response = await rawRecipeRequest(url, multipartHeaders, chunks());
+      expect(response.status).toBe(415); expect(JSON.parse(response.body).code).toBe('UNSUPPORTED_MEDIA_TYPE');
+      expect(written).toBeGreaterThan(0);
+      // A server still reading the body reads every sent byte before its socket closes; a halted one closes after its 1 s bound.
+      await closed;
+      expect(received()).toBe(rejectedPart.length);
     });
   });
   it('bounds raw chunked bytes while parser is active', async () => {
