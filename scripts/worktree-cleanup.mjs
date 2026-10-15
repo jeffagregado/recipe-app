@@ -33,6 +33,7 @@ const neonBranchExists = (name) => {
 
 if (!branch) fail("Usage: pnpm worktree:cleanup <git branch>");
 if (branch === "master") fail("Refusing to clean up master.");
+if (!/^[\w./-]+$/.test(branch)) fail(`Branch name ${branch} has characters this script does not pass to a shell.`);
 
 const worktree = git("worktree", "list", "--porcelain")
   .split(/\r?\n\r?\n/)
@@ -44,6 +45,16 @@ if (git("-C", worktree.worktree, "status", "--porcelain")) fail(`Worktree ${work
 if (spawnSync("git", ["merge-base", "--is-ancestor", branch, "master"]).status !== 0) {
   fail(`Branch ${branch} is not merged into master.`);
 }
+
+// Neon goes first: if it fails, the worktree and branch are still here and the script can run again.
+const neonBranch = `wt/${branch}`;
+for (let attempt = 1; neonBranchExists(neonBranch); attempt += 1) {
+  if (attempt > 2) fail(`Neon branch ${neonBranch} still exists after two delete attempts.`);
+  console.log(`Deleting Neon branch ${neonBranch} (attempt ${attempt})`);
+  const result = neon("branches", "delete", neonBranch);
+  if (result.status !== 0) console.log(`Neon delete exited with code ${result.status}`);
+}
+console.log(`Neon branch ${neonBranch} is gone`);
 
 console.log(`Removing worktree ${worktree.worktree}`);
 // git worktree remove hits "Filename too long" on Windows; rmSync finishes the job.
@@ -59,11 +70,4 @@ if (git("ls-remote", "--heads", "origin", branch)) {
 } else {
   console.log(`Branch ${branch} is already gone from origin`);
 }
-
-const neonBranch = `wt/${branch}`;
-for (let attempt = 1; neonBranchExists(neonBranch); attempt += 1) {
-  if (attempt > 2) fail(`Neon branch ${neonBranch} still exists after two delete attempts.`);
-  console.log(`Deleting Neon branch ${neonBranch} (attempt ${attempt})`);
-  neon("branches", "delete", neonBranch);
-}
-console.log(`Neon branch ${neonBranch} is gone. Cleanup of ${branch} complete.`);
+console.log(`Cleanup of ${branch} complete.`);

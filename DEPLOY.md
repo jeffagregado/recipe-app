@@ -29,7 +29,7 @@ Do these steps in order.
 4. **Web on Vercel.** Import the repository as a Next.js project for `apps/web`, with Node 24.x and the function region `sin1`. Set the variables from [Variables](#variables), except `RECIPE_WEB_PROXY_SECRET`.
 5. **Google sign-in.** In the Google Cloud OAuth client, register the `GOOGLE_REDIRECT_URI` from `render.yaml` as a redirect URI. It is on the web origin, not the API's own address.
 6. **Proxy secret.** Set `RECIPE_WEB_PROXY_SECRET` as described in [Proxy secret](#proxy-secret).
-7. **Check.** Open the health check path on the API URL, which answers `{"ok":true}`. Then sign in at the web URL.
+7. **Check.** Open the health check path from [Render service settings](#render-service-settings) on the API URL, which answers `{"ok":true}`. Then sign in at the web URL.
 
 `render.yaml` fixes the production storage endpoint, the URLs and the sender. For another Neon branch, other URLs or another sender, edit `AWS_ENDPOINT_URL_S3`, `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS`, `GOOGLE_REDIRECT_URI` and `MAIL_FROM` there before step 3, and set `RECIPE_API_URL` on Vercel to match.
 
