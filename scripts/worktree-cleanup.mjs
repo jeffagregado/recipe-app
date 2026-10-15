@@ -2,9 +2,13 @@
 // Run from the main checkout: pnpm worktree:cleanup <git branch>
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 const NEON_PROJECT_ID = "round-term-82774312";
+const require = createRequire(import.meta.url);
+const neonManifest = require.resolve("neon/package.json");
+const neonCli = path.join(path.dirname(neonManifest), require(neonManifest).bin.neon);
 const branch = process.argv[2];
 
 const fail = (message) => {
@@ -20,10 +24,9 @@ const git = (...args) => {
 };
 // The Neon CLI's JSON output stays in memory: only branch names are printed.
 const neon = (...args) =>
-  spawnSync("pnpm", ["exec", "neon", "--no-analytics", ...args, "--project-id", NEON_PROJECT_ID, "--output", "json"], {
+  spawnSync(process.execPath, [neonCli, "--no-analytics", ...args, "--project-id", NEON_PROJECT_ID, "--output", "json"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "inherit"],
-    shell: process.platform === "win32",
   });
 const neonBranchExists = (name) => {
   const result = neon("branches", "list");
@@ -33,7 +36,7 @@ const neonBranchExists = (name) => {
 
 if (!branch) fail("Usage: pnpm worktree:cleanup <git branch>");
 if (branch === "master") fail("Refusing to clean up master.");
-if (!/^[\w./-]+$/.test(branch)) fail(`Branch name ${branch} has characters this script does not pass to a shell.`);
+if (!/^[\w./-]+$/.test(branch)) fail(`Branch name ${branch} has characters this script does not accept.`);
 
 const worktree = git("worktree", "list", "--porcelain")
   .split(/\r?\n\r?\n/)
