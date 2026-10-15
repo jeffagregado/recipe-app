@@ -27,9 +27,9 @@ Do these steps in order.
 2. **Migrations.** Apply the schema to the production database, as described in [Production migrations](#production-migrations).
 3. **API on Render.** In the Render dashboard, select **New > Blueprint** and connect this repository. Render reads [`render.yaml`](render.yaml) from the repository root and creates `recapp-api` with every setting below. It then asks for each secret, the variables marked `sync: false`. Enter the values from [Variables](#variables), but leave `RECIPE_WEB_PROXY_SECRET` empty for now. Then add the custom domain `api.recapp.site` to the service and create its DNS-only CNAME in Cloudflare, as described above.
 4. **Web on Vercel.** Import the repository as a Next.js project for `apps/web`, with Node 24.x and the function region `sin1`. Set the variables from [Variables](#variables), except `RECIPE_WEB_PROXY_SECRET`.
-5. **Google sign-in.** In the Google Cloud OAuth client, register `https://recapp.site/api/auth/callback/google` as a redirect URI. This is the web origin, not the API's own address.
+5. **Google sign-in.** In the Google Cloud OAuth client, register the `GOOGLE_REDIRECT_URI` from `render.yaml` as a redirect URI. It is on the web origin, not the API's own address.
 6. **Proxy secret.** Set `RECIPE_WEB_PROXY_SECRET` as described in [Proxy secret](#proxy-secret).
-7. **Check.** Open https://api.recapp.site/api/auth/ok, which answers `{"ok":true}`. Then sign in at https://recapp.site.
+7. **Check.** Open the health check path from [Render service settings](#render-service-settings) on the API URL, which answers `{"ok":true}`. Then sign in at the web URL.
 
 `render.yaml` fixes the production storage endpoint, the URLs and the sender. For another Neon branch, other URLs or another sender, edit `AWS_ENDPOINT_URL_S3`, `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS`, `GOOGLE_REDIRECT_URI` and `MAIL_FROM` there before step 3, and set `RECIPE_API_URL` on Vercel to match.
 
@@ -59,16 +59,16 @@ Each app's `.env.example` describes its variables: [`apps/api/.env.example`](app
 
 | Variable | Value |
 | --- | --- |
-| `NODE_VERSION` | `25` |
-| `NODE_ENV` | `production` |
-| `AWS_REGION` | `ap-southeast-1` |
-| `S3_BUCKET` | `recipe-app-v2-production` |
-| `AWS_ENDPOINT_URL_S3` | the storage endpoint of the Neon `production` branch |
-| `BETTER_AUTH_URL` | the API URL, `https://api.recapp.site` |
-| `AUTH_TRUSTED_ORIGINS` | the web URLs, `https://recapp.site,https://recapp-recipe-app.vercel.app` |
-| `GOOGLE_REDIRECT_URI` | `https://recapp.site/api/auth/callback/google` |
-| `MAIL_FROM` | `Recapp <no-reply@mail.recapp.site>`. Its domain is verified in Resend |
-| `TRUST_PROXY_HOPS` | `2` |
+| `NODE_VERSION` | set in `render.yaml` |
+| `NODE_ENV` | set in `render.yaml` |
+| `AWS_REGION` | set in `render.yaml` |
+| `S3_BUCKET` | set in `render.yaml` |
+| `AWS_ENDPOINT_URL_S3` | set in `render.yaml` |
+| `BETTER_AUTH_URL` | set in `render.yaml` |
+| `AUTH_TRUSTED_ORIGINS` | set in `render.yaml` |
+| `GOOGLE_REDIRECT_URI` | set in `render.yaml` |
+| `MAIL_FROM` | set in `render.yaml` |
+| `TRUST_PROXY_HOPS` | set in `render.yaml` |
 | `DATABASE_URL` | secret: the database URL of the Neon `production` branch |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | secret: the Neon storage access key pair |
 | `BETTER_AUTH_SECRET` | secret: at least 32 characters, for example `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
@@ -80,7 +80,7 @@ Each app's `.env.example` describes its variables: [`apps/api/.env.example`](app
 
 | Variable | Value |
 | --- | --- |
-| `RECIPE_API_URL` | the API URL, `https://api.recapp.site` |
+| `RECIPE_API_URL` | the API URL, the same value as `BETTER_AUTH_URL` in `render.yaml` |
 | `RECIPE_STORAGE_HOST` | the bare host of the Neon `production` storage endpoint, without `https://` |
 | `CONTACT_EMAIL` | `hello@recapp.site`, the address on the privacy and terms pages. Cloudflare Email Routing forwards it to the owner. Unset shows a placeholder that reaches nobody |
 | `RECIPE_WEB_PROXY_SECRET` | secret: the same value as on Render. Never give it a `NEXT_PUBLIC_` name |
@@ -131,8 +131,11 @@ Give the command the production database URL in `DATABASE_URL` in the process en
 
 Write migrations that the running API can tolerate, because the old API still serves requests until the new deploy is live.
 
+## Mail
+
+Render's free plan blocks outbound SMTP, so mail goes through Resend's HTTP API. The sender is `MAIL_FROM` in `render.yaml`; its domain is verified in Resend.
+
 ## Known limits
 
 - The free Render service sleeps after 15 minutes without requests, so the first request after that is slow.
-- Render's free plan blocks outbound SMTP. Mail goes through the Resend API over HTTPS.
 - Preview deployments cannot sign in. Only the production web origins are in `AUTH_TRUSTED_ORIGINS`.
