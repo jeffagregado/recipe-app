@@ -13,7 +13,7 @@ This guide records how production runs and how to set it up from nothing. The li
 
 The web app's old address, https://recapp-recipe-app.vercel.app, still serves it and stays in `AUTH_TRUSTED_ORIGINS` for now.
 
-The API's address is a Render custom domain: in Cloudflare, a CNAME `api` points to `recapp-api-9984.onrender.com` and is set to DNS only. Do not proxy it: a proxied record adds a hop in front of the API and breaks `TRUST_PROXY_HOPS=2`. The `onrender.com` address still answers.
+The API's address is a Render custom domain: in Cloudflare, a CNAME `api` points to `recapp-api-9984.onrender.com` and is set to DNS only. Do not proxy it. A proxied record adds a hop in front of the API and breaks `TRUST_PROXY_HOPS=2`. The `onrender.com` address still answers.
 
 The browser talks to the web app only. The web server calls the API server-to-server.
 
