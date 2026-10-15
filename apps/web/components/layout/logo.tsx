@@ -5,7 +5,7 @@ type RecipeCardMarkProps = {
 }
 
 /** The decorative brand mark: a folded white recipe card with three olive lines on an olive rounded square. */
-export function RecipeCardMark({ size, radius = 18 }: RecipeCardMarkProps) {
+export function RecipeCardMark({ size, radius }: RecipeCardMarkProps) {
 	return (
 		<svg aria-hidden="true" width={size} height={size} viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
 			<RecipeCard radius={radius} />
@@ -13,7 +13,7 @@ export function RecipeCardMark({ size, radius = 18 }: RecipeCardMarkProps) {
 	)
 }
 
-function RecipeCard({ radius }: { radius: number }) {
+function RecipeCard({ radius = 18 }: { radius?: number }) {
 	return (
 		<>
 			<rect width="64" height="64" rx={radius} fill="#526619" />
@@ -33,7 +33,7 @@ export function Logo({ height }: { height: number }) {
 	return (
 		<>
 			<svg aria-hidden="true" height={height} width={(height * LOCKUP_WIDTH) / 64} viewBox={`0 0 ${LOCKUP_WIDTH} 64`} xmlns="http://www.w3.org/2000/svg" className="shrink-0 text-foreground">
-				<RecipeCard radius={18} />
+				<RecipeCard />
 				<g fill="currentColor" fontSize="44" style={{ fontFamily: 'var(--font-geist-sans)' }}>
 					<text x="78" y="47" fontWeight="700" letterSpacing="-1.6">Rec</text>
 					<rect x="161.6" y="12" width="5.5" height="40" rx="2.75" transform="rotate(20 164.35 32)" className="fill-[#526619] dark:fill-[#9bb84a]" />
