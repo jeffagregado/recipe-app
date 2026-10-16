@@ -220,7 +220,7 @@ test.describe('saving', () => {
     await expect(page.getByRole('list', { name: 'Recipe details' })).toContainText(/Prep 10.*Cook 20.*Total 30 min.*4 servings/);
     await expect(page.getByText(RICH.description)).toBeVisible();
     expect(await ingredientRows(page)).toEqual([
-      { name: 'Spaghetti', amount: '200 g' }, { name: 'Olive oil', amount: '1.5 tbsp' }, { name: 'Salt', amount: 'to taste' },
+      { name: 'Spaghetti', amount: '200 g' }, { name: 'Olive oil', amount: '1½ tbsp' }, { name: 'Salt', amount: 'to taste' },
     ]);
     expect(await stepTexts(page)).toEqual(RICH.steps);
     await expect(page.getByRole('heading', { name: 'Notes' })).toBeVisible();

@@ -235,7 +235,7 @@ test.describe('edit: pre-fill and no-op save', () => {
     expect(await formState(page)).toEqual({
       title: 'Prefilled', description: RICH.description, categories: [...RICH.categories].sort(), prep: '10', cook: '20', servings: '4',
       video: 'https://youtu.be/dQw4w9WgXcQ', notes: RICH.notes,
-      ingredientNames: ['Spaghetti', 'Olive oil', 'Salt'], ingredientAmounts: ['200', '1.5', ''], ingredientUnits: ['g', 'tbsp', 'to taste'],
+      ingredientNames: ['Spaghetti', 'Olive oil', 'Salt'], ingredientAmounts: ['200', '1½', ''], ingredientUnits: ['g', 'tbsp', 'to taste'],
       steps: RICH.steps,
     });
     await expect(page.getByText('Choose up to 3 · 3 selected')).toBeVisible();
@@ -258,7 +258,7 @@ test.describe('edit: pre-fill and no-op save', () => {
     await expect(toast.success(page, 'Recipe updated')).toBeVisible();
     await expect(page.getByRole('list', { name: 'Categories' }).getByRole('listitem')).toHaveText(RICH.categories);
     expect(await ingredientRows(page)).toEqual([
-      { name: 'Spaghetti', amount: '200 g' }, { name: 'Olive oil', amount: '1.5 tbsp' }, { name: 'Salt', amount: 'to taste' },
+      { name: 'Spaghetti', amount: '200 g' }, { name: 'Olive oil', amount: '1½ tbsp' }, { name: 'Salt', amount: 'to taste' },
     ]);
     expect(await stepTexts(page)).toEqual(RICH.steps);
 
@@ -331,7 +331,7 @@ test.describe('edit: changing everything', () => {
     await expect(page.getByText('A new description.')).toBeVisible();
     await expect(page.getByText('New note, one line.')).toBeVisible();
     expect(await ingredientRows(page)).toEqual([
-      { name: 'Linguine', amount: '250 g' }, { name: 'Olive oil', amount: '1.5 tbsp' }, { name: 'Black pepper', amount: 'to taste' }, { name: 'Parmesan', amount: '0.25 cup' },
+      { name: 'Linguine', amount: '250 g' }, { name: 'Olive oil', amount: '1½ tbsp' }, { name: 'Black pepper', amount: 'to taste' }, { name: 'Parmesan', amount: '¼ cup' },
     ]);
     expect(await stepTexts(page)).toEqual([FOUR_STEPS[0], FOUR_STEPS[2], FOUR_STEPS[1], 'Serve hot.']);
     // Photos: the kept one followed its step to position 2, the new one is on step 4, steps 1 and 3 have none.
