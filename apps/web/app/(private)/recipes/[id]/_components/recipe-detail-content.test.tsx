@@ -134,3 +134,15 @@ it('starts the heart unpressed for a recipe that is not a favorite', async () =>
 	await renderRecipe(recipeDetailFixture({ id: 'recipe-not-favorite', isFavorite: false }))
 	expect(screen.getByRole('button', { name: 'Add Tomato Soup to favorites' })).toHaveAttribute('aria-pressed', 'false')
 })
+
+it('renders named groups under their own headings with step numbers that run on across groups', async () => {
+	const step = (id: string, stepNumber: number, description: string, heading: string | null = null) => ({ id, stepNumber, description, imageUrl: null, heading })
+	await renderRecipe(recipeDetailFixture({
+		instructions: [step('s1', 1, 'Boil.'), step('s2', 2, 'Drain.'), step('s3', 3, 'Melt.', 'Make the sauce'), step('s4', 4, 'Stir.')],
+	}))
+	expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Make the sauce'])
+	const sauce = screen.getByRole('list', { name: 'Make the sauce' })
+	expect(sauce).toHaveAttribute('start', '3')
+	expect(within(sauce).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['3Melt.', '4Stir.'])
+	expect(within(screen.getByRole('list', { name: 'Instructions' })).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['1Boil.', '2Drain.'])
+})
