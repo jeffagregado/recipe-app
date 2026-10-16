@@ -7,6 +7,7 @@ import {
   type MeasurementUnit,
   type RecipeIngredient,
 } from "../types/ingredient.js";
+import { RECIPE_LIMITS } from "../types/recipe.js";
 
 import { entityIdSchema } from "./common.schema.js";
 
@@ -31,6 +32,8 @@ export const recipeIngredientSchema: z.ZodType<RecipeIngredient> = z.object({
 
   preparation: z.string().trim().max(200).nullable(),
   note: z.string().trim().max(500).nullable(),
+
+  heading: z.string().trim().min(1).max(RECIPE_LIMITS.groupHeading).nullable(),
 
   sortOrder: z.number().int().nonnegative(),
 });

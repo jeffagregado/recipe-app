@@ -156,7 +156,7 @@ describe("recipe files and responses", () => {
   });
 
   it("validates nullable detail fields and per-instruction image URLs", () => {
-    const detail = { id: "r1", userId: "u1", title: "Soup", categories: [], description: null, imageUrl: null, servings: null, prepTimeMinutes: null, cookTimeMinutes: null, ingredients: [], instructions: [{ id: "s1", stepNumber: 1, description: "Stir", imageUrl: null }], isFavorite: false, notes: null, videoUrl: null, createdAt: "2026-10-09T00:00:00.000Z", updatedAt: "2026-10-09T00:00:00.000Z" };
+    const detail = { id: "r1", userId: "u1", title: "Soup", categories: [], description: null, imageUrl: null, servings: null, prepTimeMinutes: null, cookTimeMinutes: null, ingredients: [], instructions: [{ id: "s1", stepNumber: 1, description: "Stir", imageUrl: null, heading: null }], isFavorite: false, notes: null, videoUrl: null, createdAt: "2026-10-09T00:00:00.000Z", updatedAt: "2026-10-09T00:00:00.000Z" };
     expect(recipeDetailSchema.safeParse(detail).success).toBe(true);
     expect(recipeDetailSchema.safeParse({ ...detail, isFavorite: undefined }).success).toBe(false);
     expect(recipeDetailSchema.safeParse({ ...detail, notes: "x".repeat(5000), videoUrl: "x".repeat(2048), instructions: [{ ...detail.instructions[0], imageUrl: "https://example.com/step.png" }] }).success).toBe(true);
@@ -246,5 +246,43 @@ describe("categories in recipe responses and the list query", () => {
     expect(recipeListQuerySchema.parse({ category: "c1" }).category).toBe("c1");
     expect(recipeListQuerySchema.parse({}).category).toBeUndefined();
     for (const value of ["", ["c1", "c2"], "x".repeat(201)]) expect(recipeListQuerySchema.safeParse({ category: value }).success).toBe(false);
+  });
+});
+
+describe("group headings on ingredient and instruction rows", () => {
+  const update = { ...metadata, cover: "keep", instructions: [{ id: null, description: "Stir", image: "remove" }] };
+  const cases = [
+    ["create ingredients", createRecipeMetadataSchema, metadata, "ingredients", ingredient, 100],
+    ["create instructions", createRecipeMetadataSchema, metadata, "instructions", instruction, 50],
+    ["update ingredients", updateRecipeMetadataSchema, update, "ingredients", ingredient, 100],
+    ["update instructions", updateRecipeMetadataSchema, update, "instructions", update.instructions[0], 50],
+  ] as const;
+
+  it.each(cases)("trims a heading of 1–100 characters on %s and keeps the first row untitled", (_name, schema, base, field, row) => {
+    const parsed = schema.parse({ ...base, [field]: [{ ...row, heading: null }, { ...row, heading: "  Sauce  " }, row] }) as Record<string, Array<{ heading?: string | null }>>;
+    expect(parsed[field].map((item) => item.heading)).toEqual([null, "Sauce", undefined]);
+    expect(schema.safeParse({ ...base, [field]: [row, { ...row, heading: "x".repeat(100) }] }).success).toBe(true);
+    for (const heading of ["", "   ", "x".repeat(101), "Sauce\u0000"]) {
+      expect(schema.safeParse({ ...base, [field]: [row, { ...row, heading }] }).success, JSON.stringify(heading)).toBe(false);
+    }
+    const first = schema.safeParse({ ...base, [field]: [{ ...row, heading: "Sauce" }, row] });
+    expect(first.success).toBe(false);
+    if (!first.success) expect(first.error.issues.map((issue) => issue.path.join("."))).toEqual([`${field}.0.heading`]);
+  });
+
+  it.each(cases)("counts the row limit across all groups on %s", (_name, schema, base, field, row, limit) => {
+    const rows = (length: number) => Array.from({ length }, (_, index) => ({ ...row, heading: index > 0 && index % 10 === 0 ? `Group ${index}` : null }));
+    expect(schema.safeParse({ ...base, [field]: rows(limit) }).success).toBe(true);
+    expect(schema.safeParse({ ...base, [field]: rows(limit + 1) }).success).toBe(false);
+  });
+
+  it("returns a nullable heading on every detail row", () => {
+    const detail = { id: "r1", userId: "u1", title: "Soup", categories: [], description: null, imageUrl: null, servings: null, prepTimeMinutes: null, cookTimeMinutes: null,
+      ingredients: [{ id: "i1", ingredientId: "g1", name: "Salt", quantity: null, unit: null, preparation: null, note: null, sortOrder: 0, heading: null }],
+      instructions: [{ id: "s1", stepNumber: 1, description: "Stir", imageUrl: null, heading: null }, { id: "s2", stepNumber: 2, description: "Serve", imageUrl: null, heading: "Finish" }],
+      isFavorite: false, notes: null, videoUrl: null, createdAt: "2026-10-09T00:00:00.000Z", updatedAt: "2026-10-09T00:00:00.000Z" };
+    expect(recipeDetailSchema.safeParse(detail).success).toBe(true);
+    const { heading: _heading, ...withoutHeading } = detail.ingredients[0];
+    expect(recipeDetailSchema.safeParse({ ...detail, ingredients: [withoutHeading] }).success).toBe(false);
   });
 });

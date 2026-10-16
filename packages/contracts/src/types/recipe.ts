@@ -19,7 +19,7 @@ const MAX_RECIPE_STEPS = 50;
 export const RECIPE_LIMITS = {
   title: 200, description: 2000, notes: 5000, videoUrl: 2048,
   categories: 3, categoriesPerUser: 10, categoryName: 10, ingredients: 100, instructions: MAX_RECIPE_STEPS,
-  ingredientName: 100, instructionDescription: 5000,
+  ingredientName: 100, instructionDescription: 5000, groupHeading: 100,
   maxInteger: 2147483647, maxQuantity: 999999999.999, quantityDecimals: 3,
   imageBytes: 5 * 1024 * 1024, metadataBytes: 1024 * 1024,
   // The cover plus one photo per step.
@@ -34,11 +34,15 @@ export type CreateRecipeMetadataIngredient = {
   unit: MeasurementUnit | null;
   preparation?: null;
   note?: null;
+  /** Opens a named group at this row; null or absent continues the current group. Always null on the first row. */
+  heading?: string | null;
 };
 
 export type CreateRecipeMetadataInstruction = {
   description: string;
   hasImage: boolean;
+  /** Opens a named group at this step; null or absent continues the current group. Always null on the first step. */
+  heading?: string | null;
 };
 
 export type CreateRecipeMetadata = {
@@ -67,6 +71,7 @@ export type UpdateRecipeMetadataInstruction = {
   id: EntityId | null;
   description: string;
   image: RecipeImageSlot;
+  heading?: string | null;
 };
 
 export type UpdateRecipeMetadata = Omit<CreateRecipeMetadata, "instructions"> & {
@@ -87,6 +92,8 @@ export type RecipeInstruction = {
   id: EntityId;
   stepNumber: number;
   description: string;
+  /** Name of the group this step opens; null continues the group above. */
+  heading: string | null;
 };
 
 export type Recipe = {

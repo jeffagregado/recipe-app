@@ -48,6 +48,7 @@ export const recipeInstructionSchema: z.ZodType<RecipeInstruction> = z.object({
   id: entityIdSchema,
   stepNumber: z.number().int().positive(),
   description: z.string().trim().min(1).max(5_000),
+  heading: z.string().trim().min(1).max(RECIPE_LIMITS.groupHeading).nullable(),
 });
 
 export const createRecipeInstructionSchema: z.ZodType<CreateRecipeInstructionInput> =
@@ -195,12 +196,21 @@ const nullableText = (limit: number) => metadataText().max(limit)
 const quantitySchema = z.number().positive().max(RECIPE_LIMITS.maxQuantity)
   .refine((value) => value === Number(value.toFixed(RECIPE_LIMITS.quantityDecimals)), "Use at most three decimal places.");
 
+const headingSchema = () => metadataText().min(1).max(RECIPE_LIMITS.groupHeading).nullable().optional();
+
+/** The first row belongs to the untitled first group, so it can never open a named one. */
+const groupedRows = <T extends { heading?: string | null }>(schema: z.ZodType<T>, limit: number) => z.array(schema).min(1).max(limit)
+  .superRefine((rows, ctx) => {
+    if (rows[0]?.heading != null) ctx.addIssue({ code: "custom", path: [0, "heading"], message: "The first row can't start a named group." });
+  });
+
 const metadataIngredientSchema: z.ZodType<CreateRecipeMetadataIngredient> = z.strictObject({
   name: metadataText().min(1).max(RECIPE_LIMITS.ingredientName),
   quantity: quantitySchema.nullable(),
   unit: measurementUnitSchema.nullable(),
   preparation: z.null().optional(),
   note: z.null().optional(),
+  heading: headingSchema(),
 }).refine((row) => (row.quantity === null) === (row.unit === null), {
   message: "Set both quantity and unit, or use null for both to taste.",
   path: ["quantity"],
@@ -220,16 +230,17 @@ const metadataFields = {
   cookTimeMinutes: z.number().int().nonnegative().max(RECIPE_LIMITS.maxInteger).nullable(),
   videoUrl: videoUrlSchema,
   notes: nullableText(RECIPE_LIMITS.notes),
-  ingredients: z.array(metadataIngredientSchema).min(1).max(RECIPE_LIMITS.ingredients),
+  ingredients: groupedRows(metadataIngredientSchema, RECIPE_LIMITS.ingredients),
 };
 const instructionDescription = () => metadataText().min(1).max(RECIPE_LIMITS.instructionDescription);
 
 export const createRecipeMetadataSchema: z.ZodType<CreateRecipeMetadata> = z.strictObject({
   ...metadataFields,
-  instructions: z.array(z.strictObject({
+  instructions: groupedRows(z.strictObject({
     description: instructionDescription(),
     hasImage: z.boolean(),
-  })).min(1).max(RECIPE_LIMITS.instructions),
+    heading: headingSchema(),
+  }), RECIPE_LIMITS.instructions),
 });
 
 const imageSlotSchema = z.enum(RECIPE_IMAGE_SLOTS);
@@ -237,13 +248,14 @@ const imageSlotSchema = z.enum(RECIPE_IMAGE_SLOTS);
 export const updateRecipeMetadataSchema: z.ZodType<UpdateRecipeMetadata> = z.strictObject({
   ...metadataFields,
   cover: imageSlotSchema,
-  instructions: z.array(z.strictObject({
+  instructions: groupedRows(z.strictObject({
     id: entityIdSchema.max(200).nullable(),
     description: instructionDescription(),
     image: imageSlotSchema,
+    heading: headingSchema(),
   }).refine((step) => step.id !== null || step.image !== "keep", {
     message: "A new step has no photo to keep.", path: ["image"],
-  })).min(1).max(RECIPE_LIMITS.instructions)
+  }), RECIPE_LIMITS.instructions)
     .refine((steps) => {
       const ids = steps.flatMap((step) => step.id === null ? [] : [step.id]);
       return new Set(ids).size === ids.length;
