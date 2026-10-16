@@ -259,7 +259,7 @@ describe("group headings on ingredient and instruction rows", () => {
   ] as const;
 
   it.each(cases)("trims a heading of 1–100 characters on %s and keeps the first row untitled", (_name, schema, base, field, row) => {
-    const parsed = schema.parse({ ...base, [field]: [{ ...row, heading: null }, { ...row, heading: "  Sauce  " }, row] }) as Record<string, Array<{ heading?: string | null }>>;
+    const parsed = schema.parse({ ...base, [field]: [{ ...row, heading: null }, { ...row, heading: "  Sauce  " }, row] }) as unknown as Record<string, Array<{ heading?: string | null }>>;
     expect(parsed[field].map((item) => item.heading)).toEqual([null, "Sauce", undefined]);
     expect(schema.safeParse({ ...base, [field]: [row, { ...row, heading: "x".repeat(100) }] }).success).toBe(true);
     for (const heading of ["", "   ", "x".repeat(101), "Sauce\u0000"]) {

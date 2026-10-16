@@ -28,13 +28,13 @@ export function InstructionsSection({ disabled }: { disabled: boolean }) {
 	const { control } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
 	// Each row owns its photo, so a photo always travels with its step, across groups too.
-	const steps = useRowGroups({ name: 'instructions', key: 'steps', empty: emptyInstructionRow, control: 'description' })
+	const { containerRef, ...steps } = useRowGroups({ name: 'instructions', key: 'steps', empty: emptyInstructionRow, control: 'description' })
 	const listError = errors.instructions?.message ?? errors.instructions?.root?.message
 	const atLimit = steps.total >= MAX_ROWS.instructions
 
 	return (
 		<SectionCard icon={ListOrdered} title="Instructions" required>
-			<div ref={steps.containerRef} className="space-y-5">
+			<div ref={containerRef} className="space-y-5">
 				{steps.groups.map((field, group) => (
 					<div key={field.id} data-group={group} className={cn('space-y-5', group > 0 && 'border-t border-border pt-5')}>
 						{group > 0 && (

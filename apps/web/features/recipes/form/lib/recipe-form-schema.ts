@@ -13,9 +13,10 @@ export const MAX_ROWS = { ingredients: RECIPE_LIMITS.ingredients, instructions: 
 type AmountResult = { ok: true; value: number } | { ok: false; message: string }
 
 const SLASH_FRACTION = /^(?:(\d+)\s+)?(\d+)\/(\d+)$/
-const GLYPH_FRACTION = new RegExp(String.raw`^(?:(\d+)\s*)?([${KITCHEN_FRACTIONS.map(({ glyph }) => glyph).join('')}])$`)
+const GLYPH_VALUES = new Map<string, number>(KITCHEN_FRACTIONS.map(({ glyph, value }) => [glyph, value]))
+const GLYPH_FRACTION = new RegExp(String.raw`^(?:(\d+)\s*)?([${[...GLYPH_VALUES.keys()].join('')}])$`)
 
-/** The value of `1/2`, `1 1/2`, `½` or `1½`, rounded to the stored three decimals; null when the text is no fraction. */
+/** The value of `1/2`, `1 1/2`, `½` or `1½`; NaN for a zero denominator and null when the text is no fraction. */
 function fractionValue(text: string): number | null {
 	const slash = SLASH_FRACTION.exec(text)
 	if (slash) {
@@ -24,7 +25,7 @@ function fractionValue(text: string): number | null {
 	}
 	const glyph = GLYPH_FRACTION.exec(text)
 	if (!glyph) return null
-	return Number(glyph[1] ?? 0) + KITCHEN_FRACTIONS.find((fraction) => fraction.glyph === glyph[2])!.value
+	return Number(glyph[1] ?? 0) + (GLYPH_VALUES.get(glyph[2]) ?? Number.NaN)
 }
 
 /** Amounts are typed as text so kitchen fractions such as `1 1/2` or `½` can be read as well as decimals. */

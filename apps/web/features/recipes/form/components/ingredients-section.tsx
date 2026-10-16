@@ -20,7 +20,7 @@ const ROW_GRID = 'sm:grid sm:grid-cols-[minmax(0,1fr)_5.5rem_8.5rem_auto] sm:ite
 export function IngredientsSection() {
 	const { control } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
-	const rows = useRowGroups({ name: 'ingredients', key: 'rows', empty: emptyIngredientRow, control: 'name' })
+	const { containerRef, ...rows } = useRowGroups({ name: 'ingredients', key: 'rows', empty: emptyIngredientRow, control: 'name' })
 	const listError = errors.ingredients?.message ?? errors.ingredients?.root?.message
 	const atLimit = rows.total >= MAX_ROWS.ingredients
 
@@ -32,7 +32,7 @@ export function IngredientsSection() {
 				<span>Unit</span>
 				<span className="w-33" />
 			</div>
-			<div ref={rows.containerRef} className="space-y-5">
+			<div ref={containerRef} className="space-y-5">
 				{rows.groups.map((field, group) => (
 					<div key={field.id} data-group={group} className={cn('space-y-4 sm:space-y-3', group > 0 && 'border-t border-border pt-5')}>
 						{group > 0 && (
