@@ -14,9 +14,9 @@ type GoogleCallbackOutcome =
 /** A sign-in ends in the app or back on the login page; a connect started from Settings ends there, whatever happened. */
 const DESTINATIONS: Record<GoogleCallbackOutcome, string> = {
 	'signed-in': '/recipes',
-	failed: withNotice('/', 'google-sign-in-failed'),
-	'email-not-verified': withNotice('/', 'google-email-not-verified'),
-	'account-not-verified': withNotice('/', 'google-account-not-verified'),
+	failed: withNotice('/auth/login', 'google-sign-in-failed'),
+	'email-not-verified': withNotice('/auth/login', 'google-email-not-verified'),
+	'account-not-verified': withNotice('/auth/login', 'google-account-not-verified'),
 	connected: withNotice('/settings', 'google-connected'),
 	'connect-failed': withNotice('/settings', 'google-connect-failed'),
 	'already-linked': withNotice('/settings', 'google-already-linked'),

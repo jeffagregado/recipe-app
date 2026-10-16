@@ -87,7 +87,7 @@ export function CategoriesForm({ categories, onSave = saveCategories }: Categori
 					busy={pending}
 					onCancel={cancel}
 				/>
-				<PageContainer className="space-y-4 pb-8 sm:space-y-5">
+				<PageContainer className="space-y-6 pb-8">
 					<p role="status" className="sr-only">{pending ? 'Saving categories…' : ''}</p>
 					{alert && (
 						<div role="alert" className="flex max-w-xl flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm">

@@ -118,5 +118,5 @@ export async function resetPassword(input: unknown): Promise<AuthFailure> {
 	const error = await mutate('reset-password', parsed.data)
 	if (error) return error
 	clearSessionCookies(await cookies())
-	redirect(withNotice('/', 'password-reset'))
+	redirect(withNotice('/auth/login', 'password-reset'))
 }

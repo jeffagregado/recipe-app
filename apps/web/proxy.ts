@@ -26,7 +26,7 @@ export function proxy(request: NextRequest) {
 	const path = request.nextUrl.pathname
 	if (PUBLIC_ARTWORK.has(path)) return NextResponse.next()
 	if (path === '/backend' || path.startsWith('/backend/')) return rewriteBackendRead(request, path)
-	if (isPrivatePage(request, path) && !hasSessionCookie(request)) return NextResponse.redirect(new URL('/', request.url))
+	if (isPrivatePage(request, path) && !hasSessionCookie(request)) return NextResponse.redirect(new URL('/auth/login', request.url))
 	return NextResponse.next({ headers: { 'Cache-Control': 'private, no-store' } })
 }
 

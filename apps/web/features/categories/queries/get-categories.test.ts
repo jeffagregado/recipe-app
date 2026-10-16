@@ -31,9 +31,9 @@ it('forwards only the session cookie, uncached, and returns the validated list i
 	expect(init?.signal).toBeInstanceOf(AbortSignal)
 })
 
-it('redirects to the landing page when the session has expired', async () => {
+it('redirects to login when the session has expired', async () => {
 	fetchMock.mockResolvedValue(json({ code: 'UNAUTHENTICATED', message: 'no' }, 401))
-	await expect(getCategories()).rejects.toThrow('NEXT_REDIRECT:/')
+	await expect(getCategories()).rejects.toThrow('NEXT_REDIRECT:/auth/login')
 })
 
 it.each([

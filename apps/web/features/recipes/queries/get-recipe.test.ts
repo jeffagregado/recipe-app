@@ -41,9 +41,9 @@ it('returns null for a 404 and for ids that cannot exist without calling the API
 	expect(fetchMock).not.toHaveBeenCalled()
 })
 
-it('redirects to the landing page when the session has expired', async () => {
+it('redirects to login when the session has expired', async () => {
 	fetchMock.mockResolvedValue(json({ code: 'UNAUTHORIZED', message: 'no' }, 401))
-	await expect(getRecipe('r1')).rejects.toThrow('NEXT_REDIRECT:/')
+	await expect(getRecipe('r1')).rejects.toThrow('NEXT_REDIRECT:/auth/login')
 })
 
 it.each([

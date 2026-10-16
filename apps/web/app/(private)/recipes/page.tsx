@@ -13,15 +13,15 @@ import { RecipeLoading } from './_components/recipe-loading'
 
 export default function RecipesPage({ searchParams }: PageProps<'/recipes'>) {
 	return (
-		<PageContainer size="full" className="space-y-8">
-			<header className="grid grid-cols-[1fr_auto] items-center gap-4 md:grid-cols-[1fr_60%_1fr]">
-				<h1 className="text-3xl font-bold max-w-fit lg:text-5xl">Recipes</h1>
-				<div className="relative order-3 col-span-2 md:order-0 md:col-span-1">
+		<PageContainer size="full" className="space-y-6 lg:space-y-8">
+			<header className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-4 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-x-6">
+				<h1 className="text-3xl font-bold tracking-tight lg:text-4xl">Recipes</h1>
+				<div className="order-3 col-span-2 md:order-0 md:col-span-1 md:max-w-xl md:justify-self-center">
 					<Suspense fallback={<Input aria-label="Search recipes" className="w-full pl-10" placeholder="Search recipes" disabled />}>
 						<RecipeSearch />
 					</Suspense>
 				</div>
-				<Link href="/recipes/create" className={buttonVariants({ size: 'lg', className: 'justify-self-end' })}>
+				<Link href="/recipes/create" className={buttonVariants({ size: 'lg', className: 'justify-self-end motion-safe:active:scale-[0.98]' })}>
 					<Plus aria-hidden="true" /> New Recipe
 				</Link>
 			</header>

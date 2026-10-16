@@ -7,7 +7,7 @@ import { Loader2 } from 'lucide-react'
 import { useId, useState, type BaseSyntheticEvent } from 'react'
 import { useForm, useFormState, useWatch } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { SettingsSection } from './settings-section'
 import { useAppToast } from '@/lib/use-app-toast'
 import { changePassword } from '../actions/change-password'
 import { requestSetPassword } from '../actions/request-set-password'
@@ -29,19 +29,9 @@ const alertClass = 'text-sm font-medium text-destructive wrap-break-word'
 export function PasswordCard({ hasPassword, onChange = changePassword, onRequestLink = requestSetPassword }: PasswordCardProps) {
 	const headingId = useId()
 	return (
-		<section aria-labelledby={headingId} className="max-w-xl">
-			<Card className="sm:[--card-spacing:--spacing(5)]">
-				<div className="px-(--card-spacing)">
-					<h2 id={headingId} className="text-base font-semibold">Password</h2>
-					<p className="text-sm text-muted-foreground">
-						{hasPassword ? 'Changing it signs out your other devices.' : 'No password yet. We’ll email you a link to create one.'}
-					</p>
-				</div>
-				<CardContent>
-					{hasPassword ? <ChangePasswordForm onChange={onChange} /> : <SetPasswordLink onRequestLink={onRequestLink} />}
-				</CardContent>
-			</Card>
-		</section>
+		<SettingsSection headingId={headingId} title="Password" description={hasPassword ? 'Changing it signs out your other devices.' : 'No password yet. We’ll email you a link to create one.'}>
+			{hasPassword ? <ChangePasswordForm onChange={onChange} /> : <SetPasswordLink onRequestLink={onRequestLink} />}
+		</SettingsSection>
 	)
 }
 

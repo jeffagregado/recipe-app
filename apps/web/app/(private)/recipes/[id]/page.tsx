@@ -14,8 +14,8 @@ export const metadata: Metadata = { title: 'Recipe' }
 
 export default function RecipePage({ params }: PageProps<'/recipes/[id]'>) {
 	return (
-		<PageContainer className="space-y-4 sm:space-y-5">
-			<Link href="/recipes" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium underline-offset-4 hover:underline">
+		<PageContainer className="space-y-5 lg:space-y-6">
+			<Link href="/recipes" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
 				<ArrowLeft aria-hidden="true" className="size-4" />
 				Back to Recipes
 			</Link>

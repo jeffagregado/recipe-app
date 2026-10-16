@@ -18,7 +18,7 @@ export function SettingsHeader() {
 					<ArrowLeft aria-hidden="true" /> Back
 				</Link>
 				<div className="min-w-0">
-					<h1 className="truncate text-center text-base font-semibold md:text-left md:text-2xl md:font-bold">Settings</h1>
+					<h1 className="truncate text-center text-base font-semibold md:text-left md:text-2xl md:font-bold md:tracking-tight">Settings</h1>
 					<p className="hidden text-sm text-muted-foreground md:block">Your name, email, password and the ways you sign in.</p>
 				</div>
 			</div>

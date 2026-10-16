@@ -32,7 +32,7 @@ async function fetchCategories(cookie: string): Promise<Response> {
 export async function getCategories(): Promise<CategoryWithUsage[]> {
 	await requireSession()
 	const response = await fetchCategories(sessionCookieHeader(await cookies()))
-	if (response.status === 401) redirect('/')
+	if (response.status === 401) redirect('/auth/login')
 	if (!response.ok) throw new CategoryReadError(`GET /categories failed (${response.status}). Check the recipe API response.`)
 	let payload: unknown
 	try { payload = await response.json() } catch (cause) { throw new CategoryReadError('GET /categories returned invalid JSON. Check the recipe API response.', { cause }) }

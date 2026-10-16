@@ -504,7 +504,7 @@ test.describe('edit: leaving, errors and access', () => {
     try {
       const visitor = await anonymous.newPage();
       await visitor.goto(`${WEB_URL}/recipes/${foreignId}/edit`);
-      await expect(visitor).toHaveURL(`${WEB_URL}/`);
+      await expect(visitor).toHaveURL(`${WEB_URL}/auth/login`);
     } finally { await anonymous.close(); }
   });
 });

@@ -47,7 +47,7 @@ export async function getRecipe(id: string): Promise<RecipeDetail | null> {
 	if (!isValidRecipeId(id)) return null
 	await requireSession()
 	const response = await fetchRecipe(id, sessionCookieHeader(await cookies()))
-	if (response.status === 401) redirect('/')
+	if (response.status === 401) redirect('/auth/login')
 	if (response.status === 404) return null
 	if (!response.ok) throw new RecipeDetailError(`GET /recipes/:id failed (${response.status}). Check the recipe API response.`)
 	return parseRecipe(response)

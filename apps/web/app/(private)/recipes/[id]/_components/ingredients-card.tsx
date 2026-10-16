@@ -58,15 +58,15 @@ export function IngredientsCard({ ingredients, servings }: IngredientsCardProps)
 					<Button type="button" variant="link" className="h-11 px-1 sm:h-8" onClick={reset}>Reset</Button>
 				</p>
 			)}
-			<ul aria-label="Ingredients" className="divide-y divide-border">
+			<ul aria-label="Ingredients" className="divide-y divide-foreground/10">
 				{ingredients.map(({ id, name, quantity, unit }) => {
 					const done = checked.has(id)
 					return (
 						<li key={id}>
-							<label className="flex min-h-11 cursor-pointer items-center gap-3 py-2">
+							<label className="flex min-h-11 cursor-pointer items-center gap-3 py-2.5">
 								<input type="checkbox" checked={done} onChange={() => toggle(id)} className="size-5 shrink-0 accent-primary" />
 								<span className={done ? 'min-w-0 flex-1 text-muted-foreground line-through wrap-break-word' : 'min-w-0 flex-1 wrap-break-word'}>{name}</span>
-								<span className={done ? 'shrink-0 text-sm text-muted-foreground line-through tabular-nums' : 'shrink-0 text-sm text-muted-foreground tabular-nums'}>
+								<span className={done ? 'shrink-0 text-sm font-medium text-muted-foreground line-through tabular-nums' : 'shrink-0 text-sm font-medium tabular-nums'}>
 									{scaledAmount(quantity, unit, servings ?? 1, chosen ?? 1)}
 								</span>
 							</label>

@@ -53,7 +53,7 @@ export function RecipeControls({ categories, filters, counts, loading, onFilter,
 				variant={chip.pressed ? 'default' : 'secondary'}
 				aria-pressed={chip.pressed}
 				onClick={() => onFilter(chip.choice)}
-				className="h-10 shrink-0 gap-1.5 px-3"
+				className="h-10 shrink-0 gap-1.5 rounded-full px-4 motion-safe:active:scale-[0.98]"
 			>
 				{chip.label}
 				{chip.total !== undefined ? <span className="rounded-full bg-foreground/10 px-1.5 text-xs tabular-nums">

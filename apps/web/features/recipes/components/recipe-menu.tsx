@@ -35,7 +35,7 @@ export function RecipeMenu({ recipeId, title, variant = 'page' }: RecipeMenuProp
 		<>
 			<DropdownMenu>
 				<DropdownMenuTrigger
-					render={<Button ref={triggerRef} variant="outline" size="icon" className={cn('size-11 sm:size-9', variant === 'card' ? 'rounded-[6px]' : 'rounded-full')} />}
+					render={<Button ref={triggerRef} variant="outline" size="icon" className={cn('size-11 rounded-full sm:size-9', variant === 'card' && 'bg-background/90 backdrop-blur-sm')} />}
 					aria-label={`More options for ${title}`}
 				>
 					{variant === 'card' ? <MoreHorizontal aria-hidden="true" /> : <EllipsisVertical aria-hidden="true" />}

@@ -7,7 +7,7 @@ import { Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, useTransition, type BaseSyntheticEvent } from 'react'
 import { useForm, useFormState, useWatch } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { SettingsSection } from './settings-section'
 import { Input } from '@/components/ui/input'
 import { FieldError } from '@/features/recipes/form/components/form-field'
 import { fieldA11y, inputClass } from '@/features/recipes/form/lib/field-props'
@@ -75,14 +75,8 @@ export function DisplayNameCard({ displayName, onSave = updateDisplayName }: Dis
 	}
 
 	return (
-		<section aria-labelledby={headingId} className="max-w-xl">
-			<Card className="sm:[--card-spacing:--spacing(5)]">
-				<div className="px-(--card-spacing)">
-					<h2 id={headingId} className="text-base font-semibold">Display name</h2>
-					{/* Below lg there is no sidebar, so the line would describe something the person cannot see. */}
-					<p className="hidden text-sm text-muted-foreground lg:block">Shown in the sidebar.</p>
-				</div>
-				<CardContent>
+		// Below lg there is no sidebar, so the description would name something the person cannot see.
+		<SettingsSection headingId={headingId} title="Display name" description="Shown in the sidebar." descriptionClassName="hidden lg:block">
 					<form noValidate onSubmit={submit} aria-busy={pending} className="space-y-3">
 						<div className="space-y-1.5">
 							<div className="relative">
@@ -110,8 +104,6 @@ export function DisplayNameCard({ displayName, onSave = updateDisplayName }: Dis
 							</Button>
 						</div>
 					</form>
-				</CardContent>
-			</Card>
-		</section>
+		</SettingsSection>
 	)
 }

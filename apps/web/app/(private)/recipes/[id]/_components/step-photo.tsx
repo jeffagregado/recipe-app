@@ -15,9 +15,9 @@ export function StepPhoto({ src, stepNumber }: StepPhotoProps) {
 		<Dialog>
 			<DialogTrigger
 				aria-label={`Open step ${stepNumber} photo`}
-				className="group relative block aspect-4/3 w-full max-w-64 shrink-0 overflow-hidden rounded-lg bg-muted outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:w-40"
+				className="group relative block aspect-4/3 w-full shrink-0 overflow-hidden rounded-2xl bg-muted shadow-recipe-card outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:w-60"
 			>
-				<RecipePhoto src={src} alt="" fill sizes="(min-width: 640px) 160px, 256px" className="object-cover" />
+				<RecipePhoto src={src} alt="" fill sizes="(min-width: 640px) 240px, 100vw" className="object-cover transition-transform duration-300 motion-safe:group-hover:scale-105" />
 				<span aria-hidden="true" className="absolute right-1.5 bottom-1.5 flex size-6 items-center justify-center rounded-md bg-black/55 text-white">
 					<Maximize2 className="size-3.5" />
 				</span>
@@ -29,7 +29,7 @@ export function StepPhoto({ src, stepNumber }: StepPhotoProps) {
 					width={1600}
 					height={1200}
 					sizes="(min-width: 768px) 736px, 100vw"
-					className="mx-auto h-auto max-h-[75dvh] w-auto max-w-full rounded-lg object-contain"
+					className="mx-auto h-auto max-h-[75dvh] w-auto max-w-full rounded-2xl object-contain"
 				/>
 				<DialogTitle className="pb-1 text-center">{`Step ${stepNumber} photo`}</DialogTitle>
 			</DialogContent>

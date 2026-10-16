@@ -52,10 +52,12 @@ test.describe('content', () => {
       { name: 'Spaghetti', amount: '200 g' }, { name: 'Olive oil', amount: '1.5 tbsp' }, { name: 'Salt', amount: 'to taste' },
     ]);
     expect(await stepTexts(page)).toEqual(RICH.steps);
-    // Banner, then title, in reading order; the heart and ⋮ are not in a top bar.
+    // Cover under the back link, with the title beside it from lg (the desktop project); the heart and ⋮ are not in a top bar.
     const [back, cover, title] = [await box(page.getByRole('link', { name: 'Back to Recipes' })), await box(page.getByRole('img', { name: 'Rich page' })), await box(page.getByRole('heading', { level: 1 }))];
     expect(cover.y).toBeGreaterThan(back.y + back.height - 1);
-    expect(title.y).toBeGreaterThan(cover.y + cover.height - 1);
+    expect(title.x).toBeGreaterThan(cover.x + cover.width - 1);
+    expect(title.y).toBeGreaterThan(cover.y - 1);
+    expect(title.y + title.height).toBeLessThan(cover.y + cover.height + 1);
     await expect.poll(() => imagesLoaded(page)).toBe(true);
   });
 

@@ -7,7 +7,7 @@ const STATE = 'test-only-state'
 const STATE_VALUE = 'test-only-state.test/signature'
 const SESSION = 'better-auth.session_token=abc; Max-Age=604800; Path=/; HttpOnly; SameSite=Lax'
 const CLEARED_STATE = ['better-auth.state=; Path=/; Max-Age=0; HttpOnly; SameSite=lax', '__Secure-better-auth.state=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=lax']
-const FAILED = '/?notice=google-sign-in-failed'
+const FAILED = '/auth/login?notice=google-sign-in-failed'
 const fetchMock = vi.fn<typeof fetch>()
 const warn = vi.spyOn(console, 'warn')
 
@@ -74,8 +74,8 @@ it.each([
 
 it.each([
 	['a refused sign-in', () => error('GOOGLE_SIGN_IN_FAILED', 400), FAILED, 'Auth: google-callback failed with GOOGLE_SIGN_IN_FAILED (upstream 400).'],
-	['an unverified Google email', () => error('GOOGLE_EMAIL_NOT_VERIFIED', 403), '/?notice=google-email-not-verified', 'Auth: google-callback failed with GOOGLE_EMAIL_NOT_VERIFIED (upstream 403).'],
-	['an unverified Account with the same email', () => error('EMAIL_NOT_VERIFIED', 403), '/?notice=google-account-not-verified', 'Auth: google-callback failed with EMAIL_NOT_VERIFIED (upstream 403).'],
+	['an unverified Google email', () => error('GOOGLE_EMAIL_NOT_VERIFIED', 403), '/auth/login?notice=google-email-not-verified', 'Auth: google-callback failed with GOOGLE_EMAIL_NOT_VERIFIED (upstream 403).'],
+	['an unverified Account with the same email', () => error('EMAIL_NOT_VERIFIED', 403), '/auth/login?notice=google-account-not-verified', 'Auth: google-callback failed with EMAIL_NOT_VERIFIED (upstream 403).'],
 	['rate limiting', () => error('RATE_LIMITED', 429), FAILED, 'Auth: google-callback failed with RATE_LIMITED (upstream 429).'],
 	['an unavailable service', () => error('SERVICE_UNAVAILABLE', 503), FAILED, 'Auth: google-callback failed with SERVICE_UNAVAILABLE (upstream 503).'],
 	['an unparseable response', () => new Response('<html>raw upstream text</html>', { status: 502 }), FAILED, 'Auth: google-callback failed with SERVICE_UNAVAILABLE (upstream 502).'],

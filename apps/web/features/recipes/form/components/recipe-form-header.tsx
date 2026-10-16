@@ -28,7 +28,7 @@ export function RecipeFormHeader({ title, submitLabel, submitLabelDetail, descri
 					<ArrowLeft aria-hidden="true" /> Back
 				</Button>
 				<div className="min-w-0">
-					<h1 className="truncate text-center text-base font-semibold md:text-left md:text-2xl md:font-bold">{title}</h1>
+					<h1 className="truncate text-center text-base font-semibold md:text-left md:text-2xl md:font-bold md:tracking-tight">{title}</h1>
 					<p className="hidden text-sm text-muted-foreground md:block">{description}</p>
 				</div>
 				<div className="flex items-center gap-2">

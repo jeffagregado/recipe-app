@@ -133,7 +133,7 @@ test('anonymous Categories visit redirects to sign in', async ({ browser }) => {
   try {
     const page = await context.newPage();
     await page.goto('/categories');
-    await expect(page).toHaveURL(`${WEB_URL}/`);
+    await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
     await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
   } finally { await context.close(); }
 });

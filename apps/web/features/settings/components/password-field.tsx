@@ -22,7 +22,7 @@ export function PasswordField({ id, label, error, range, ...props }: PasswordFie
 				<Input {...fieldA11y(id, error, range)} {...props} type="password" className={cn(inputClass, range && 'pr-20')} />
 				{range && (
 					<span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground tabular-nums">
-						{PASSWORD_MIN_LENGTH}–{PASSWORD_MAX_LENGTH}
+						{PASSWORD_MIN_LENGTH}-{PASSWORD_MAX_LENGTH}
 					</span>
 				)}
 			</div>

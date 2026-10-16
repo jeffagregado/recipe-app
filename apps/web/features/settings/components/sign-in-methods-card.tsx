@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { SettingsSection } from './settings-section'
 import { GoogleMark } from '@/features/auth/google-mark'
 import { useAppToast } from '@/lib/use-app-toast'
 import { connectGoogle } from '../actions/connect-google'
@@ -69,13 +69,9 @@ export function SignInMethodsCard({ hasPassword, google, onConnect = connectGoog
 	}
 
 	return (
-		<section aria-labelledby={headingId} className="max-w-xl">
-			<Card className="sm:[--card-spacing:--spacing(5)]">
-				<div className="px-(--card-spacing)">
-					<h2 id={headingId} className="text-base font-semibold">Sign-in methods</h2>
-					<p className="text-sm text-muted-foreground">You always keep at least one way in.</p>
-				</div>
-				<CardContent aria-busy={pending} className="space-y-2">
+		<>
+		<SettingsSection headingId={headingId} title="Sign-in methods" description="You always keep at least one way in.">
+				<div aria-busy={pending} className="space-y-2">
 					<ul className="divide-y text-sm">
 						<li className={rowClass}>
 							<span className="font-medium">Password</span>
@@ -94,8 +90,8 @@ export function SignInMethodsCard({ hasPassword, google, onConnect = connectGoog
 					</ul>
 					{locked && <p id={reasonId} className="text-sm text-muted-foreground">{SIGN_IN_METHODS_MESSAGES.passwordRequired}</p>}
 					{alert && <p role="alert" className="text-sm font-medium text-destructive wrap-break-word">{alert}</p>}
-				</CardContent>
-			</Card>
+				</div>
+		</SettingsSection>
 			{/* Escape and the backdrop keep Google. */}
 			<AlertDialog open={confirming} onOpenChange={(next) => { if (!next) setConfirming(false) }}>
 				<AlertDialogContent>
@@ -109,7 +105,7 @@ export function SignInMethodsCard({ hasPassword, google, onConnect = connectGoog
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
-		</section>
+		</>
 	)
 }
 

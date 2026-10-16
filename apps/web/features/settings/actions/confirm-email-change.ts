@@ -63,5 +63,5 @@ export async function confirmEmailChange(input: unknown): Promise<ConfirmEmailCh
 	const payload: unknown = await response.json().catch(() => undefined)
 	if (response.status !== 200) return refused(response.status, payload)
 	const confirmed = confirmEmailChangeResponseSchema.safeParse(payload)
-	redirect(confirmed.success && confirmed.data.signedIn ? withNotice('/settings', 'email-changed') : withNotice('/', 'email-changed-login'))
+	redirect(confirmed.success && confirmed.data.signedIn ? withNotice('/settings', 'email-changed') : withNotice('/auth/login', 'email-changed-login'))
 }

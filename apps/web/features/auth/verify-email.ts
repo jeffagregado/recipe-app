@@ -11,7 +11,7 @@ type VerifyEmailOutcome = 'verified' | 'invalid' | 'unavailable'
 
 /** A link the API will never accept is `invalid`; a link it could not judge is `unavailable`, because it was not consumed. */
 const DESTINATIONS: Record<VerifyEmailOutcome, string> = {
-	verified: withNotice('/', 'email-verified'),
+	verified: withNotice('/auth/login', 'email-verified'),
 	invalid: '/verify-email/invalid',
 	unavailable: '/verify-email/unavailable',
 }

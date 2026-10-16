@@ -1,15 +1,15 @@
 import { RecipePhoto } from '@/features/recipes/components/recipe-photo'
 
-/** Banner only when a cover exists; with none, the page simply starts at the title. */
+/** The cover photo, 4:3 like every recipe photo. Only when a cover exists; with none, the page simply starts at the title. */
 export function RecipeCover({ src, title }: { src: string; title: string }) {
 	return (
-		<div className="relative aspect-8/5 overflow-hidden rounded-xl bg-muted sm:aspect-2/1 lg:aspect-[3.8/1]">
+		<div className="relative aspect-4/3 overflow-hidden rounded-2xl bg-muted shadow-recipe-card">
 			<RecipePhoto
 				src={src}
 				alt={title}
 				fill
 				preload
-				sizes="(min-width: 1440px) 1376px, (min-width: 1024px) calc(100vw - 284px), 100vw"
+				sizes="(min-width: 1440px) 560px, (min-width: 1024px) calc((100vw - 284px) * 0.42), 100vw"
 				className="object-cover"
 			/>
 		</div>

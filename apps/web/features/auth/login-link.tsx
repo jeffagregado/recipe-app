@@ -4,5 +4,5 @@ import { cn } from '@/lib/utils'
 
 /** The way back to the login page from the email verification and password reset pages. */
 export function LoginLink() {
-	return <Link href="/" className={cn(buttonVariants({ variant: 'ghost' }), 'min-h-11 w-full')}>Back to login</Link>
+	return <Link href="/auth/login" className={cn(buttonVariants({ variant: 'ghost' }), 'min-h-11 w-full')}>Back to login</Link>
 }

@@ -25,7 +25,7 @@ export async function hydrateRecipePage(filters: RecipeFilters) {
 		})
 		return dehydrate(client)
 	} catch (error) {
-		if (error instanceof SessionExpiredError) redirect('/')
+		if (error instanceof SessionExpiredError) redirect('/auth/login')
 		throw error
 	} finally { client.clear() }
 }

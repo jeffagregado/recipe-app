@@ -46,7 +46,7 @@ it.each([
 ])('sends %s to the login page with a notice and touches no cookie', async (_case, cookies, body) => {
 	next.cookies = cookies
 	fetchMock.mockResolvedValue(json(body, 200))
-	await expect(confirmEmailChange({ token })).rejects.toThrow('NEXT_REDIRECT:/?notice=email-changed-login')
+	await expect(confirmEmailChange({ token })).rejects.toThrow('NEXT_REDIRECT:/auth/login?notice=email-changed-login')
 	expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('cookie')).toBe(cookies.size ? 'better-auth.session_token=abc' : null)
 	expect(next.set).not.toHaveBeenCalled()
 })

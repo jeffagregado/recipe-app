@@ -18,7 +18,7 @@ test.describe('at 320×720 without a session', () => {
 
   for (const { link, path, tabsFromGoogle } of PAGES) {
     test(`the sign-in footer reaches ${path} by keyboard, and the page fits the width`, async ({ page, baseURL }) => {
-      await page.goto('/');
+      await page.goto('/auth/login');
       await page.getByRole('button', { name: 'Continue with Google', exact: true }).focus();
       for (let press = 0; press < tabsFromGoogle; press++) await page.keyboard.press('Tab');
       await expect(page.getByRole('contentinfo').getByRole('link', { name: link, exact: true })).toBeFocused();

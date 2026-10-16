@@ -11,7 +11,7 @@ import { AUTH_CHANNEL, registerPrivateQueries } from './session-client'
 
 afterEach(() => { action.logout.mockReset(); vi.unstubAllGlobals() })
 
-it('treats a logout with no session as logged out: clears queries, broadcasts token-free and goes home', async () => {
+it('treats a logout with no session as logged out: clears queries, broadcasts token-free and goes to login', async () => {
 	const replace = vi.fn()
 	const postMessage = vi.fn()
 	const close = vi.fn()
@@ -23,7 +23,7 @@ it('treats a logout with no session as logged out: clears queries, broadcasts to
 	action.logout.mockResolvedValue({ ok: true })
 	render(<LogoutButton />)
 	await userEvent.click(screen.getByRole('button', { name: 'Log out' }))
-	await waitFor(() => expect(replace).toHaveBeenCalledWith('/'))
+	await waitFor(() => expect(replace).toHaveBeenCalledWith('/auth/login'))
 	expect(postMessage).toHaveBeenCalledExactlyOnceWith({ type: 'logout' })
 	expect(client.getQueryData(['private'])).toBeUndefined()
 	expect(screen.queryByRole('alert')).toBeNull()

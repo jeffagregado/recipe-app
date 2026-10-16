@@ -24,7 +24,7 @@ const json = (body: unknown, status: number) => new Response(JSON.stringify(body
 const PENDING_CLEARED = ['pending-verification-email', '', { httpOnly: true, sameSite: 'lax', path: '/', secure: false, maxAge: 0 }]
 
 it.each([
-	['a verified link', () => new Response(null, { status: 204, headers: { 'Set-Cookie': 'better-auth.session_token=abc; Max-Age=604800; Path=/' } }), '/?notice=email-verified'],
+	['a verified link', () => new Response(null, { status: 204, headers: { 'Set-Cookie': 'better-auth.session_token=abc; Max-Age=604800; Path=/' } }), '/auth/login?notice=email-verified'],
 	['an expired, used or unknown link', () => json({ code: 'VERIFICATION_LINK_INVALID', message: 'raw upstream text' }, 400), '/verify-email/invalid'],
 	['a link the API calls malformed', () => json({ code: 'VALIDATION_FAILED', message: 'raw upstream text' }, 400), '/verify-email/invalid'],
 	['rate limiting', () => json({ code: 'RATE_LIMITED', message: 'raw upstream text' }, 429), '/verify-email/unavailable'],
@@ -47,7 +47,7 @@ it.each([
 
 it('forgets the pending address only once the email is verified', async () => {
 	fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
-	await expect(verifyEmail({ token: TOKEN })).rejects.toThrow('NEXT_REDIRECT:/?notice=email-verified')
+	await expect(verifyEmail({ token: TOKEN })).rejects.toThrow('NEXT_REDIRECT:/auth/login?notice=email-verified')
 	expect(next.set.mock.calls).toEqual([PENDING_CLEARED])
 	expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has('x-forwarded-for')).toBe(false)
 	next.set.mockReset()
@@ -59,7 +59,7 @@ it('forgets the pending address only once the email is verified', async () => {
 it('marks the cleared cookie secure on an https origin', async () => {
 	next.headers = new Headers({ origin: 'https://recipes.example' })
 	fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
-	await expect(verifyEmail({ token: TOKEN })).rejects.toThrow('NEXT_REDIRECT:/?notice=email-verified')
+	await expect(verifyEmail({ token: TOKEN })).rejects.toThrow('NEXT_REDIRECT:/auth/login?notice=email-verified')
 	expect(next.set).toHaveBeenCalledExactlyOnceWith('pending-verification-email', '', { httpOnly: true, sameSite: 'lax', path: '/', secure: true, maxAge: 0 })
 })
 

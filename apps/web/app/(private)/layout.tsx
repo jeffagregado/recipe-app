@@ -15,7 +15,7 @@ export default function PrivateLayout({ children }: PrivateLayoutProps) {
 	return (
 		<AppToaster>
 			<div data-private-content className="flex min-h-dvh bg-muted/30">
-				<Suspense fallback={<aside aria-label="Loading navigation" className="hidden h-dvh w-55 shrink-0 border-r border-neutral-200 bg-sidebar lg:sticky lg:top-0 lg:block" />}>
+				<Suspense fallback={<aside aria-label="Loading navigation" className="hidden h-dvh w-56 shrink-0 border-r border-sidebar-border bg-sidebar lg:sticky lg:top-0 lg:block" />}>
 					<Sidebar footer={<SessionErrorBoundary><Suspense fallback={<p role="status">Checking session...</p>}><ShellSession /></Suspense></SessionErrorBoundary>} />
 				</Suspense>
 
