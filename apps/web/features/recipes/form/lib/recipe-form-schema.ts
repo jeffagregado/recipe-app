@@ -1,7 +1,9 @@
 import { createRecipeMetadataSchema } from '@recipe-app/contracts/schemas'
 import { MEASUREMENT_UNITS, RECIPE_LIMITS, type CreateRecipeMetadata } from '@recipe-app/contracts/types'
 import { z } from 'zod'
+import { KITCHEN_FRACTIONS } from '../../lib/kitchen-amount'
 import { toFormFieldPath } from './map-save-errors'
+import type { FormGroup } from './row-groups'
 import { checkRecipeImage } from './recipe-files'
 import { isPhotoValue, noPhoto, type PhotoValue } from './recipe-photo'
 
@@ -10,14 +12,30 @@ export const MAX_ROWS = { ingredients: RECIPE_LIMITS.ingredients, instructions: 
 
 type AmountResult = { ok: true; value: number } | { ok: false; message: string }
 
-/** Amounts are typed as text so fractions like `1/2` can be explained instead of silently coerced. */
+const SLASH_FRACTION = /^(?:(\d+)\s+)?(\d+)\/(\d+)$/
+const GLYPH_VALUES = new Map<string, number>(KITCHEN_FRACTIONS.map(({ glyph, value }) => [glyph, value]))
+const GLYPH_FRACTION = new RegExp(String.raw`^(?:(\d+)\s*)?([${[...GLYPH_VALUES.keys()].join('')}])$`)
+
+/** The value of `1/2`, `1 1/2`, `½` or `1½`; NaN for a zero denominator and null when the text is no fraction. */
+function fractionValue(text: string): number | null {
+	const slash = SLASH_FRACTION.exec(text)
+	if (slash) {
+		const denominator = Number(slash[3])
+		return denominator === 0 ? Number.NaN : Number(slash[1] ?? 0) + Number(slash[2]) / denominator
+	}
+	const glyph = GLYPH_FRACTION.exec(text)
+	if (!glyph) return null
+	return Number(glyph[1] ?? 0) + (GLYPH_VALUES.get(glyph[2]) ?? Number.NaN)
+}
+
+/** Amounts are typed as text so kitchen fractions such as `1 1/2` or `½` can be read as well as decimals. */
 export function parseAmount(text: string): AmountResult {
 	const value = text.trim()
 	const fail = (message: string): AmountResult => ({ ok: false, message })
-	if (value.includes('/')) return fail('Use a decimal such as 0.5 instead of a fraction like 1/2.')
-	if (!/^(\d+\.?\d*|\.\d+)$/.test(value)) return fail('Enter a number, for example 1.5.')
-	if ((value.split('.')[1] ?? '').length > RECIPE_LIMITS.quantityDecimals) return fail(`Use at most ${RECIPE_LIMITS.quantityDecimals} decimal places.`)
-	const amount = Number(value)
+	const fraction = fractionValue(value)
+	if (fraction === null ? !/^(\d+\.?\d*|\.\d+)$/.test(value) : Number.isNaN(fraction)) return fail('Enter a number such as 1.5, 1/2 or 1 1/2.')
+	if (fraction === null && (value.split('.')[1] ?? '').length > RECIPE_LIMITS.quantityDecimals) return fail(`Use at most ${RECIPE_LIMITS.quantityDecimals} decimal places.`)
+	const amount = fraction === null ? Number(value) : Number(fraction.toFixed(RECIPE_LIMITS.quantityDecimals))
 	if (amount <= 0) return fail('Amount must be greater than 0.')
 	if (amount > RECIPE_LIMITS.maxQuantity) return fail('Amount can’t be more than 999,999,999.999.')
 	return { ok: true, value: amount }
@@ -64,6 +82,26 @@ const instructionRowSchema = z.object({
 	photo: photoSchema,
 })
 
+type GroupLimits = { empty: string; limit: number; noun: string }
+
+/**
+ * Rows are kept per group, the untitled first group (heading null) followed by named groups.
+ * Every named group needs a name; the row limit counts rows across all groups.
+ */
+const groupRules = ({ empty, limit, noun }: GroupLimits) => (groups: Array<{ heading: string | null; size: number }>, ctx: z.RefinementCtx) => {
+	const total = groups.reduce((count, group) => count + group.size, 0)
+	if (total === 0) ctx.addIssue({ code: 'custom', message: empty })
+	if (total > limit) ctx.addIssue({ code: 'custom', message: `Use ${limit} ${noun} or fewer.` })
+	groups.forEach((group, index) => {
+		if (group.heading === null) return
+		const heading = group.heading.trim()
+		if (!heading) ctx.addIssue({ code: 'custom', path: [index, 'heading'], message: 'Name this group, or remove the heading.' })
+		else if (heading.length > RECIPE_LIMITS.groupHeading) ctx.addIssue({ code: 'custom', path: [index, 'heading'], message: `Use ${RECIPE_LIMITS.groupHeading} characters or fewer.` })
+	})
+}
+const ingredientGroupRules = groupRules({ empty: 'Add at least one ingredient.', limit: RECIPE_LIMITS.ingredients, noun: 'ingredients' })
+const instructionGroupRules = groupRules({ empty: 'Add at least one step.', limit: RECIPE_LIMITS.instructions, noun: 'steps' })
+
 export const recipeFormSchema = z.object({
 	title: z.string().trim().min(1, 'Add a title before saving.').max(RECIPE_LIMITS.title, `Use ${RECIPE_LIMITS.title} characters or fewer.`),
 	description: optionalText(RECIPE_LIMITS.description),
@@ -76,12 +114,10 @@ export const recipeFormSchema = z.object({
 		.max(RECIPE_LIMITS.videoUrl, `Use ${formatLimit(RECIPE_LIMITS.videoUrl)} characters or fewer.`)
 		.refine((value) => value === '' || isHttpsUrl(value), 'Enter a link that starts with https://'),
 	cover: photoSchema,
-	ingredients: z.array(ingredientRowSchema)
-		.min(1, 'Add at least one ingredient.')
-		.max(RECIPE_LIMITS.ingredients, `Use ${RECIPE_LIMITS.ingredients} ingredients or fewer.`),
-	instructions: z.array(instructionRowSchema)
-		.min(1, 'Add at least one step.')
-		.max(RECIPE_LIMITS.instructions, `Use ${RECIPE_LIMITS.instructions} steps or fewer.`),
+	ingredients: z.array(z.object({ heading: z.string().nullable(), rows: z.array(ingredientRowSchema) }))
+		.superRefine((groups, ctx) => ingredientGroupRules(groups.map(({ heading, rows }) => ({ heading, size: rows.length })), ctx)),
+	instructions: z.array(z.object({ heading: z.string().nullable(), steps: z.array(instructionRowSchema) }))
+		.superRefine((groups, ctx) => instructionGroupRules(groups.map(({ heading, steps }) => ({ heading, size: steps.length })), ctx)),
 	notes: optionalText(RECIPE_LIMITS.notes),
 }).check((ctx) => {
 	// Backstop: whatever the friendly checks above miss must still satisfy the API's schema.
@@ -89,14 +125,16 @@ export const recipeFormSchema = z.object({
 	const result = createRecipeMetadataSchema.safeParse(toCreateRecipeMetadata(ctx.value))
 	if (result.success) return
 	for (const issue of result.error.issues) {
-		const path = toFormFieldPath(issue.path.join('.'))
+		const path = toFormFieldPath(issue.path.join('.'), ctx.value)
 		ctx.issues.push({ code: 'custom', input: ctx.value, path: path?.split('.').map((part) => (/^\d+$/.test(part) ? Number(part) : part)) ?? [], message: issue.message })
 	}
 })
 
 export type RecipeFormValues = z.infer<typeof recipeFormSchema>
-export type IngredientFormRow = RecipeFormValues['ingredients'][number]
-export type InstructionFormRow = RecipeFormValues['instructions'][number]
+export type IngredientFormGroup = RecipeFormValues['ingredients'][number]
+export type InstructionFormGroup = RecipeFormValues['instructions'][number]
+export type IngredientFormRow = IngredientFormGroup['rows'][number]
+export type InstructionFormRow = InstructionFormGroup['steps'][number]
 
 export const emptyIngredientRow = (): IngredientFormRow => ({ name: '', amount: '', unit: '' })
 export const emptyInstructionRow = (): InstructionFormRow => ({ id: null, description: '', photo: noPhoto() })
@@ -104,7 +142,7 @@ export const emptyInstructionRow = (): InstructionFormRow => ({ id: null, descri
 export function createEmptyRecipeValues(): RecipeFormValues {
 	return {
 		title: '', description: '', categories: [], prepTime: '', cookTime: '', servings: '', videoUrl: '', cover: noPhoto(),
-		ingredients: [emptyIngredientRow()], instructions: [emptyInstructionRow()], notes: '',
+		ingredients: [{ heading: null, rows: [emptyIngredientRow()] }], instructions: [{ heading: null, steps: [emptyInstructionRow()] }], notes: '',
 	}
 }
 
@@ -113,6 +151,11 @@ const wholeNumberOrNull = (text: string) => {
 	const value = text.trim()
 	if (!value) return null
 	return /^\d+$/.test(value) ? Number(value) : Number.NaN
+}
+
+/** The contract's flat row list: each group's first row carries its trimmed heading, every other row null. */
+export function flattenGroups<K extends string, T, R>(groups: FormGroup<K, T>[], key: K, map: (row: T) => R): Array<R & { heading: string | null }> {
+	return groups.flatMap((group) => group[key].map((row, index) => ({ ...map(row), heading: index === 0 ? group.heading?.trim() ?? null : null })))
 }
 
 /** The metadata fields create and update share. Invalid numbers become NaN so the shared schema rejects them. */
@@ -126,7 +169,7 @@ export function toSharedMetadata(values: RecipeFormValues): Omit<CreateRecipeMet
 		cookTimeMinutes: wholeNumberOrNull(values.cookTime),
 		videoUrl: blankToNull(values.videoUrl),
 		notes: blankToNull(values.notes),
-		ingredients: values.ingredients.map((row) => {
+		ingredients: flattenGroups(values.ingredients, 'rows', (row) => {
 			const name = row.name.trim()
 			if (row.unit === TO_TASTE || row.unit === '') return { name, quantity: null, unit: null }
 			const amount = parseAmount(row.amount)
@@ -138,6 +181,6 @@ export function toSharedMetadata(values: RecipeFormValues): Omit<CreateRecipeMet
 export function toCreateRecipeMetadata(values: RecipeFormValues): CreateRecipeMetadata {
 	return {
 		...toSharedMetadata(values),
-		instructions: values.instructions.map((step) => ({ description: step.description.trim(), hasImage: step.photo.kind === 'new' })),
+		instructions: flattenGroups(values.instructions, 'steps', (step) => ({ description: step.description.trim(), hasImage: step.photo.kind === 'new' })),
 	}
 }

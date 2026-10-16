@@ -1,7 +1,6 @@
 import { MEASUREMENT_UNITS } from '@recipe-app/contracts/types'
-import { ClipboardList, Plus } from 'lucide-react'
-import { useController, useFieldArray, useFormContext, useFormState, type FieldErrors } from 'react-hook-form'
-import { Button } from '@/components/ui/button'
+import { ClipboardList } from 'lucide-react'
+import { useController, useFormContext, useFormState, type FieldErrors } from 'react-hook-form'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
@@ -10,25 +9,20 @@ import { fieldA11y, inputClass } from '../lib/field-props'
 import { FieldError } from './form-field'
 import { RowControls } from './row-controls'
 import { SectionCard } from './section-card'
-import { useRowActions } from '../hooks/use-row-actions'
+import { useRowGroups } from '../hooks/use-row-groups'
+import { AddRowControls, GroupHeading } from './row-group'
 
-type IngredientRowProps = { index: number; count: number; onMove: (direction: 'up' | 'down') => void; onRemove: () => void }
+type RowPlace = { group: number; row: number; position: number }
+type IngredientRowProps = RowPlace & { canMove: (direction: 'up' | 'down') => boolean; onMove: (direction: 'up' | 'down') => void; onRemove: () => void }
 
 const ROW_GRID = 'sm:grid sm:grid-cols-[minmax(0,1fr)_5.5rem_8.5rem_auto] sm:items-center sm:gap-2'
 
 export function IngredientsSection() {
 	const { control } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
-	const { fields, append, remove, move, update } = useFieldArray({ control, name: 'ingredients' })
-	const { listRef, focusNewRow, moveRow, removeRow } = useRowActions<HTMLOListElement>({
-		count: fields.length, control: 'name', move, remove, clear: () => update(0, emptyIngredientRow()),
-	})
+	const { containerRef, ...rows } = useRowGroups({ name: 'ingredients', key: 'rows', empty: emptyIngredientRow, control: 'name' })
 	const listError = errors.ingredients?.message ?? errors.ingredients?.root?.message
-
-	function add() {
-		focusNewRow()
-		append(emptyIngredientRow(), { shouldFocus: false })
-	}
+	const atLimit = rows.total >= MAX_ROWS.ingredients
 
 	return (
 		<SectionCard icon={ClipboardList} title="Ingredients" required>
@@ -38,19 +32,43 @@ export function IngredientsSection() {
 				<span>Unit</span>
 				<span className="w-33" />
 			</div>
-			<ol ref={listRef} className="space-y-4 sm:space-y-3">
-				{fields.map((field, index) => (
-					<IngredientRow key={field.id} index={index} count={fields.length} onMove={(direction) => moveRow(index, direction)} onRemove={() => removeRow(index)} />
+			<div ref={containerRef} className="space-y-5">
+				{rows.groups.map((field, group) => (
+					<div key={field.id} data-group={group} className={cn('space-y-4 sm:space-y-3', group > 0 && 'border-t border-border pt-5')}>
+						{group > 0 && (
+							<GroupHeading
+								list="ingredients"
+								group={group}
+								placeholder="Group name, such as Sauces"
+								canMove={(direction) => rows.canMoveGroup(group, direction)}
+								onMove={(direction) => rows.moveGroup(group, direction)}
+								onRemoveHeading={() => rows.removeHeading(group)}
+							/>
+						)}
+						<ol className="space-y-4 sm:space-y-3">
+							{field.rows.map((_, row) => (
+								<IngredientRow
+									key={`${field.id}-${row}`}
+									group={group}
+									row={row}
+									position={rows.startOf(group) + row + 1}
+									canMove={(direction) => rows.canMoveRow(group, row, direction)}
+									onMove={(direction) => rows.moveRow(group, row, direction)}
+									onRemove={() => rows.removeRow(group, row)}
+								/>
+							))}
+						</ol>
+						<AddRowControls
+							addLabel="Add ingredient"
+							limitText={`You’ve reached the limit of ${MAX_ROWS.ingredients} ingredients.`}
+							atLimit={atLimit}
+							onAdd={() => rows.addRow(group)}
+							onAddGroup={group === rows.groups.length - 1 ? rows.addGroup : undefined}
+						/>
+					</div>
 				))}
-			</ol>
+			</div>
 			{listError && <FieldError id="recipe-ingredients-error">{listError}</FieldError>}
-			{fields.length < MAX_ROWS.ingredients ? (
-				<Button type="button" variant="outline" className="h-11 w-full border-dashed" onClick={add}>
-					<Plus aria-hidden="true" /> Add ingredient
-				</Button>
-			) : (
-				<p className="text-sm text-muted-foreground">You’ve reached the limit of {MAX_ROWS.ingredients} ingredients.</p>
-			)}
 		</SectionCard>
 	)
 }
@@ -64,8 +82,8 @@ const UNIT_ITEMS = [
 
 type RowErrors = Partial<Record<'name' | 'amount' | 'unit', string>>
 
-function ingredientRowErrors(errors: FieldErrors<RecipeFormValues>, index: number): RowErrors {
-	const row = errors.ingredients?.[index]
+function ingredientRowErrors(errors: FieldErrors<RecipeFormValues>, group: number, index: number): RowErrors {
+	const row = errors.ingredients?.[group]?.rows?.[index]
 	return { name: row?.name?.message, amount: row?.amount?.message, unit: row?.unit?.message }
 }
 
@@ -73,21 +91,21 @@ function RowFieldErrors({ base, errors }: { base: string; errors: RowErrors }) {
 	return (['name', 'amount', 'unit'] as const).map((key) => errors[key] && <FieldError key={key} id={`${base}-${key}-error`}>{errors[key]}</FieldError>)
 }
 
-function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
+function IngredientRow({ group, row, position, canMove, onMove, onRemove }: IngredientRowProps) {
 	const { register, setValue, control } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
-	const { field: { value: unit, onChange: changeUnit, onBlur: blurUnit, ref: unitRef } } = useController({ control, name: `ingredients.${index}.unit` })
-	const rowErrors = ingredientRowErrors(errors, index)
-	const position = index + 1
-	const base = `recipe-ingredient-${index}`
+	const { field: { value: unit, onChange: changeUnit, onBlur: blurUnit, ref: unitRef } } = useController({ control, name: `ingredients.${group}.rows.${row}.unit` })
+	const rowErrors = ingredientRowErrors(errors, group, row)
+	const path = `ingredients.${group}.rows.${row}` as const
+	const base = `recipe-ingredient-${position - 1}`
 	const toTaste = unit === TO_TASTE
 
 	return (
-		<li className="space-y-1.5">
+		<li className="space-y-1.5" data-row={position - 1}>
 			<div className={cn('flex flex-wrap items-center gap-2', ROW_GRID)}>
 				<Input
 					{...fieldA11y(`${base}-name`, rowErrors.name)}
-					{...register(`ingredients.${index}.name`)}
+					{...register(`${path}.name`)}
 					className={cn(inputClass, 'basis-full sm:basis-auto')}
 					aria-label={`Ingredient ${position} name`}
 					data-control="name"
@@ -95,10 +113,9 @@ function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
 				/>
 				<Input
 					{...fieldA11y(`${base}-amount`, rowErrors.amount)}
-					{...register(`ingredients.${index}.amount`)}
+					{...register(`${path}.amount`)}
 					className={cn(inputClass, 'w-16 sm:w-auto')}
 					aria-label={`Ingredient ${position} amount`}
-					inputMode="decimal"
 					autoComplete="off"
 					disabled={toTaste}
 					placeholder={toTaste ? '-' : undefined}
@@ -108,7 +125,7 @@ function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
 					value={unit || null}
 					onValueChange={(value) => {
 						changeUnit(value ?? '')
-						if (value === TO_TASTE) setValue(`ingredients.${index}.amount`, '', { shouldDirty: true })
+						if (value === TO_TASTE) setValue(`${path}.amount`, '', { shouldDirty: true })
 					}}
 				>
 					<SelectTrigger
@@ -124,7 +141,7 @@ function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
 						{UNIT_ITEMS.map(({ value, label }) => <SelectItem key={label} value={value} className="min-h-9 text-base">{label}</SelectItem>)}
 					</SelectContent>
 				</Select>
-				<RowControls noun="ingredient" position={position} count={count} onMove={onMove} onRemove={onRemove} className="ml-auto" />
+				<RowControls noun="ingredient" position={position} canMove={canMove} onMove={onMove} onRemove={onRemove} className="ml-auto" />
 			</div>
 			<RowFieldErrors base={base} errors={rowErrors} />
 		</li>

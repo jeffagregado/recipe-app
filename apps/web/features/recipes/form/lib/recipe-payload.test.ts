@@ -12,17 +12,17 @@ const file = (name: string, size = 4) => {
 const values = (overrides: Partial<RecipeFormValues> = {}): RecipeFormValues => ({
 	...createEmptyRecipeValues(),
 	title: 'Pasta',
-	ingredients: [{ name: 'Pasta', amount: '200', unit: 'g' }],
-	instructions: [{ id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') }],
+	ingredients: [{ heading: null, rows: [{ name: 'Pasta', amount: '200', unit: 'g' }] }],
+	instructions: [{ heading: null, steps: [{ id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') }] }],
 	cover: existingPhoto('https://storage.example/cover.jpg'),
 	...overrides,
 })
 
 describe('create mode', () => {
 	it('builds the create payload with the step photo it declares', () => {
-		const prepared = prepareRecipePayload('create', values({ cover: noPhoto(), instructions: [{ id: null, description: 'Boil', photo: newPhoto(file('boil.png')) }] }))
+		const prepared = prepareRecipePayload('create', values({ cover: noPhoto(), instructions: [{ heading: null, steps: [{ id: null, description: 'Boil', photo: newPhoto(file('boil.png')) }] }] }))
 		const data = prepared!.build('11111111-1111-4111-8111-111111111111')
-		expect(JSON.parse(data.get('recipe') as string).instructions).toEqual([{ description: 'Boil', hasImage: true }])
+		expect(JSON.parse(data.get('recipe') as string).instructions).toEqual([{ description: 'Boil', hasImage: true, heading: null }])
 		expect((data.get('step-0') as File).name).toBe('boil.png')
 	})
 
@@ -34,7 +34,7 @@ describe('create mode', () => {
 describe('edit mode', () => {
 	it('builds the update payload with image slots and no files for kept photos', () => {
 		const data = prepareRecipePayload('edit', values())!.build('11111111-1111-4111-8111-111111111111')
-		expect(JSON.parse(data.get('recipe') as string)).toMatchObject({ cover: 'keep', instructions: [{ id: 's1', description: 'Boil', image: 'keep' }] })
+		expect(JSON.parse(data.get('recipe') as string)).toMatchObject({ cover: 'keep', instructions: [{ id: 's1', description: 'Boil', image: 'keep', heading: null }] })
 		expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
 	})
 
@@ -44,7 +44,7 @@ describe('edit mode', () => {
 	})
 
 	it('returns null for values the shared schema rejects', () => {
-		expect(prepareRecipePayload('edit', values({ ingredients: [{ name: 'Pasta', amount: 'lots', unit: 'g' }] }))).toBeNull()
+		expect(prepareRecipePayload('edit', values({ ingredients: [{ heading: null, rows: [{ name: 'Pasta', amount: 'lots', unit: 'g' }] }] }))).toBeNull()
 	})
 })
 
@@ -61,8 +61,8 @@ describe('fingerprint', () => {
 		expect(fingerprint('edit', { title: 'Pasta 2' })).not.toBe(baseline)
 		expect(fingerprint('edit', { cover: noPhoto() })).not.toBe(baseline)
 		expect(fingerprint('edit', { cover: newPhoto(file('a.png')) })).not.toBe(baseline)
-		expect(fingerprint('edit', { instructions: [{ id: 's1', description: 'Boil', photo: noPhoto() }] })).not.toBe(baseline)
-		expect(fingerprint('edit', { instructions: [{ id: 's1', description: 'Boil', photo: newPhoto(file('b.png')) }] })).not.toBe(baseline)
+		expect(fingerprint('edit', { instructions: [{ heading: null, steps: [{ id: 's1', description: 'Boil', photo: noPhoto() }] }] })).not.toBe(baseline)
+		expect(fingerprint('edit', { instructions: [{ heading: null, steps: [{ id: 's1', description: 'Boil', photo: newPhoto(file('b.png')) }] }] })).not.toBe(baseline)
 	})
 
 	it('tells two different replacement files for the same slot apart', () => {

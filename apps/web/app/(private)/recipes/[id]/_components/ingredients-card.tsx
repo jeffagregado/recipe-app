@@ -6,10 +6,12 @@ import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { servingsLabel } from '../_lib/recipe-detail-format'
 import { clampServings, MAX_SERVINGS, MIN_SERVINGS, scaledAmount } from '../_lib/scale-quantity'
+import { groupRows } from '@/features/recipes/lib/group-rows'
 import { DetailCard } from './detail-card'
+import { GroupList } from './group-list'
 import { ServingsStepper } from './servings-stepper'
 
-type IngredientRow = Pick<RecipeDetail['ingredients'][number], 'id' | 'name' | 'quantity' | 'unit'>
+type IngredientRow = Pick<RecipeDetail['ingredients'][number], 'id' | 'name' | 'quantity' | 'unit' | 'heading'>
 
 type IngredientsCardProps = {
 	ingredients: IngredientRow[]
@@ -17,7 +19,7 @@ type IngredientsCardProps = {
 	servings: number | null
 }
 
-/** Check-off and servings scaling are on-screen state for this visit only; nothing is saved. */
+/** Check-off and servings scaling are on-screen state for this visit only and cover every group; nothing is saved. */
 export function IngredientsCard({ ingredients, servings }: IngredientsCardProps) {
 	const [checked, setChecked] = useState<ReadonlySet<string>>(new Set())
 	const [chosen, setChosen] = useState(servings)
@@ -58,22 +60,30 @@ export function IngredientsCard({ ingredients, servings }: IngredientsCardProps)
 					<Button type="button" variant="link" className="h-11 px-1 sm:h-8" onClick={reset}>Reset</Button>
 				</p>
 			)}
-			<ul aria-label="Ingredients" className="divide-y divide-foreground/10">
-				{ingredients.map(({ id, name, quantity, unit }) => {
-					const done = checked.has(id)
-					return (
-						<li key={id}>
-							<label className="flex min-h-11 cursor-pointer items-center gap-3 py-2.5">
-								<input type="checkbox" checked={done} onChange={() => toggle(id)} className="size-5 shrink-0 accent-primary" />
-								<span className={done ? 'min-w-0 flex-1 text-muted-foreground line-through wrap-break-word' : 'min-w-0 flex-1 wrap-break-word'}>{name}</span>
-								<span className={done ? 'shrink-0 text-sm font-medium text-muted-foreground line-through tabular-nums' : 'shrink-0 text-sm font-medium tabular-nums'}>
-									{scaledAmount(quantity, unit, servings ?? 1, chosen ?? 1)}
-								</span>
-							</label>
-						</li>
-					)
-				})}
-			</ul>
+			<div className="flex flex-col gap-4">
+				{groupRows(ingredients).map((group) => (
+					<GroupList key={group.rows[0].id} heading={group.heading} label="Ingredients">
+						{(labelProps) => (
+							<ul {...labelProps} className="divide-y divide-foreground/10">
+								{group.rows.map(({ id, name, quantity, unit }) => {
+									const done = checked.has(id)
+									return (
+										<li key={id}>
+											<label className="flex min-h-11 cursor-pointer items-center gap-3 py-2.5">
+												<input type="checkbox" checked={done} onChange={() => toggle(id)} className="size-5 shrink-0 accent-primary" />
+												<span className={done ? 'min-w-0 flex-1 text-muted-foreground line-through wrap-break-word' : 'min-w-0 flex-1 wrap-break-word'}>{name}</span>
+												<span className={done ? 'shrink-0 text-sm font-medium text-muted-foreground line-through tabular-nums' : 'shrink-0 text-sm font-medium tabular-nums'}>
+													{scaledAmount(quantity, unit, servings ?? 1, chosen ?? 1)}
+												</span>
+											</label>
+										</li>
+									)
+								})}
+							</ul>
+						)}
+					</GroupList>
+				))}
+			</div>
 		</DetailCard>
 	)
 }

@@ -1,10 +1,12 @@
 import type { RecipeDetail, RecipeImageSlot, UpdateRecipeMetadata } from '@recipe-app/contracts/types'
-import { TO_TASTE, toSharedMetadata, type RecipeFormValues } from './recipe-form-schema'
+import { groupRows } from '../../lib/group-rows'
+import { kitchenAmount } from '../../lib/kitchen-amount'
+import { flattenGroups, TO_TASTE, toSharedMetadata, type RecipeFormValues } from './recipe-form-schema'
 import { existingPhoto, type PhotoValue } from './recipe-photo'
 
 const text = (value: number | null) => (value === null ? '' : String(value))
 
-/** Pre-fills the form from a stored recipe: numbers become the strings the form edits and stored photos become `existing` slots. */
+/** Pre-fills the form from a stored recipe: rows split into their groups, amounts become the (fraction) text the form edits and stored photos become `existing` slots. */
 export function toRecipeFormValues(recipe: RecipeDetail): RecipeFormValues {
 	return {
 		title: recipe.title,
@@ -16,14 +18,18 @@ export function toRecipeFormValues(recipe: RecipeDetail): RecipeFormValues {
 		videoUrl: recipe.videoUrl ?? '',
 		notes: recipe.notes ?? '',
 		cover: existingPhoto(recipe.imageUrl),
-		ingredients: recipe.ingredients.toSorted((a, b) => a.sortOrder - b.sortOrder).map((row) => (
-			row.quantity === null || row.unit === null
-				? { name: row.name, amount: '', unit: TO_TASTE }
-				: { name: row.name, amount: String(row.quantity), unit: row.unit }
-		)),
-		instructions: recipe.instructions.toSorted((a, b) => a.stepNumber - b.stepNumber).map((step) => (
-			{ id: step.id, description: step.description, photo: existingPhoto(step.imageUrl) }
-		)),
+		ingredients: groupRows(recipe.ingredients.toSorted((a, b) => a.sortOrder - b.sortOrder)).map((group, index) => ({
+			heading: index === 0 ? null : group.heading,
+			rows: group.rows.map((row) => (
+				row.quantity === null || row.unit === null
+					? { name: row.name, amount: '', unit: TO_TASTE }
+					: { name: row.name, amount: kitchenAmount(row.quantity, 'stored'), unit: row.unit }
+			)),
+		})),
+		instructions: groupRows(recipe.instructions.toSorted((a, b) => a.stepNumber - b.stepNumber)).map((group, index) => ({
+			heading: index === 0 ? null : group.heading,
+			steps: group.rows.map((step) => ({ id: step.id, description: step.description, photo: existingPhoto(step.imageUrl) })),
+		})),
 	}
 }
 
@@ -38,6 +44,6 @@ export function toUpdateRecipeMetadata(values: RecipeFormValues): UpdateRecipeMe
 	return {
 		...toSharedMetadata(values),
 		cover: slot(values.cover),
-		instructions: values.instructions.map((step) => ({ id: step.id, description: step.description.trim(), image: slot(step.photo) })),
+		instructions: flattenGroups(values.instructions, 'steps', (step) => ({ id: step.id, description: step.description.trim(), image: slot(step.photo) })),
 	}
 }

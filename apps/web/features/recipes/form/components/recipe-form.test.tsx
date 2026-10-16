@@ -87,14 +87,14 @@ it('reports blank fields inline, focuses the first invalid control and does not 
 	expect(onSave).not.toHaveBeenCalled()
 })
 
-it('explains that fractions are not accepted as amounts', async () => {
+it('explains a malformed amount inline and focuses it', async () => {
 	const user = userEvent.setup()
 	renderForm()
 	await fillMinimum(user)
 	await user.clear(screen.getByLabelText('Ingredient 1 amount'))
-	await user.type(screen.getByLabelText('Ingredient 1 amount'), '1/2')
+	await user.type(screen.getByLabelText('Ingredient 1 amount'), '1/0')
 	await user.click(save())
-	expect(await screen.findByText(/Use a decimal such as 0.5/)).toBeInTheDocument()
+	expect(await screen.findByText('Enter a number such as 1.5, 1/2 or 1 1/2.')).toBeInTheDocument()
 	await waitFor(() => expect(screen.getByLabelText('Ingredient 1 amount')).toHaveFocus())
 	expect(onSave).not.toHaveBeenCalled()
 })

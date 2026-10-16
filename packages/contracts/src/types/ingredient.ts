@@ -52,6 +52,9 @@ export type RecipeIngredient = {
    */
   note: string | null;
 
+  /** Name of the group this row opens; null continues the group above. */
+  heading: string | null;
+
   sortOrder: number;
 };
 

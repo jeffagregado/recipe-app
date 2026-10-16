@@ -2,22 +2,24 @@ import { describe, expect, it } from 'vitest'
 import { clampServings, MAX_SERVINGS, MIN_SERVINGS, scaledAmount } from './scale-quantity'
 
 describe('scaledAmount', () => {
-	it('keeps the stored amount exactly at the original servings, including three decimals', () => {
-		expect(scaledAmount(1.125, 'cup', 4, 4)).toBe('1.125 cup')
+	it('keeps the stored amount exactly at the original servings, as a kitchen fraction when it is one', () => {
+		expect(scaledAmount(1.125, 'cup', 4, 4)).toBe('1⅛ cup')
+		expect(scaledAmount(1.123, 'cup', 4, 4)).toBe('1.123 cup')
 		expect(scaledAmount(200, 'g', 2, 2)).toBe('200 g')
 	})
 
 	it('scales amounts with the servings ratio', () => {
 		expect(scaledAmount(100, 'g', 2, 3)).toBe('150 g')
-		expect(scaledAmount(1, 'tbsp', 2, 3)).toBe('1.5 tbsp')
+		expect(scaledAmount(1, 'tbsp', 2, 3)).toBe('1½ tbsp')
 		expect(scaledAmount(300, 'g', 3, 2)).toBe('200 g')
 	})
 
-	it('rounds to at most two decimals and drops trailing zeros', () => {
-		expect(scaledAmount(1, 'cup', 3, 1)).toBe('0.33 cup')
-		expect(scaledAmount(2, 'cup', 3, 1)).toBe('0.67 cup')
+	it('shows near kitchen fractions, and otherwise rounds to at most two decimals without trailing zeros', () => {
+		expect(scaledAmount(1, 'cup', 3, 1)).toBe('⅓ cup')
+		expect(scaledAmount(2, 'cup', 3, 1)).toBe('⅔ cup')
 		expect(scaledAmount(1.5, 'tsp', 2, 4)).toBe('3 tsp')
-		expect(scaledAmount(0.5, 'tsp', 2, 3)).toBe('0.75 tsp')
+		expect(scaledAmount(0.5, 'tsp', 2, 3)).toBe('¾ tsp')
+		expect(scaledAmount(1, 'cup', 2, 5)).toBe('2½ cup')
 		expect(scaledAmount(0.1, 'tsp', 3, 1)).toBe('0.03 tsp')
 	})
 
@@ -28,7 +30,7 @@ describe('scaledAmount', () => {
 
 	it('returns to the exact original values after scaling back', () => {
 		expect(scaledAmount(0.375, 'cup', 8, 3)).toBe('0.14 cup')
-		expect(scaledAmount(0.375, 'cup', 8, 8)).toBe('0.375 cup')
+		expect(scaledAmount(0.375, 'cup', 8, 8)).toBe('⅜ cup')
 	})
 
 	it.each([

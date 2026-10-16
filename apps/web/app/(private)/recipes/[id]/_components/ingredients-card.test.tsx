@@ -4,10 +4,10 @@ import { expect, it } from 'vitest'
 import { IngredientsCard } from './ingredients-card'
 
 const ingredients = [
-	{ id: 'i1', name: 'Spaghetti', quantity: 200, unit: 'g' as const },
-	{ id: 'i2', name: 'Butter', quantity: 1, unit: 'tbsp' as const },
-	{ id: 'i3', name: 'Garlic', quantity: 4, unit: 'clove' as const },
-	{ id: 'i4', name: 'Salt', quantity: null, unit: null },
+	{ id: 'i1', name: 'Spaghetti', quantity: 200, unit: 'g' as const, heading: null },
+	{ id: 'i2', name: 'Butter', quantity: 1, unit: 'tbsp' as const, heading: null },
+	{ id: 'i3', name: 'Garlic', quantity: 4, unit: 'clove' as const, heading: null },
+	{ id: 'i4', name: 'Salt', quantity: null, unit: null, heading: null },
 ]
 
 const rows = () => within(screen.getByRole('list', { name: 'Ingredients' })).getAllByRole('listitem')
@@ -51,7 +51,7 @@ it('rescales amounts, announces the new count and leaves "to taste" alone', asyn
 
 	await user.click(increase())
 	expect(within(group).getByRole('status')).toHaveTextContent('3')
-	expect(amounts()).toEqual(['300 g', '1.5 tbsp', '6 clove', 'to taste'])
+	expect(amounts()).toEqual(['300 g', '1½ tbsp', '6 clove', 'to taste'])
 	expect(screen.getByText(/Scaled from 2 servings\./)).toBeInTheDocument()
 })
 
@@ -60,7 +60,7 @@ it('restores the exact stored amounts with Reset and keeps focus inside the cont
 	render(<IngredientsCard ingredients={ingredients} servings={4} />)
 	await user.click(decrease())
 	await user.click(decrease())
-	expect(amounts()).toEqual(['100 g', '0.5 tbsp', '2 clove', 'to taste'])
+	expect(amounts()).toEqual(['100 g', '½ tbsp', '2 clove', 'to taste'])
 	await user.click(screen.getByRole('button', { name: 'Reset' }))
 	expect(amounts()).toEqual(['200 g', '1 tbsp', '4 clove', 'to taste'])
 	expect(screen.queryByText(/Scaled from/)).not.toBeInTheDocument()
@@ -102,4 +102,18 @@ it('keeps checked rows checked while scaling', async () => {
 	await user.click(screen.getByRole('checkbox', { name: /Garlic/ }))
 	await user.click(increase())
 	expect(screen.getByRole('checkbox', { name: /Garlic/ })).toBeChecked()
+})
+
+it('lists each named group under its own heading, and checks off and scales rows in every group', async () => {
+	const user = userEvent.setup()
+	render(<IngredientsCard ingredients={[ingredients[0], { ...ingredients[1], heading: 'Sauce' }, ingredients[2], { ...ingredients[3], heading: 'To finish' }]} servings={2} />)
+	expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Sauce', 'To finish'])
+	expect(within(screen.getByRole('list', { name: 'Ingredients' })).getAllByRole('listitem')).toHaveLength(1)
+	expect(within(screen.getByRole('list', { name: 'Sauce' })).getAllByRole('listitem').map((row) => row.textContent)).toEqual(['Butter1 tbsp', 'Garlic4 clove'])
+	expect(within(screen.getByRole('list', { name: 'To finish' })).getByRole('checkbox', { name: /Salt/ })).toBeInTheDocument()
+	await user.click(screen.getByRole('checkbox', { name: /Garlic/ }))
+	expect(screen.getByText('Garlic')).toHaveClass('line-through')
+	await user.click(increase())
+	expect(screen.getByText('1½ tbsp')).toBeInTheDocument()
+	expect(screen.getByText('6 clove')).toHaveClass('line-through')
 })

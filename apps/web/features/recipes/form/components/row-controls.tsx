@@ -1,17 +1,18 @@
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import type { Direction } from '../lib/row-groups'
 
 type RowControlsProps = {
 	noun: 'ingredient' | 'step'
 	position: number
-	count: number
-	onMove: (direction: 'up' | 'down') => void
+	canMove: (direction: Direction) => boolean
+	onMove: (direction: Direction) => void
 	onRemove: () => void
 	className?: string
 }
 
-export function RowControls({ noun, position, count, onMove, onRemove, className }: RowControlsProps) {
+export function RowControls({ noun, position, canMove, onMove, onRemove, className }: RowControlsProps) {
 	return (
 		<div className={cn('flex shrink-0 items-center', className)}>
 			<Button
@@ -21,7 +22,7 @@ export function RowControls({ noun, position, count, onMove, onRemove, className
 				className="size-11"
 				aria-label={`Move ${noun} ${position} up`}
 				data-control="move-up"
-				disabled={position === 1}
+				disabled={!canMove('up')}
 				onClick={() => onMove('up')}
 			>
 				<ChevronUp aria-hidden="true" />
@@ -33,7 +34,7 @@ export function RowControls({ noun, position, count, onMove, onRemove, className
 				className="size-11"
 				aria-label={`Move ${noun} ${position} down`}
 				data-control="move-down"
-				disabled={position === count}
+				disabled={!canMove('down')}
 				onClick={() => onMove('down')}
 			>
 				<ChevronDown aria-hidden="true" />

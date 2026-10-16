@@ -58,13 +58,13 @@ it('renders every detail of a rich recipe, with the sections in mobile order', a
 		notes: 'Line one\nLine two',
 		videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
 		ingredients: [
-			{ id: 'i1', ingredientId: 'b1', name: 'Flour', quantity: 200, unit: 'g', preparation: null, note: null, sortOrder: 0 },
-			{ id: 'i2', ingredientId: 'b2', name: 'Sugar', quantity: 1.5, unit: 'cup', preparation: null, note: null, sortOrder: 1 },
-			{ id: 'i3', ingredientId: 'b3', name: 'Salt', quantity: null, unit: null, preparation: null, note: null, sortOrder: 2 },
+			{ id: 'i1', ingredientId: 'b1', name: 'Flour', quantity: 200, unit: 'g', preparation: null, note: null, heading: null, sortOrder: 0 },
+			{ id: 'i2', ingredientId: 'b2', name: 'Sugar', quantity: 1.5, unit: 'cup', preparation: null, note: null, heading: null, sortOrder: 1 },
+			{ id: 'i3', ingredientId: 'b3', name: 'Salt', quantity: null, unit: null, preparation: null, note: null, heading: null, sortOrder: 2 },
 		],
 		instructions: [
-			{ id: 's1', stepNumber: 1, description: 'Mix.', imageUrl: null },
-			{ id: 's2', stepNumber: 2, description: 'Bake.', imageUrl: 'https://storage.example/step2.jpg' },
+			{ id: 's1', stepNumber: 1, description: 'Mix.', imageUrl: null, heading: null },
+			{ id: 's2', stepNumber: 2, description: 'Bake.', imageUrl: 'https://storage.example/step2.jpg', heading: null },
 		],
 	}))
 
@@ -80,7 +80,7 @@ it('renders every detail of a rich recipe, with the sections in mobile order', a
 
 	expect(sections()).toEqual(['Ingredients', 'Video', 'Instructions', 'Notes'])
 	const ingredients = within(screen.getByRole('list', { name: 'Ingredients' })).getAllByRole('listitem')
-	expect(ingredients.map((item) => item.textContent)).toEqual(['Flour200 g', 'Sugar1.5 cup', 'Saltto taste'])
+	expect(ingredients.map((item) => item.textContent)).toEqual(['Flour200 g', 'Sugar1½ cup', 'Saltto taste'])
 	expect(screen.getByRole('group', { name: 'Servings' })).toBeInTheDocument()
 
 	expect(screen.getByRole('button', { name: 'Play video' })).toBeInTheDocument()
@@ -133,4 +133,16 @@ it('puts the favorite heart and the ⋮ menu to the right of the title, in that 
 it('starts the heart unpressed for a recipe that is not a favorite', async () => {
 	await renderRecipe(recipeDetailFixture({ id: 'recipe-not-favorite', isFavorite: false }))
 	expect(screen.getByRole('button', { name: 'Add Tomato Soup to favorites' })).toHaveAttribute('aria-pressed', 'false')
+})
+
+it('renders named groups under their own headings with step numbers that run on across groups', async () => {
+	const step = (id: string, stepNumber: number, description: string, heading: string | null = null) => ({ id, stepNumber, description, imageUrl: null, heading })
+	await renderRecipe(recipeDetailFixture({
+		instructions: [step('s1', 1, 'Boil.'), step('s2', 2, 'Drain.'), step('s3', 3, 'Melt.', 'Make the sauce'), step('s4', 4, 'Stir.')],
+	}))
+	expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Make the sauce'])
+	const sauce = screen.getByRole('list', { name: 'Make the sauce' })
+	expect(sauce).toHaveAttribute('start', '3')
+	expect(within(sauce).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['3Melt.', '4Stir.'])
+	expect(within(screen.getByRole('list', { name: 'Instructions' })).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['1Boil.', '2Drain.'])
 })

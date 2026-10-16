@@ -49,7 +49,7 @@ test.describe('content', () => {
     await expect(section(page, 'Notes')).toContainText('Swap the bacon for mushrooms.');
     await expect(section(page, 'Notes')).toContainText('Keeps for two days.');
     expect(await ingredientRows(page)).toEqual([
-      { name: 'Spaghetti', amount: '200 g' }, { name: 'Olive oil', amount: '1.5 tbsp' }, { name: 'Salt', amount: 'to taste' },
+      { name: 'Spaghetti', amount: '200 g' }, { name: 'Olive oil', amount: '1½ tbsp' }, { name: 'Salt', amount: 'to taste' },
     ]);
     expect(await stepTexts(page)).toEqual(RICH.steps);
     // Cover under the back link, with the title beside it from lg (the desktop project); the heart and ⋮ are not in a top bar.
@@ -135,12 +135,12 @@ test.describe('servings scaler', () => {
   const stepper = (page: Page) => page.getByRole('group', { name: 'Servings' });
   const servingsValue = (page: Page) => stepper(page).locator('output');
 
-  test('+ and − rescale amounts to two decimals, "to taste" stays, Reset restores, and nothing is saved', async ({ page, creator, workerData }) => {
+  test('+ and − rescale amounts to kitchen fractions or two decimals, "to taste" stays, Reset restores, and nothing is saved', async ({ page, creator, workerData }) => {
     const id = await createRecipeViaApi(creator, workerData.address, scalable('Scaling soup'));
     const before = await workerData.db.query.recipes.findFirst({ where: eq(recipes.id, id) });
     await openRecipe(page, id, 'Scaling soup');
     const original = [
-      { name: 'Flour', amount: '200 g' }, { name: 'Olive oil', amount: '1.5 tbsp' }, { name: 'Eggs', amount: '3 piece' }, { name: 'Pepper', amount: '0.333 tsp' }, { name: 'Salt', amount: 'to taste' },
+      { name: 'Flour', amount: '200 g' }, { name: 'Olive oil', amount: '1½ tbsp' }, { name: 'Eggs', amount: '3 piece' }, { name: 'Pepper', amount: '⅓ tsp' }, { name: 'Salt', amount: 'to taste' },
     ];
     expect(await ingredientRows(page)).toEqual(original);
     await expect(servingsValue(page)).toHaveText('4');
@@ -149,14 +149,14 @@ test.describe('servings scaler', () => {
     await page.getByRole('button', { name: 'Increase servings' }).click();
     await expect(servingsValue(page)).toHaveText('5');
     expect(await ingredientRows(page)).toEqual([
-      { name: 'Flour', amount: '250 g' }, { name: 'Olive oil', amount: '1.88 tbsp' }, { name: 'Eggs', amount: '3.75 piece' }, { name: 'Pepper', amount: '0.42 tsp' }, { name: 'Salt', amount: 'to taste' },
+      { name: 'Flour', amount: '250 g' }, { name: 'Olive oil', amount: '1⅞ tbsp' }, { name: 'Eggs', amount: '3¾ piece' }, { name: 'Pepper', amount: '0.42 tsp' }, { name: 'Salt', amount: 'to taste' },
     ]);
     await expect(page.getByText('Scaled from 4 servings.')).toBeVisible();
 
     // Eight servings: trailing zeros are dropped (3 tbsp, not 3.00).
     for (let step = 0; step < 3; step++) await page.getByRole('button', { name: 'Increase servings' }).click();
     expect(await ingredientRows(page)).toEqual([
-      { name: 'Flour', amount: '400 g' }, { name: 'Olive oil', amount: '3 tbsp' }, { name: 'Eggs', amount: '6 piece' }, { name: 'Pepper', amount: '0.67 tsp' }, { name: 'Salt', amount: 'to taste' },
+      { name: 'Flour', amount: '400 g' }, { name: 'Olive oil', amount: '3 tbsp' }, { name: 'Eggs', amount: '6 piece' }, { name: 'Pepper', amount: '⅔ tsp' }, { name: 'Salt', amount: 'to taste' },
     ]);
     await page.getByRole('button', { name: 'Decrease servings' }).click();
     await expect(servingsValue(page)).toHaveText('7');

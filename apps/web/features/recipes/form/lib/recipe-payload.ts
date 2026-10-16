@@ -16,7 +16,7 @@ const fileSignature = (file: File | null) => (file ? `${file.name}:${file.size}:
 
 /** Validates the form values with the API's own schema for the mode; null means they cannot be sent. */
 export function prepareRecipePayload(mode: RecipeFormMode, values: RecipeFormValues): RecipePayload | null {
-	const files: RecipeImageFiles = { cover: photoUpload(values.cover), steps: values.instructions.map((step) => photoUpload(step.photo)) }
+	const files: RecipeImageFiles = { cover: photoUpload(values.cover), steps: values.instructions.flatMap((group) => group.steps.map((step) => photoUpload(step.photo))) }
 	const fingerprint = (metadata: object) => JSON.stringify([metadata, fileSignature(files.cover), files.steps.map(fileSignature)])
 
 	if (mode === 'edit') {
