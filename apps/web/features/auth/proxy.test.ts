@@ -5,11 +5,9 @@ import { proxy } from '@/proxy'
 afterEach(() => vi.unstubAllEnvs())
 
 it('leaves bundled recipe artwork public for Next image optimization', () => {
-	for (const path of ['/recipes/recipe-placeholder.png', '/recipes/creamy-garlic-pasta.png']) {
-		const response = proxy(new NextRequest(`http://localhost:3000${path}`))
-		expect(response.status).toBe(200)
-		expect(response.headers.get('location')).toBeNull()
-	}
+	const response = proxy(new NextRequest('http://localhost:3000/recipes/creamy-garlic-pasta.png'))
+	expect(response.status).toBe(200)
+	expect(response.headers.get('location')).toBeNull()
 })
 
 it('rewrites only allowed reads at runtime and refuses arbitrary backend paths/methods', () => {
@@ -18,7 +16,7 @@ it('rewrites only allowed reads at runtime and refuses arbitrary backend paths/m
 	expect(response.headers.get('x-middleware-rewrite')).toBe('http://api.example/recipes?page=2')
 	expect(proxy(new NextRequest('http://localhost:3000/backend/auth/login')).status).toBe(404)
 	expect(proxy(new NextRequest('http://localhost:3000/backend/recipes', { method: 'POST' })).status).toBe(405)
-	expect(proxy(new NextRequest('http://localhost:3000/recipes')).headers.get('location')).toBe('http://localhost:3000/')
+	expect(proxy(new NextRequest('http://localhost:3000/recipes')).headers.get('location')).toBe('http://localhost:3000/auth/login')
 })
 
 it('adds the web proxy secret to a rewritten read on its way to the API', () => {
@@ -30,7 +28,7 @@ it('adds the web proxy secret to a rewritten read on its way to the API', () => 
 
 it('redirects cookie-less page navigations but lets other methods (Server Actions) through', () => {
 	for (const method of ['GET', 'HEAD']) {
-		expect(proxy(new NextRequest('http://localhost:3000/recipes/abc', { method })).headers.get('location')).toBe('http://localhost:3000/')
+		expect(proxy(new NextRequest('http://localhost:3000/recipes/abc', { method })).headers.get('location')).toBe('http://localhost:3000/auth/login')
 	}
 	for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
 		const response = proxy(new NextRequest('http://localhost:3000/recipes', { method }))

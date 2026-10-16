@@ -12,8 +12,8 @@ export default function SettingsPage() {
 	return (
 		<>
 			<SettingsHeader />
-			{/* One card per setting, each saving alone; later cards stack below the first. */}
-			<PageContainer className="space-y-4 pb-8 sm:space-y-5">
+			{/* One row per setting, each saving alone; later rows stack below the first. */}
+			<PageContainer className="pb-8">
 				<SessionErrorBoundary>
 					<Suspense fallback={<SettingsLoading />}>
 						<SettingsContent />

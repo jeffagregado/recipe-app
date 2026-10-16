@@ -101,7 +101,7 @@ function IngredientRow({ index, count, onMove, onRemove }: IngredientRowProps) {
 					inputMode="decimal"
 					autoComplete="off"
 					disabled={toTaste}
-					placeholder={toTaste ? '—' : undefined}
+					placeholder={toTaste ? '-' : undefined}
 				/>
 				<Select
 					items={UNIT_ITEMS}

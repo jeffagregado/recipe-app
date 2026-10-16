@@ -11,26 +11,36 @@ const cards = (page: Page) => page.getByRole('list', { name: 'Recipes' }).locato
 const allCount = (page: Page) => page.getByRole('group', { name: 'Recipe categories' }).getByRole('button', { name: /^All / });
 const mode = (page: Page, name: string) => page.getByRole('group', { name: 'Authentication mode' }).getByRole('button', { name, exact: true });
 async function login(page: Page, email: string, password: string) {
-  await page.goto('/');
+  await page.goto('/auth/login');
   await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
 }
 async function logout(page: Page) {
   await page.getByRole('button', { name: 'Log out', exact: true }).filter({ visible: true }).click();
-  await expect(page).toHaveURL(`${WEB_URL}/`);
+  await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
   await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
 }
 
 const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 const sessionCookies = async (context: BrowserContext) => (await context.cookies()).filter(({ name }) => name.endsWith('session_token'));
 
+test('the landing page shows an old notice link, then leads to login', async ({ page }) => {
+  // Links mailed before login moved to /auth/login still carry their notice to /.
+  await page.goto('/?notice=email-verified');
+  await expect(page.getByRole('heading', { level: 1, name: 'My Recipes', exact: true })).toBeVisible();
+  await expect(page.getByText('Email verified. Log in to continue.', { exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Log in', exact: true }).click();
+  await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Log in', exact: true })).toBeVisible();
+});
+
 test('signup sends to check-your-email, the link verifies once without a session, then login opens an empty library', async ({ page, context, workerData }) => {
   const email = workerData.newEmail();
   const password = workerData.newPassword();
   const key = `wrapper:signup:address:${createHash('sha256').update(workerData.address).digest('hex').slice(0, 32)}`;
   const before = await workerData.db.query.authRateLimits.findFirst({ where: eq(authRateLimits.key, key) });
-  await page.goto('/');
+  await page.goto('/auth/login');
   await mode(page, 'Sign up').click();
   await expect(page.locator('form input')).toHaveCount(3);
   await expect(page.getByLabel('Display Name', { exact: true })).toHaveAttribute('autocomplete', 'name');
@@ -48,7 +58,7 @@ test('signup sends to check-your-email, the link verifies once without a session
   expect(await sessionCookies(context)).toEqual([]);
   // Without a session the private pages stay closed.
   await page.goto('/recipes');
-  await expect(page).toHaveURL(`${WEB_URL}/`);
+  await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
 
   const [token] = await workerData.mailedTokens('verification', email);
   const opened = await page.goto(`/verify-email?token=${token}`);
@@ -60,7 +70,7 @@ test('signup sends to check-your-email, the link verifies once without a session
   expect((await workerData.storedVerificationLinks(email)).length).toBe(1);
   await page.getByRole('button', { name: 'Verify my email', exact: true }).click();
   await expect(page.getByText('Email verified. Log in to continue.', { exact: true })).toBeVisible();
-  await expect(page).toHaveURL(`${WEB_URL}/`);
+  await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
   expect(await sessionCookies(context)).toEqual([]);
   // The link works once: submitting it again shows the expired state with a way to ask for another.
   await page.goto(`/verify-email?token=${token}`);
@@ -80,12 +90,12 @@ test('signup sends to check-your-email, the link verifies once without a session
   expect(after?.count).toBe((before?.count ?? 0) + 1);
   const cookie = (await context.cookies()).find(({ name }) => name === 'better-auth.session_token');
   expect(Boolean(cookie?.httpOnly && cookie.sameSite === 'Lax')).toBe(true);
-  await page.goto('/');
+  await page.goto('/auth/login');
   await expect(page.getByText('Welcome, My test kitchen')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open recipes' })).toHaveAttribute('href', '/recipes');
   await logout(page);
   await page.goto('/recipes');
-  await expect(page).toHaveURL(`${WEB_URL}/`);
+  await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
   await login(page, email.toUpperCase(), password);
   await expect(page).toHaveURL(`${WEB_URL}/recipes`);
   await expect(page.getByText('Your recipe library is empty.', { exact: true })).toBeVisible();
@@ -99,7 +109,7 @@ test('the right password before verifying shows the verify message with a resend
   await expect(page.getByRole('button', { name: 'Resend verification email', exact: true })).toHaveCount(0);
   await login(page, email, password);
   await expect(page.getByText('Verify your email before logging in.', { exact: true })).toBeVisible();
-  await expect(page).toHaveURL(`${WEB_URL}/`);
+  await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
   expect(await fits(page)).toBe(true);
   // Counts only: a failed assertion must not print a link.
   expect((await workerData.storedVerificationLinks(email)).length).toBe(1);
@@ -132,7 +142,7 @@ test('wrong password and unknown email match; duplicate email links an exact fie
 
 test('anonymous routes redirect, keyboard login works, toggle/error focus and 320px layout work', async ({ page, workerData }) => {
   await page.goto('/recipes');
-  await expect(page).toHaveURL(`${WEB_URL}/`);
+  await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
   await page.setViewportSize({ width: 320, height: 720 });
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page.getByLabel('Email', { exact: true })).toBeFocused();
@@ -164,7 +174,7 @@ test('switching owners clears rows, totals, pagination and browser Back state', 
   await expect(cards(page)).toHaveCount(40);
   await logout(page);
   await page.goBack();
-  await expect(page).toHaveURL(`${WEB_URL}/`);
+  await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
   await expect(cards(page)).toHaveCount(0);
   await login(page, workerData.other.email, workerData.other.password);
   await expect(cards(page)).toHaveCount(20);
@@ -193,7 +203,7 @@ for (const trigger of ['pagination', 'focus'] as const) {
     expect(response.status).toBe(204);
     if (trigger === 'pagination') await page.getByText('Showing 20 of 100 recipes', { exact: true }).scrollIntoViewIfNeeded();
     else await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await expect(page).toHaveURL(`${WEB_URL}/`);
+    await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
     await expect(cards(page)).toHaveCount(0);
   });
 }
@@ -231,7 +241,7 @@ for (const width of [320, 390, 768, 1440]) {
       expect(box?.x).toBeGreaterThanOrEqual(0);
       expect((box?.x ?? width) + (box?.width ?? width)).toBeLessThanOrEqual(width);
     };
-    await page.goto('/');
+    await page.goto('/auth/login');
     await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
     await googleFits();
     await mode(page, 'Sign up').click();

@@ -32,11 +32,11 @@ it('forwards only the session cookie and returns the authenticated user', async 
 	expect(Object.fromEntries(new Headers(fetchMock.mock.calls[0][1]?.headers))).toEqual({ cookie: 'better-auth.session_token=abc' })
 })
 
-it('treats 401 as signed out and redirects private routes to the root', async () => {
+it('treats 401 as signed out and redirects private routes to login', async () => {
 	next.cookies.set('better-auth.session_token', 'abc')
 	fetchMock.mockResolvedValue(new Response(null, { status: 401 }))
 	expect(await getSession()).toEqual({ status: 'anonymous' })
-	await expect(requireSession()).rejects.toThrow('NEXT_REDIRECT:/')
+	await expect(requireSession()).rejects.toThrow('NEXT_REDIRECT:/auth/login')
 })
 
 it.each([

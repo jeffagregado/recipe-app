@@ -27,6 +27,6 @@ export const getSession = cache(async (): Promise<Session> => {
 
 export async function requireSession() {
 	const session = await getSession()
-	if (session.status === 'anonymous') redirect('/')
+	if (session.status === 'anonymous') redirect('/auth/login')
 	return session
 }

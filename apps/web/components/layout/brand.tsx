@@ -6,7 +6,7 @@ export function Brand() {
 	return (
 		<Link
 			href="/recipes"
-			className="flex w-fit rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-800 focus-visible:ring-offset-2"
+			className="flex w-fit rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 		>
 			<Logo height={40} />
 		</Link>

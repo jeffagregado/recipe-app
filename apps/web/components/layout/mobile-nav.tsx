@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { isActiveNavigation, navigationItems, type NavigationItem } from './navigation'
 
-const shellClassName = 'fixed inset-x-0 bottom-0 z-30 border-t border-border bg-sidebar pt-2 pb-[env(safe-area-inset-bottom)] lg:hidden'
+const shellClassName = 'fixed inset-x-0 bottom-0 z-30 border-t border-sidebar-border bg-sidebar pt-2 pb-[env(safe-area-inset-bottom)] lg:hidden'
 
 /** The bar's box while the tab bar streams in: same place and size, no landmark and nothing to announce. */
 export function MobileNavPlaceholder() {
@@ -46,13 +46,13 @@ function MobileNavItem({ item, active }: MobileNavItemProps) {
 			aria-current={active ? 'page' : undefined}
 			className={[
 				'flex h-14 flex-col items-center justify-center gap-1 rounded-lg',
-				'text-[11px] font-medium transition-colors',
+				'text-[11px] font-medium transition-colors motion-safe:active:scale-[0.98]',
 				'focus-visible:outline-none focus-visible:ring-2',
-				'focus-visible:ring-green-800 focus-visible:ring-offset-1',
-				active ? 'bg-sidebar-accent text-[#1f3b1f]' : 'text-neutral-700',
+				'focus-visible:ring-sidebar-ring focus-visible:ring-offset-1',
+				active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground/80',
 			].join(' ')}
 		>
-			<Icon size={22} strokeWidth={1.8} className={active ? 'text-[#315c32]' : 'text-neutral-600'} />
+			<Icon size={22} strokeWidth={1.8} className={active ? 'text-sidebar-primary' : 'text-sidebar-foreground/60'} />
 
 			<span className="truncate">{item.shortLabel ?? item.label}</span>
 		</Link>

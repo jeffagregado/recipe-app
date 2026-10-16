@@ -24,5 +24,5 @@ export function broadcastAuth(type: 'login' | 'logout') {
 export function leavePrivateSession() {
 	document.querySelector('[data-private-content]')?.setAttribute('hidden', '')
 	clearPrivateQueries()
-	window.location.replace('/')
+	window.location.replace('/auth/login')
 }

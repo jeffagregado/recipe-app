@@ -11,7 +11,7 @@ type PageContainerProps = ComponentPropsWithoutRef<'main'> & {
 
 const sizeClasses: Record<PageContainerSize, string> = {
 	default: 'max-w-6xl',
-	wide: 'max-w-[1440px]',
+	wide: 'max-w-360',
 	full: 'max-w-none',
 }
 

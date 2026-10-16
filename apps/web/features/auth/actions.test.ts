@@ -207,7 +207,7 @@ it('reports a thrown reset fetch once without leaking details or replaying', asy
 
 it('resets with exact body and allowed headers, clears both cookies and redirects without applying a session', async () => {
 	fetchMock.mockResolvedValue(new Response(null, { status: 204, headers: { 'Set-Cookie': 'better-auth.session_token=test-only; Path=/' } }))
-	await expect(resetPassword({ token: 'test-only-link-value', password: credentials.password })).rejects.toThrow('NEXT_REDIRECT:/?notice=password-reset')
+	await expect(resetPassword({ token: 'test-only-link-value', password: credentials.password })).rejects.toThrow('NEXT_REDIRECT:/auth/login?notice=password-reset')
 	const [url, init] = fetchMock.mock.calls[0]
 	expect(url).toBe('http://api.example/auth/reset-password')
 	expect(init?.method).toBe('POST')

@@ -29,7 +29,7 @@ export function RecipeResults({ userId, endpoint, categories, filters, onFilter,
 	if (!query.data) return <div className="flex flex-col gap-4">{controls}{query.isPending ? <RecipeListSkeleton /> : error}</div>
 	const recipes = query.data.pages.flatMap((page) => page.data)
 	const { meta, counts: loaded } = query.data.pages[0]
-	return <div className="space-y-4">
+	return <div className="space-y-6">
 		{controls}
 		{loaded.total === 0 ? <EmptyLibrary /> : filters.favorites && loaded.favorites === 0 ? <EmptyFavorites /> : <RecipeList recipes={recipes} />}
 		{error}
@@ -38,9 +38,9 @@ export function RecipeResults({ userId, endpoint, categories, filters, onFilter,
 }
 
 function EmptyState({ title, children }: { title: string; children: ReactNode }) {
-	return <div className="space-y-2 rounded-xl border border-border bg-card p-6">
-		<h2 className="text-lg font-semibold">{title}</h2>
-		<p className="text-sm text-muted-foreground">{children}</p>
+	return <div className="max-w-md space-y-2 rounded-2xl bg-accent/50 px-6 py-8">
+		<h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+		<p className="text-sm leading-relaxed text-muted-foreground">{children}</p>
 	</div>
 }
 

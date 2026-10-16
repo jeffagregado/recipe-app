@@ -96,7 +96,7 @@ it.each([
 	const posted: unknown[] = []
 	vi.stubGlobal('BroadcastChannel', class { postMessage = (message: unknown) => { posted.push(message) }; close = () => {} })
 	let redirectError: unknown
-	try { redirect('/') } catch (error) { redirectError = error }
+	try { redirect('/recipes') } catch (error) { redirectError = error }
 	actions.login.mockRejectedValue(redirectError)
 	actions.signup.mockRejectedValue(redirectError)
 	vi.spyOn(console, 'error').mockImplementation(() => {})

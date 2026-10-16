@@ -14,7 +14,7 @@ export function RecipeFormAlert({ alert, busy, onRetry }: RecipeFormAlertProps) 
 				</ul>
 			)}
 			{alert.status === 'session-expired' && (
-				<a href="/" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center font-medium underline underline-offset-4">Open sign in in a new tab</a>
+				<a href="/auth/login" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center font-medium underline underline-offset-4">Open sign in in a new tab</a>
 			)}
 			{alert.status === 'unknown' && (
 				<Button type="button" variant="outline" className="h-11 bg-background px-4 text-foreground" disabled={busy} onClick={onRetry}>Retry save</Button>

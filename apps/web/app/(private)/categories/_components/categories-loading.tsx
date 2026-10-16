@@ -1,7 +1,7 @@
 import PageContainer from '@/components/layout/page-container'
 import { Skeleton } from '@/components/ui/skeleton'
 
-/** Mirrors the form's header and card so the page does not jump when the categories arrive. */
+/** Mirrors the form's header and tile grid so the page does not jump when the categories arrive. */
 export function CategoriesLoading() {
 	return (
 		<div role="status" aria-busy="true">
@@ -12,8 +12,11 @@ export function CategoriesLoading() {
 					<Skeleton className="h-11 w-28" />
 				</div>
 			</div>
-			<PageContainer>
-				<Skeleton className="h-96 max-w-xl rounded-xl" />
+			<PageContainer className="space-y-4">
+				<Skeleton className="h-6 w-40" />
+				<div className="grid gap-4 md:grid-cols-2">
+					{Array.from({ length: 6 }, (_, tile) => <Skeleton key={tile} className="h-24 rounded-2xl" />)}
+				</div>
 			</PageContainer>
 		</div>
 	)

@@ -111,7 +111,7 @@ test('password journey: changing the password keeps this browser signed in and s
     // The other device is out.
     expect(await sessionStatus(elsewhere)).toBe(401);
     await signedIn.goto('/settings');
-    await expect(signedIn).toHaveURL(`${WEB_URL}/`);
+    await expect(signedIn).toHaveURL(`${WEB_URL}/auth/login`);
     await expect(signedIn.getByLabel('Email', { exact: true })).toBeVisible();
   } finally { await elsewhere.close(); }
 });
@@ -221,7 +221,7 @@ test('at 320px a link opened in a browser that is not signed in confirms the cha
     expect(await noOverflow(page)).toBe(true);
     await confirm.click();
     await expect(page.getByText('Email changed. Log in with your new email.', { exact: true })).toBeVisible();
-    expect(pathOf(page)).toBe('/');
+    expect(pathOf(page)).toBe('/auth/login');
     expect((await phone.cookies()).filter(({ name }) => name.endsWith('session_token'))).toEqual([]);
     expect(await noOverflow(page)).toBe(true);
     // Every session of the Account ended with the change, the one that started it included.

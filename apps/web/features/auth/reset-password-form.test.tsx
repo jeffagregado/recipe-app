@@ -19,7 +19,7 @@ class Redirected extends Component<{ children: ReactNode }, { done: boolean }> {
 it('preserves the Next redirect from a successful action', async () => {
 	const user = userEvent.setup()
 	let redirectError: unknown
-	try { redirect('/?notice=password-reset') } catch (error) { redirectError = error }
+	try { redirect('/auth/login?notice=password-reset') } catch (error) { redirectError = error }
 	actions.resetPassword.mockRejectedValue(redirectError)
 	vi.spyOn(console, 'error').mockImplementation(() => {})
 	render(<Redirected><ResetPasswordForm token="test-only-link-value" /></Redirected>)
@@ -60,7 +60,7 @@ it.each([undefined, ''])('shows the expired state for a link without a token (%j
 	render(<ResetPasswordForm token={token} />)
 	expect(screen.getByText('This link has expired or was already used.')).toBeInTheDocument()
 	expect(screen.getByRole('link', { name: 'Request a new link' })).toHaveAttribute('href', '/forgot-password')
-	expect(screen.getByRole('link', { name: 'Back to login' })).toHaveAttribute('href', '/')
+	expect(screen.getByRole('link', { name: 'Back to login' })).toHaveAttribute('href', '/auth/login')
 	expect(screen.queryByLabelText('New password')).not.toBeInTheDocument()
 	expect(actions.resetPassword).not.toHaveBeenCalled()
 })

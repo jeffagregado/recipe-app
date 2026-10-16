@@ -9,7 +9,7 @@ const sessionCookies = async (context: BrowserContext) => (await context.cookies
 /** What the web app's own session read answers for this browser's cookies: the list behind /recipes can take longer than an assertion waits. */
 const sessionStatus = async (context: BrowserContext) => (await context.request.get('/backend/auth/session')).status();
 async function login(page: Page, email: string, password: string) {
-  await page.goto('/');
+  await page.goto('/auth/login');
   await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
@@ -28,7 +28,7 @@ test('a forgotten password is reset through the emailed link, the new one signs 
     expect(await sessionStatus(elsewhere)).toBe(200);
 
     await page.setViewportSize({ width: 320, height: 720 });
-    await page.goto('/');
+    await page.goto('/auth/login');
     await page.getByRole('link', { name: 'Forgot password?', exact: true }).click();
     await expect(page).toHaveURL(`${WEB_URL}/forgot-password`);
     await expect(page.getByRole('heading', { level: 1, name: 'Forgot your password?' })).toBeVisible();
@@ -53,7 +53,7 @@ test('a forgotten password is reset through the emailed link, the new one signs 
     await page.getByLabel('New password', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Update password', exact: true }).click();
     await expect(page.getByText('Password updated. Log in with your new password.', { exact: true })).toBeVisible();
-    await expect(page).toHaveURL(`${WEB_URL}/`);
+    await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
     // The reset signs nobody in.
     expect(await sessionCookies(context)).toEqual([]);
     expect((await workerData.storedResetLinks(account.email)).length).toBe(0);
@@ -61,7 +61,7 @@ test('a forgotten password is reset through the emailed link, the new one signs 
     // The browser that was signed in before the reset is out.
     expect(await sessionStatus(elsewhere)).toBe(401);
     await signedIn.goto('/recipes');
-    await expect(signedIn).toHaveURL(`${WEB_URL}/`);
+    await expect(signedIn).toHaveURL(`${WEB_URL}/auth/login`);
     await expect(signedIn.getByLabel('Email', { exact: true })).toBeVisible();
 
     await login(page, account.email, account.password);

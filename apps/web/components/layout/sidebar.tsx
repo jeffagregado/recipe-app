@@ -10,7 +10,7 @@ export default function Sidebar({ footer }: { footer?: ReactNode }) {
 	const pathname = usePathname()
 
 	return (
-		<aside className="hidden h-dvh w-55 shrink-0 border-r border-neutral-200 bg-sidebar lg:sticky lg:top-0 lg:flex lg:flex-col ">
+		<aside className="hidden h-dvh w-56 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:sticky lg:top-0 lg:flex lg:flex-col">
 			<div className="px-5 py-6">
 				<Brand />
 			</div>
@@ -19,7 +19,7 @@ export default function Sidebar({ footer }: { footer?: ReactNode }) {
 					<SidebarItem key={item.href} item={item} active={isActiveNavigation(pathname, item.href)} />
 				))}
 			</nav>
-			<div className="border-t border-border px-5 py-4">{footer}</div>
+			<div className="border-t border-sidebar-border px-5 py-4">{footer}</div>
 		</aside>
 	)
 }
@@ -38,18 +38,18 @@ function SidebarItem({ item, active }: SidebarItemProps) {
 			aria-current={active ? 'page' : undefined}
 			className={[
 				'group flex h-11 items-center gap-3 rounded-lg px-3',
-				'text-[13px] font-medium transition-colors',
+				'text-sm font-medium transition-colors motion-safe:active:scale-[0.98]',
 				'focus-visible:outline-none focus-visible:ring-2',
-				'focus-visible:ring-green-800 focus-visible:ring-offset-1',
+				'focus-visible:ring-sidebar-ring focus-visible:ring-offset-1',
 				active
-					? 'bg-sidebar-accent text-[#1f3b1f]'
-					: 'text-neutral-700 hover:bg-sidebar-accent hover:text-neutral-950',
+					? 'bg-sidebar-accent text-sidebar-accent-foreground'
+					: 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
 			].join(' ')}
 		>
 			<Icon
-				size={17}
+				size={18}
 				strokeWidth={1.8}
-				className={active ? 'text-[#315c32]' : 'text-neutral-600 group-hover:text-neutral-900'}
+				className={active ? 'text-sidebar-primary' : 'text-sidebar-foreground/60 group-hover:text-sidebar-primary'}
 			/>
 
 			<span>{item.label}</span>

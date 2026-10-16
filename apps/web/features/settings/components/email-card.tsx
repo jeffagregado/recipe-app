@@ -9,7 +9,7 @@ import { useForm, useFormState, useWatch } from 'react-hook-form'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { SettingsSection } from './settings-section'
 import { Input } from '@/components/ui/input'
 import { FieldError } from '@/features/recipes/form/components/form-field'
 import { fieldA11y, inputClass } from '@/features/recipes/form/lib/field-props'
@@ -41,13 +41,8 @@ export function EmailCard({ email, pendingEmail, hasPassword, onChange = changeE
 	const headingId = useId()
 	const currentId = useId()
 	return (
-		<section aria-labelledby={headingId} className="max-w-xl">
-			<Card className="sm:[--card-spacing:--spacing(5)]">
-				<div className="px-(--card-spacing)">
-					<h2 id={headingId} className="text-base font-semibold">Email</h2>
-					<p className="text-sm text-muted-foreground">Sign-in and recovery address.</p>
-				</div>
-				<CardContent className="space-y-3">
+		<SettingsSection headingId={headingId} title="Email" description="Sign-in and recovery address.">
+				<div className="space-y-3">
 					{pendingEmail && <PendingChange pendingEmail={pendingEmail} onResend={onResend} onCancel={onCancel} />}
 					<div className="space-y-1.5">
 						<label htmlFor={currentId} className="text-sm font-medium">Current email</label>
@@ -59,9 +54,8 @@ export function EmailCard({ email, pendingEmail, hasPassword, onChange = changeE
 					{hasPassword
 						? <ChangeEmailForm onChange={onChange} />
 						: <p className="text-sm text-muted-foreground">{EMAIL_MESSAGES.passwordRequired}</p>}
-				</CardContent>
-			</Card>
-		</section>
+				</div>
+		</SettingsSection>
 	)
 }
 

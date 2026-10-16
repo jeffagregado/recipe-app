@@ -52,16 +52,16 @@ test.describe('content', () => {
       { name: 'Spaghetti', amount: '200 g' }, { name: 'Olive oil', amount: '1.5 tbsp' }, { name: 'Salt', amount: 'to taste' },
     ]);
     expect(await stepTexts(page)).toEqual(RICH.steps);
-    // Banner, then title, in reading order; the heart and ⋮ are not in a top bar.
+    // Cover under the back link, with the title beside it from lg (the desktop project); the heart and ⋮ are not in a top bar.
     const [back, cover, title] = [await box(page.getByRole('link', { name: 'Back to Recipes' })), await box(page.getByRole('img', { name: 'Rich page' })), await box(page.getByRole('heading', { level: 1 }))];
     expect(cover.y).toBeGreaterThan(back.y + back.height - 1);
-    expect(title.y).toBeGreaterThan(cover.y + cover.height - 1);
+    expect(title.x).toBeGreaterThan(cover.x + cover.width - 1);
+    expect(title.y).toBeGreaterThan(cover.y - 1);
+    expect(title.y + title.height).toBeLessThan(cover.y + cover.height + 1);
     await expect.poll(() => imagesLoaded(page)).toBe(true);
   });
 
-  test('a minimal recipe has no banner, no placeholder, no Video, no Notes and no scaler', async ({ page, creator, workerData }) => {
-    const placeholders: string[] = [];
-    page.on('request', (request) => { if (request.url().includes('recipe-placeholder')) placeholders.push(request.url()); });
+  test('a minimal recipe has no banner, no Video, no Notes and no scaler', async ({ page, creator, workerData }) => {
     const id = await createRecipeViaApi(creator, workerData.address, minimalMetadata('Plain page'));
     await openRecipe(page, id, 'Plain page');
     await expect(page.locator('article img')).toHaveCount(0);
@@ -73,7 +73,6 @@ test.describe('content', () => {
     // With no cover the page starts at the title, right under the back link.
     const [back, title] = [await box(page.getByRole('link', { name: 'Back to Recipes' })), await box(page.getByRole('heading', { level: 1 }))];
     expect(title.y - (back.y + back.height)).toBeLessThan(40);
-    expect(placeholders).toEqual([]);
   });
 
   test('the meta row keeps "min" on the last time only on mobile and on every time from the sm breakpoint', async ({ page, creator, workerData }) => {
