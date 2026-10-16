@@ -87,8 +87,12 @@ describe('parseAmount', () => {
 		expect(parseAmount(text)).toEqual({ ok: true, value })
 	})
 
-	it.each(['1/0', '0/2', '1/', '/2', '1 1', '1.5/2', '½½', '1/2/3', '½ 1'])('rejects the malformed fraction %j', (text) => {
-		expect(parseAmount(text)).toMatchObject({ ok: false })
+	it.each([
+		['1/0', 'Enter a number such as 1.5, 1/2 or 1 1/2.'], ['0/2', 'Amount must be greater than 0.'], ['1/', 'Enter a number such as 1.5, 1/2 or 1 1/2.'],
+		['/2', 'Enter a number such as 1.5, 1/2 or 1 1/2.'], ['1 1', 'Enter a number such as 1.5, 1/2 or 1 1/2.'], ['1.5/2', 'Enter a number such as 1.5, 1/2 or 1 1/2.'],
+		['½½', 'Enter a number such as 1.5, 1/2 or 1 1/2.'], ['1/2/3', 'Enter a number such as 1.5, 1/2 or 1 1/2.'], ['½ 1', 'Enter a number such as 1.5, 1/2 or 1 1/2.'],
+	])('rejects the malformed fraction %j', (text, message) => {
+		expect(parseAmount(text)).toEqual({ ok: false, message })
 	})
 
 	it('rejects zero, extra precision, overflow and non-numbers', () => {

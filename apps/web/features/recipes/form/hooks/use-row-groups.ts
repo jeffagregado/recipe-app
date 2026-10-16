@@ -2,9 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useFieldArray, useFormContext, useFormState, type ArrayPath } from 'react-hook-form'
 import type { RecipeFormValues } from '../lib/recipe-form-schema'
 import * as groupsLib from '../lib/row-groups'
-import type { FormGroup } from '../lib/row-groups'
-
-type Direction = 'up' | 'down'
+import type { Direction, FormGroup } from '../lib/row-groups'
 
 type RowGroupsOptions<K extends string, T> = {
 	name: ArrayPath<RecipeFormValues> & ('ingredients' | 'instructions')

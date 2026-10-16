@@ -1,12 +1,13 @@
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import type { Direction } from '../lib/row-groups'
 
 type RowControlsProps = {
 	noun: 'ingredient' | 'step'
 	position: number
-	canMove: (direction: 'up' | 'down') => boolean
-	onMove: (direction: 'up' | 'down') => void
+	canMove: (direction: Direction) => boolean
+	onMove: (direction: Direction) => void
 	onRemove: () => void
 	className?: string
 }

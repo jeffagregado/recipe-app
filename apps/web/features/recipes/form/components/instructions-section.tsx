@@ -1,6 +1,7 @@
 import { ImagePlus, ListOrdered } from 'lucide-react'
 import { useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { emptyInstructionRow, MAX_ROWS, type RecipeFormValues } from '../lib/recipe-form-schema'
 import { fieldA11y, textareaClass } from '../lib/field-props'
 import { newPhoto, noPhoto, photoCaption } from '../lib/recipe-photo'
@@ -11,7 +12,6 @@ import { RowControls } from './row-controls'
 import { SectionCard } from './section-card'
 import { usePhotoPick } from '../hooks/use-photo-pick'
 import { useRowGroups } from '../hooks/use-row-groups'
-import { cn } from '@/lib/utils'
 import { AddRowControls, GroupHeading } from './row-group'
 
 type InstructionRowProps = {

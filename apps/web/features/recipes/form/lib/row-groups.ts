@@ -1,7 +1,7 @@
 /** A form group: the first group is untitled (heading null) and every later group is named. Rows live under `K`. */
 export type FormGroup<K extends string, T> = { heading: string | null } & { [key in K]: T[] }
 
-type Direction = 'up' | 'down'
+export type Direction = 'up' | 'down'
 
 const withRows = <K extends string, T>(group: FormGroup<K, T>, key: K, rows: T[]) => ({ ...group, [key]: rows }) as FormGroup<K, T>
 

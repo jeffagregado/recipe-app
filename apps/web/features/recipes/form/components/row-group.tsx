@@ -5,9 +5,8 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { fieldA11y, inputClass } from '../lib/field-props'
 import type { RecipeFormValues } from '../lib/recipe-form-schema'
+import type { Direction } from '../lib/row-groups'
 import { FieldError } from './form-field'
-
-type Direction = 'up' | 'down'
 
 type GroupHeadingProps = {
 	list: 'ingredients' | 'instructions'
