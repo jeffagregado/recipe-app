@@ -51,7 +51,7 @@ it('rescales amounts, announces the new count and leaves "to taste" alone', asyn
 
 	await user.click(increase())
 	expect(within(group).getByRole('status')).toHaveTextContent('3')
-	expect(amounts()).toEqual(['300 g', '1.5 tbsp', '6 clove', 'to taste'])
+	expect(amounts()).toEqual(['300 g', '1½ tbsp', '6 clove', 'to taste'])
 	expect(screen.getByText(/Scaled from 2 servings\./)).toBeInTheDocument()
 })
 
@@ -60,7 +60,7 @@ it('restores the exact stored amounts with Reset and keeps focus inside the cont
 	render(<IngredientsCard ingredients={ingredients} servings={4} />)
 	await user.click(decrease())
 	await user.click(decrease())
-	expect(amounts()).toEqual(['100 g', '0.5 tbsp', '2 clove', 'to taste'])
+	expect(amounts()).toEqual(['100 g', '½ tbsp', '2 clove', 'to taste'])
 	await user.click(screen.getByRole('button', { name: 'Reset' }))
 	expect(amounts()).toEqual(['200 g', '1 tbsp', '4 clove', 'to taste'])
 	expect(screen.queryByText(/Scaled from/)).not.toBeInTheDocument()

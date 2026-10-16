@@ -1,18 +1,17 @@
+import { kitchenAmount } from '@/features/recipes/lib/kitchen-amount'
+
 export const MIN_SERVINGS = 1
 export const MAX_SERVINGS = 99
 
-const scaledFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2, useGrouping: false })
-// Stored quantities have up to three decimals (numeric(12,3)); unscaled amounts show them exactly.
-const storedFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3, useGrouping: false })
 
 /**
- * Amount text such as "1.5 tbsp", scaled from the recipe's own servings to the chosen ones.
- * Scaled values round to at most two decimals; at the original servings the stored value is shown unchanged.
+ * Amount text such as "1½ tbsp", scaled from the recipe's own servings to the chosen ones.
+ * Amounts show as kitchen fractions where one fits; at the original servings the stored value is shown unchanged.
  * Rows without a quantity or unit are "to taste" and never change.
  */
 export function scaledAmount(quantity: number | null, unit: string | null, originalServings: number, servings: number): string {
 	if (quantity === null || unit === null) return 'to taste'
-	const text = servings === originalServings ? storedFormat.format(quantity) : scaledFormat.format((quantity * servings) / originalServings)
+	const text = servings === originalServings ? kitchenAmount(quantity, 'stored') : kitchenAmount((quantity * servings) / originalServings, 'scaled')
 	return `${text} ${unit}`
 }
 

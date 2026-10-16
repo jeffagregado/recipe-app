@@ -1,6 +1,7 @@
 import { createRecipeMetadataSchema } from '@recipe-app/contracts/schemas'
 import { MEASUREMENT_UNITS, RECIPE_LIMITS, type CreateRecipeMetadata } from '@recipe-app/contracts/types'
 import { z } from 'zod'
+import { KITCHEN_FRACTIONS } from '../../lib/kitchen-amount'
 import { toFormFieldPath } from './map-save-errors'
 import { checkRecipeImage } from './recipe-files'
 import { isPhotoValue, noPhoto, type PhotoValue } from './recipe-photo'
@@ -10,14 +11,30 @@ export const MAX_ROWS = { ingredients: RECIPE_LIMITS.ingredients, instructions: 
 
 type AmountResult = { ok: true; value: number } | { ok: false; message: string }
 
-/** Amounts are typed as text so fractions like `1/2` can be explained instead of silently coerced. */
+const SLASH_FRACTION = /^(?:(\d+)\s+)?(\d+)\/(\d+)$/
+const GLYPH_FRACTION = new RegExp(String.raw`^(?:(\d+)\s*)?([${KITCHEN_FRACTIONS.map(({ glyph }) => glyph).join('')}])$`)
+
+/** The value of `1/2`, `1 1/2`, `½` or `1½`, rounded to the stored three decimals; null when the text is no fraction. */
+function fractionValue(text: string): number | null {
+	const slash = SLASH_FRACTION.exec(text)
+	if (slash) {
+		const denominator = Number(slash[3])
+		return denominator === 0 ? Number.NaN : Number(slash[1] ?? 0) + Number(slash[2]) / denominator
+	}
+	const glyph = GLYPH_FRACTION.exec(text)
+	if (!glyph) return null
+	return Number(glyph[1] ?? 0) + KITCHEN_FRACTIONS.find((fraction) => fraction.glyph === glyph[2])!.value
+}
+
+/** Amounts are typed as text so kitchen fractions such as `1 1/2` or `½` can be read as well as decimals. */
 export function parseAmount(text: string): AmountResult {
 	const value = text.trim()
 	const fail = (message: string): AmountResult => ({ ok: false, message })
-	if (value.includes('/')) return fail('Use a decimal such as 0.5 instead of a fraction like 1/2.')
-	if (!/^(\d+\.?\d*|\.\d+)$/.test(value)) return fail('Enter a number, for example 1.5.')
-	if ((value.split('.')[1] ?? '').length > RECIPE_LIMITS.quantityDecimals) return fail(`Use at most ${RECIPE_LIMITS.quantityDecimals} decimal places.`)
-	const amount = Number(value)
+	const fraction = fractionValue(value)
+	if (fraction === null && !/^(\d+\.?\d*|\.\d+)$/.test(value)) return fail('Enter a number such as 1.5, 1/2 or 1 1/2.')
+	if (Number.isNaN(fraction)) return fail('Enter a number such as 1.5, 1/2 or 1 1/2.')
+	if (fraction === null && (value.split('.')[1] ?? '').length > RECIPE_LIMITS.quantityDecimals) return fail(`Use at most ${RECIPE_LIMITS.quantityDecimals} decimal places.`)
+	const amount = fraction === null ? Number(value) : Number(fraction.toFixed(RECIPE_LIMITS.quantityDecimals))
 	if (amount <= 0) return fail('Amount must be greater than 0.')
 	if (amount > RECIPE_LIMITS.maxQuantity) return fail('Amount can’t be more than 999,999,999.999.')
 	return { ok: true, value: amount }

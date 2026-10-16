@@ -56,15 +56,22 @@ describe('parseAmount', () => {
 		expect(parseAmount('.5')).toEqual({ ok: true, value: 0.5 })
 	})
 
-	it('rejects fractions with a message that points to decimals', () => {
-		expect(parseAmount('1/2')).toEqual({ ok: false, message: 'Use a decimal such as 0.5 instead of a fraction like 1/2.' })
+	it.each([
+		['1/2', 0.5], ['1 1/2', 1.5], [' 3/4 ', 0.75], ['1/3', 0.333], ['2/3', 0.667], ['3/2', 1.5],
+		['½', 0.5], ['1½', 1.5], ['1 ½', 1.5], ['⅓', 0.333], ['2⅔', 2.667], ['¾', 0.75], ['⅛', 0.125],
+	])('accepts the kitchen fraction %j as %s, rounded to three decimals', (text, value) => {
+		expect(parseAmount(text)).toEqual({ ok: true, value })
+	})
+
+	it.each(['1/0', '0/2', '1/', '/2', '1 1', '1.5/2', '½½', '1/2/3', '½ 1'])('rejects the malformed fraction %j', (text) => {
+		expect(parseAmount(text)).toMatchObject({ ok: false })
 	})
 
 	it('rejects zero, extra precision, overflow and non-numbers', () => {
 		expect(parseAmount('0')).toMatchObject({ ok: false })
 		expect(parseAmount('1.2345')).toEqual({ ok: false, message: 'Use at most 3 decimal places.' })
 		expect(parseAmount('1000000000')).toMatchObject({ ok: false })
-		expect(parseAmount('abc')).toMatchObject({ ok: false })
+		expect(parseAmount('abc')).toEqual({ ok: false, message: 'Enter a number such as 1.5, 1/2 or 1 1/2.' })
 		expect(parseAmount('-1')).toMatchObject({ ok: false })
 	})
 })
@@ -74,12 +81,12 @@ describe('recipeFormSchema', () => {
 		expect(issues(valid())).toEqual({})
 	})
 
-	it('reports a blank title, blank rows and a fraction on the exact field', () => {
-		const found = issues(valid({ title: '  ', ingredients: [{ name: '', amount: '', unit: '' }, { name: 'Sugar', amount: '1/2', unit: 'cup' }], instructions: [{ id: null, description: ' ', photo: noPhoto() }] }))
+	it('reports a blank title, blank rows and a malformed amount on the exact field', () => {
+		const found = issues(valid({ title: '  ', ingredients: [{ name: '', amount: '', unit: '' }, { name: 'Sugar', amount: '1/0', unit: 'cup' }], instructions: [{ id: null, description: ' ', photo: noPhoto() }] }))
 		expect(found['title']).toBe('Add a title before saving.')
 		expect(found['ingredients.0.name']).toBe('Add an ingredient name.')
 		expect(found['ingredients.0.amount']).toBe('Enter an amount, or choose “to taste”.')
-		expect(found['ingredients.1.amount']).toContain('0.5')
+		expect(found['ingredients.1.amount']).toBe('Enter a number such as 1.5, 1/2 or 1 1/2.')
 		expect(found['instructions.0.description']).toBe('Describe this step.')
 	})
 

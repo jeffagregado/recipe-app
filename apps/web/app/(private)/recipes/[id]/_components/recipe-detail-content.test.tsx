@@ -80,7 +80,7 @@ it('renders every detail of a rich recipe, with the sections in mobile order', a
 
 	expect(sections()).toEqual(['Ingredients', 'Video', 'Instructions', 'Notes'])
 	const ingredients = within(screen.getByRole('list', { name: 'Ingredients' })).getAllByRole('listitem')
-	expect(ingredients.map((item) => item.textContent)).toEqual(['Flour200 g', 'Sugar1.5 cup', 'Saltto taste'])
+	expect(ingredients.map((item) => item.textContent)).toEqual(['Flour200 g', 'Sugar1½ cup', 'Saltto taste'])
 	expect(screen.getByRole('group', { name: 'Servings' })).toBeInTheDocument()
 
 	expect(screen.getByRole('button', { name: 'Play video' })).toBeInTheDocument()
