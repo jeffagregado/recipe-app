@@ -58,13 +58,13 @@ it('renders every detail of a rich recipe, with the sections in mobile order', a
 		notes: 'Line one\nLine two',
 		videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
 		ingredients: [
-			{ id: 'i1', ingredientId: 'b1', name: 'Flour', quantity: 200, unit: 'g', preparation: null, note: null, sortOrder: 0 },
-			{ id: 'i2', ingredientId: 'b2', name: 'Sugar', quantity: 1.5, unit: 'cup', preparation: null, note: null, sortOrder: 1 },
-			{ id: 'i3', ingredientId: 'b3', name: 'Salt', quantity: null, unit: null, preparation: null, note: null, sortOrder: 2 },
+			{ id: 'i1', ingredientId: 'b1', name: 'Flour', quantity: 200, unit: 'g', preparation: null, note: null, heading: null, sortOrder: 0 },
+			{ id: 'i2', ingredientId: 'b2', name: 'Sugar', quantity: 1.5, unit: 'cup', preparation: null, note: null, heading: null, sortOrder: 1 },
+			{ id: 'i3', ingredientId: 'b3', name: 'Salt', quantity: null, unit: null, preparation: null, note: null, heading: null, sortOrder: 2 },
 		],
 		instructions: [
-			{ id: 's1', stepNumber: 1, description: 'Mix.', imageUrl: null },
-			{ id: 's2', stepNumber: 2, description: 'Bake.', imageUrl: 'https://storage.example/step2.jpg' },
+			{ id: 's1', stepNumber: 1, description: 'Mix.', imageUrl: null, heading: null },
+			{ id: 's2', stepNumber: 2, description: 'Bake.', imageUrl: 'https://storage.example/step2.jpg', heading: null },
 		],
 	}))
 

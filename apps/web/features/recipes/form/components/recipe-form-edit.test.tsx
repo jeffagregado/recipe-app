@@ -48,13 +48,13 @@ const recipe = recipeDetailFixture({
 	notes: 'Keep chilled',
 	videoUrl: 'https://youtu.be/abc',
 	ingredients: [
-		{ id: 'i1', ingredientId: 'b1', name: 'Flour', quantity: 200, unit: 'g', preparation: null, note: null, sortOrder: 0 },
-		{ id: 'i2', ingredientId: 'b2', name: 'Salt', quantity: null, unit: null, preparation: null, note: null, sortOrder: 1 },
+		{ id: 'i1', ingredientId: 'b1', name: 'Flour', quantity: 200, unit: 'g', preparation: null, note: null, heading: null, sortOrder: 0 },
+		{ id: 'i2', ingredientId: 'b2', name: 'Salt', quantity: null, unit: null, preparation: null, note: null, heading: null, sortOrder: 1 },
 	],
 	instructions: [
-		{ id: 's1', stepNumber: 1, description: 'Mix.', imageUrl: 'https://storage.example/s1.jpg' },
-		{ id: 's2', stepNumber: 2, description: 'Bake.', imageUrl: null },
-		{ id: 's3', stepNumber: 3, description: 'Cool.', imageUrl: 'https://storage.example/s3.jpg' },
+		{ id: 's1', stepNumber: 1, description: 'Mix.', imageUrl: 'https://storage.example/s1.jpg', heading: null },
+		{ id: 's2', stepNumber: 2, description: 'Bake.', imageUrl: null, heading: null },
+		{ id: 's3', stepNumber: 3, description: 'Cool.', imageUrl: 'https://storage.example/s3.jpg', heading: null },
 	],
 })
 
@@ -106,6 +106,20 @@ it('pre-fills every field and shows the stored photos as current photos', () => 
 	expect(screen.getByRole('button', { name: 'Remove cover photo' })).toBeInTheDocument()
 	expect(screen.getByLabelText('Replace cover photo')).toBeInTheDocument()
 	expect(screen.getByLabelText('Add photo to step 2')).toBeInTheDocument()
+})
+
+it('shows saved groups in the same layout, with fraction amounts', () => {
+	render(<AppToaster><RecipeForm categories={categories} mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={onSave} initialValues={toRecipeFormValues({
+		...recipe,
+		ingredients: [{ ...recipe.ingredients[0], quantity: 1.5, unit: 'cup' }, { ...recipe.ingredients[1], heading: 'To finish' }],
+		instructions: [recipe.instructions[0], { ...recipe.instructions[1], heading: 'Bake' }, recipe.instructions[2]],
+	})} /></AppToaster>)
+	expect(screen.getByLabelText('Ingredient 1 amount')).toHaveValue('1½')
+	expect(screen.getByLabelText('Ingredient group 1 name')).toHaveValue('To finish')
+	expect(screen.getByLabelText('Step group 1 name')).toHaveValue('Bake')
+	expect(screen.getByLabelText('Step 3 instructions')).toHaveValue('Cool.')
+	expect(screen.getByRole('button', { name: 'Move step 3 up' })).toBeEnabled()
+	expect(screen.getByRole('button', { name: 'Move step 2 up' })).toBeEnabled()
 })
 
 it('saves an untouched recipe as "keep" for every stored photo and uploads nothing', async () => {
@@ -228,9 +242,9 @@ it('keeps a stored photo with its step when steps are reordered and numbers a re
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	const data = onSave.mock.calls[0][0]
 	expect(metadataOf(data).instructions).toEqual([
-		{ id: 's1', description: 'Mix.', image: 'replace' },
-		{ id: 's3', description: 'Cool.', image: 'keep' },
-		{ id: 's2', description: 'Bake.', image: 'remove' },
+		{ id: 's1', description: 'Mix.', image: 'replace', heading: null },
+		{ id: 's3', description: 'Cool.', image: 'keep', heading: null },
+		{ id: 's2', description: 'Bake.', image: 'remove', heading: null },
 	])
 	expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe', 'step-0'])
 })
@@ -249,9 +263,9 @@ it('sends a new step without an id and with its new photo, and drops a deleted s
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	const data = onSave.mock.calls[0][0]
 	expect(metadataOf(data).instructions).toEqual([
-		{ id: 's2', description: 'Bake.', image: 'remove' },
-		{ id: 's3', description: 'Cool.', image: 'keep' },
-		{ id: null, description: 'Decorate.', image: 'replace' },
+		{ id: 's2', description: 'Bake.', image: 'remove', heading: null },
+		{ id: 's3', description: 'Cool.', image: 'keep', heading: null },
+		{ id: null, description: 'Decorate.', image: 'replace', heading: null },
 	])
 	expect((data.get('step-2') as File).name).toBe('decorate.png')
 })

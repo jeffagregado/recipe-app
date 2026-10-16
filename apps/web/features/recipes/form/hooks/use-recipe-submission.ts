@@ -48,7 +48,7 @@ export function useRecipeSubmission({ form, mode, onSave }: UseRecipeSubmissionO
 			setAlert({ status: result.status, message: result.message, details: [] })
 			return
 		}
-		const { fields, unmapped } = mapSaveFieldErrors(result.fieldErrors)
+		const { fields, unmapped } = mapSaveFieldErrors(result.fieldErrors, form.getValues())
 		for (const { path, message } of fields) form.setError(path as FieldPath<RecipeFormValues>, { type: 'server', message })
 		setAlert({ status: 'invalid', message: result.message, details: unmapped })
 		setFocusRequest((count) => count + 1)

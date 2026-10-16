@@ -6,8 +6,8 @@ import { createEmptyRecipeValues, parseAmount, recipeFormSchema, toCreateRecipeM
 const valid = (overrides: Partial<RecipeFormValues> = {}): RecipeFormValues => ({
 	...createEmptyRecipeValues(),
 	title: '  Creamy Garlic Pasta  ',
-	ingredients: [{ name: ' Spaghetti ', amount: '200', unit: 'g' }],
-	instructions: [{ id: null, description: ' Boil the pasta. ', photo: noPhoto() }],
+	ingredients: [{ heading: null, rows: [{ name: ' Spaghetti ', amount: '200', unit: 'g' }] }],
+	instructions: [{ heading: null, steps: [{ id: null, description: ' Boil the pasta. ', photo: noPhoto() }] }],
 	...overrides,
 })
 const issues = (values: RecipeFormValues) => {
@@ -29,21 +29,45 @@ describe('toCreateRecipeMetadata', () => {
 	})
 
 	it('maps decimals and "to taste" rows', () => {
-		const metadata = toCreateRecipeMetadata(valid({ ingredients: [
+		const metadata = toCreateRecipeMetadata(valid({ ingredients: [{ heading: null, rows: [
 			{ name: 'Flour', amount: '0.125', unit: 'cup' },
 			{ name: 'Salt', amount: '', unit: TO_TASTE },
 			{ name: 'Pepper', amount: '3', unit: TO_TASTE },
-		] }))
+		] }] }))
 		expect(metadata.ingredients).toEqual([
-			{ name: 'Flour', quantity: 0.125, unit: 'cup' },
-			{ name: 'Salt', quantity: null, unit: null },
-			{ name: 'Pepper', quantity: null, unit: null },
+			{ name: 'Flour', quantity: 0.125, unit: 'cup', heading: null },
+			{ name: 'Salt', quantity: null, unit: null, heading: null },
+			{ name: 'Pepper', quantity: null, unit: null, heading: null },
 		])
+	})
+
+	it('flattens groups in order, putting each trimmed heading on its group’s first row', () => {
+		const metadata = toCreateRecipeMetadata(valid({
+			ingredients: [
+				{ heading: null, rows: [{ name: 'Pasta', amount: '200', unit: 'g' }] },
+				{ heading: ' Sauce ', rows: [{ name: 'Butter', amount: '1 1/2', unit: 'tbsp' }, { name: 'Cream', amount: '½', unit: 'cup' }] },
+			],
+			instructions: [
+				{ heading: null, steps: [{ id: null, description: 'Boil', photo: noPhoto() }] },
+				{ heading: 'Make the sauce', steps: [{ id: null, description: 'Melt', photo: noPhoto() }, { id: null, description: 'Stir', photo: noPhoto() }] },
+			],
+		}))
+		expect(metadata.ingredients).toEqual([
+			{ name: 'Pasta', quantity: 200, unit: 'g', heading: null },
+			{ name: 'Butter', quantity: 1.5, unit: 'tbsp', heading: 'Sauce' },
+			{ name: 'Cream', quantity: 0.5, unit: 'cup', heading: null },
+		])
+		expect(metadata.instructions).toEqual([
+			{ description: 'Boil', hasImage: false, heading: null },
+			{ description: 'Melt', hasImage: false, heading: 'Make the sauce' },
+			{ description: 'Stir', hasImage: false, heading: null },
+		])
+		expect(createRecipeMetadataSchema.safeParse(metadata).success).toBe(true)
 	})
 
 	it('marks hasImage from the attached photo and its output satisfies the shared schema', () => {
 		const photo = new File(['x'], 'boil.jpg', { type: 'image/jpeg' })
-		const metadata = toCreateRecipeMetadata(valid({ instructions: [{ id: null, description: 'Boil', photo: newPhoto(photo) }, { id: null, description: 'Drain', photo: noPhoto() }], videoUrl: 'https://youtu.be/abc' }))
+		const metadata = toCreateRecipeMetadata(valid({ instructions: [{ heading: null, steps: [{ id: null, description: 'Boil', photo: newPhoto(photo) }, { id: null, description: 'Drain', photo: noPhoto() }] }], videoUrl: 'https://youtu.be/abc' }))
 		expect(metadata.instructions.map((step) => step.hasImage)).toEqual([true, false])
 		expect(createRecipeMetadataSchema.safeParse(metadata).success).toBe(true)
 	})
@@ -82,17 +106,17 @@ describe('recipeFormSchema', () => {
 	})
 
 	it('reports a blank title, blank rows and a malformed amount on the exact field', () => {
-		const found = issues(valid({ title: '  ', ingredients: [{ name: '', amount: '', unit: '' }, { name: 'Sugar', amount: '1/0', unit: 'cup' }], instructions: [{ id: null, description: ' ', photo: noPhoto() }] }))
+		const found = issues(valid({ title: '  ', ingredients: [{ heading: null, rows: [{ name: '', amount: '', unit: '' }, { name: 'Sugar', amount: '1/0', unit: 'cup' }] }], instructions: [{ heading: null, steps: [{ id: null, description: ' ', photo: noPhoto() }] }] }))
 		expect(found['title']).toBe('Add a title before saving.')
-		expect(found['ingredients.0.name']).toBe('Add an ingredient name.')
-		expect(found['ingredients.0.amount']).toBe('Enter an amount, or choose “to taste”.')
-		expect(found['ingredients.1.amount']).toBe('Enter a number such as 1.5, 1/2 or 1 1/2.')
-		expect(found['instructions.0.description']).toBe('Describe this step.')
+		expect(found['ingredients.0.rows.0.name']).toBe('Add an ingredient name.')
+		expect(found['ingredients.0.rows.0.amount']).toBe('Enter an amount, or choose “to taste”.')
+		expect(found['ingredients.0.rows.1.amount']).toBe('Enter a number such as 1.5, 1/2 or 1 1/2.')
+		expect(found['instructions.0.steps.0.description']).toBe('Describe this step.')
 	})
 
 	it('asks for a unit when an amount is given without one and ignores amounts for "to taste"', () => {
-		expect(issues(valid({ ingredients: [{ name: 'Rice', amount: '2', unit: '' }] }))['ingredients.0.unit']).toBe('Choose a unit.')
-		expect(issues(valid({ ingredients: [{ name: 'Salt', amount: '', unit: TO_TASTE }] }))).toEqual({})
+		expect(issues(valid({ ingredients: [{ heading: null, rows: [{ name: 'Rice', amount: '2', unit: '' }] }] }))['ingredients.0.rows.0.unit']).toBe('Choose a unit.')
+		expect(issues(valid({ ingredients: [{ heading: null, rows: [{ name: 'Salt', amount: '', unit: TO_TASTE }] }] }))).toEqual({})
 	})
 
 	it('validates optional numbers, link and limits with the shared limits', () => {
@@ -102,11 +126,21 @@ describe('recipeFormSchema', () => {
 		expect(issues(valid({ categories: ['category-lunch', 'category-dinner', 'category-snacks', 'category-desserts'] }))['categories']).toBeDefined()
 	})
 
-	it('limits rows to 100 and requires at least one', () => {
-		const many = Array.from({ length: 101 }, () => ({ name: 'x', amount: '1', unit: 'g' as const }))
-		expect(issues(valid({ ingredients: many }))['ingredients']).toBeDefined()
-		expect(issues(valid({ ingredients: [] }))['ingredients']).toBeDefined()
-		expect(issues(valid({ instructions: [] }))['instructions']).toBeDefined()
+	it('limits rows to 100 across all groups and requires at least one', () => {
+		const rows = (length: number) => Array.from({ length }, () => ({ name: 'x', amount: '1', unit: 'g' as const }))
+		expect(issues(valid({ ingredients: [{ heading: null, rows: rows(60) }, { heading: 'Sauce', rows: rows(40) }] }))).toEqual({})
+		expect(issues(valid({ ingredients: [{ heading: null, rows: rows(60) }, { heading: 'Sauce', rows: rows(41) }] }))['ingredients']).toBe('Use 100 ingredients or fewer.')
+		expect(issues(valid({ ingredients: [{ heading: null, rows: [] }] }))['ingredients']).toBe('Add at least one ingredient.')
+		expect(issues(valid({ instructions: [{ heading: null, steps: [] }] }))['instructions']).toBe('Add at least one step.')
+	})
+
+	it('asks for a name on a blank group heading and limits it to 100 characters', () => {
+		const sauce = (heading: string) => valid({ ingredients: [...valid().ingredients, { heading, rows: [{ name: 'Butter', amount: '1', unit: 'tbsp' }] }] })
+		expect(issues(sauce('  '))).toEqual({ 'ingredients.1.heading': 'Name this group, or remove the heading.' })
+		expect(issues(sauce('x'.repeat(101)))).toEqual({ 'ingredients.1.heading': 'Use 100 characters or fewer.' })
+		expect(issues(sauce('x'.repeat(100)))).toEqual({})
+		const step = valid({ instructions: [...valid().instructions, { heading: '', steps: [{ id: null, description: 'Serve', photo: noPhoto() }] }] })
+		expect(issues(step)).toEqual({ 'instructions.1.heading': 'Name this group, or remove the heading.' })
 	})
 })
 
@@ -120,21 +154,21 @@ describe('photo slots', () => {
 	it('starts every slot empty, with new steps carrying no id', () => {
 		const empty = createEmptyRecipeValues()
 		expect(empty.cover).toEqual({ kind: 'none' })
-		expect(empty.instructions).toEqual([{ id: null, description: '', photo: { kind: 'none' } }])
+		expect(empty.instructions).toEqual([{ heading: null, steps: [{ id: null, description: '', photo: { kind: 'none' } }] }])
 	})
 
 	it('accepts stored photos and valid new files', () => {
-		expect(issues(valid({ cover: existingPhoto('https://storage.example/cover.jpg'), instructions: [{ id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') }] }))).toEqual({})
+		expect(issues(valid({ cover: existingPhoto('https://storage.example/cover.jpg'), instructions: [{ heading: null, steps: [{ id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') }] }] }))).toEqual({})
 		expect(issues(valid({ cover: newPhoto(file('cover.png')) }))).toEqual({})
 	})
 
 	it('reports an unsupported or oversized new file on its own slot and ignores stored photos', () => {
 		const found = issues(valid({
 			cover: newPhoto(file('logo.svg', 'image/svg+xml')),
-			instructions: [{ id: 's1', description: 'Boil', photo: newPhoto(file('huge.png', 'image/png', 6 * 1024 * 1024)) }],
+			instructions: [{ heading: null, steps: [{ id: 's1', description: 'Boil', photo: newPhoto(file('huge.png', 'image/png', 6 * 1024 * 1024)) }] }],
 		}))
 		expect(found['cover']).toBe('logo.svg is not a JPG, PNG or WebP image.')
-		expect(found['instructions.0.photo']).toMatch(/huge\.png is 6\.0 MB/)
+		expect(found['instructions.0.steps.0.photo']).toMatch(/huge\.png is 6\.0 MB/)
 	})
 
 	it('rejects a slot that is not one of the three photo states', () => {
