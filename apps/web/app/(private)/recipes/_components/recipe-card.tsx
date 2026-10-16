@@ -27,8 +27,6 @@ type RecipeCardProps = {
 export function RecipeCard({ recipe, preload = false }: RecipeCardProps) {
 	const titleId = useId()
 	const href = `/recipes/${encodeURIComponent(recipe.id)}`
-	const details = [recipe.timeLabel, recipe.servingsLabel].filter((label) => label !== null)
-
 	return (
 		<article
 			aria-labelledby={titleId}
@@ -59,20 +57,16 @@ export function RecipeCard({ recipe, preload = false }: RecipeCardProps) {
 						{recipe.title}
 					</Link>
 				</h2>
-				{details.length > 0 && (
-					<p className="flex flex-wrap items-center gap-x-3 text-sm text-muted-foreground tabular-nums">
-						{recipe.timeLabel !== null && <span className="inline-flex items-center gap-1.5"><Clock aria-hidden="true" className="size-3.5" />{recipe.timeLabel}</span>}
-						{recipe.servingsLabel !== null && <span className="inline-flex items-center gap-1.5"><Users aria-hidden="true" className="size-3.5" />{recipe.servingsLabel}</span>}
-					</p>
-				)}
+				<p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground tabular-nums">
+					{recipe.timeLabel !== null && <span className="inline-flex items-center gap-1.5"><Clock aria-hidden="true" className="size-3.5" />{recipe.timeLabel}</span>}
+					{recipe.servingsLabel !== null && <span className="inline-flex items-center gap-1.5"><Users aria-hidden="true" className="size-3.5" />{recipe.servingsLabel}</span>}
+					<time dateTime={recipe.updatedAt}>Updated {recipe.updatedLabel}</time>
+				</p>
 				<div className="flex min-w-0 items-center justify-between gap-2">
 					<div className="flex min-w-0 flex-wrap items-center gap-1.5">
 						{recipe.categories.slice(0, 2).map((category) => (
 							<Badge key={category.id} variant="category">{category.name}</Badge>
 						))}
-						{recipe.categories.length === 0 && (
-							<time dateTime={recipe.updatedAt} className="text-sm text-muted-foreground">Updated {recipe.updatedLabel}</time>
-						)}
 					</div>
 					<FavoriteButton
 						recipeId={recipe.id}

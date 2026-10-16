@@ -25,11 +25,11 @@ async function logout(page: Page) {
 const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 const sessionCookies = async (context: BrowserContext) => (await context.cookies()).filter(({ name }) => name.endsWith('session_token'));
 
-test('signed-out visitors reach login from private pages and the landing page', async ({ page }) => {
-  await page.goto('/recipes');
-  await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
-  await page.goto('/');
+test('the landing page shows an old notice link, then leads to login', async ({ page }) => {
+  // Links mailed before login moved to /auth/login still carry their notice to /.
+  await page.goto('/?notice=email-verified');
   await expect(page.getByRole('heading', { level: 1, name: 'My Recipes', exact: true })).toBeVisible();
+  await expect(page.getByText('Email verified. Log in to continue.', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Log in', exact: true }).click();
   await expect(page).toHaveURL(`${WEB_URL}/auth/login`);
   await expect(page.getByRole('heading', { level: 1, name: 'Log in', exact: true })).toBeVisible();

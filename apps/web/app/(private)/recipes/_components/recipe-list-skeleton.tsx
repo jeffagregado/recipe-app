@@ -1,7 +1,5 @@
 import { Skeleton } from '@/components/ui/skeleton'
-
-/** The list's column rule, shared with the skeleton so the two line up while a page streams in. */
-export const recipeGridClassName = 'grid grid-cols-1 gap-x-5 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'
+import { recipeGridClassName } from './recipe-list'
 
 export function RecipeListSkeleton({ count = 6, label = 'Loading recipes' }: { count?: number; label?: string }) {
 	const placeholders = Array.from({ length: count }, (_, index) => `placeholder-${index}`)

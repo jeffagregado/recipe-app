@@ -3,7 +3,7 @@ import { apiHeaders, getApiOrigin } from '@/features/auth/api'
 import { SESSION_COOKIE_NAMES, sessionCookieHeader } from '@/features/auth/session-cookie'
 
 // Next's image optimizer fetches bundled public artwork without a user cookie.
-const PUBLIC_ARTWORK = new Set(['/recipes/recipe-placeholder.png', '/recipes/creamy-garlic-pasta.png'])
+const PUBLIC_ARTWORK = new Set(['/recipes/creamy-garlic-pasta.png'])
 const BACKEND_READS = new Map([['/backend/recipes', '/recipes'], ['/backend/auth/session', '/auth/session']])
 
 function rewriteBackendRead(request: NextRequest, path: string) {

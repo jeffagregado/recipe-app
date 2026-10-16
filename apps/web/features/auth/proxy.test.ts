@@ -5,11 +5,9 @@ import { proxy } from '@/proxy'
 afterEach(() => vi.unstubAllEnvs())
 
 it('leaves bundled recipe artwork public for Next image optimization', () => {
-	for (const path of ['/recipes/recipe-placeholder.png', '/recipes/creamy-garlic-pasta.png']) {
-		const response = proxy(new NextRequest(`http://localhost:3000${path}`))
-		expect(response.status).toBe(200)
-		expect(response.headers.get('location')).toBeNull()
-	}
+	const response = proxy(new NextRequest('http://localhost:3000/recipes/creamy-garlic-pasta.png'))
+	expect(response.status).toBe(200)
+	expect(response.headers.get('location')).toBeNull()
 })
 
 it('rewrites only allowed reads at runtime and refuses arbitrary backend paths/methods', () => {
