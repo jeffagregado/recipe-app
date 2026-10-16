@@ -33,8 +33,8 @@ describe('Update recipe HTTP', () => {
   /** The edit form's starting point: every field as saved and every image slot kept. */
   const unchanged = (value: RecipeDetail): UpdateRecipeMetadata => ({ title: value.title, description: value.description, categoryIds: value.categories.map(({ id }) => id),
     servings: value.servings, prepTimeMinutes: value.prepTimeMinutes, cookTimeMinutes: value.cookTimeMinutes, videoUrl: value.videoUrl, notes: value.notes,
-    ingredients: value.ingredients.map(({ name, quantity, unit }) => ({ name, quantity, unit })), cover: 'keep',
-    instructions: value.instructions.map(({ id, description }) => ({ id, description, image: 'keep' })) });
+    ingredients: value.ingredients.map(({ name, quantity, unit, heading }) => ({ name, quantity, unit, heading })), cover: 'keep',
+    instructions: value.instructions.map(({ id, description, heading }) => ({ id, description, heading, image: 'keep' })) });
   const patch = (id: string, metadata: unknown, photos: Photo[] = [], options: Parameters<RecipeSuite['send']>[3] = {}) =>
     s.send(`/recipes/${encodeURIComponent(id)}`, metadata, photos, { ...options, method: 'PATCH' });
   /** Everything a failed update must leave alone, without signed URLs. */
@@ -71,6 +71,27 @@ describe('Update recipe HTTP', () => {
     expect(await s.photoAt(updated.imageUrl)).toEqual(storedPhoto(10));
     expect(await s.photoAt(updated.instructions[1].imageUrl)).toEqual(storedPhoto(12));
     expect((await s.list()).data.find((recipe) => recipe.id === id)).toMatchObject({ title: 'Updated recipe', isFavorite: true });
+  }, 60_000);
+
+  it('stores group headings on create, returns them in order, and replaces them on update', async () => {
+    const created: CreateRecipeMetadata = { ...base(),
+      ingredients: [{ name: `${s.name} flour`, quantity: 1.5, unit: 'cup' }, { name: `${s.name} butter`, quantity: 0.25, unit: 'cup', heading: '  Sauce ' }, { name: `${s.name} salt`, quantity: null, unit: null, heading: null }],
+      instructions: [{ description: 'Mix', hasImage: false }, { description: 'Melt', hasImage: true, heading: 'Make the sauce' }, { description: 'Pour', hasImage: false }] };
+    const id = await s.savedId(await s.send('/recipes', created, [{ field: 'step-1', bytes: jpeg(30) }]), 201);
+    const value = await s.detail(id);
+    expect(value.ingredients.map(({ name, heading, sortOrder }) => ({ name, heading, sortOrder }))).toEqual([
+      { name: `${s.name} flour`, heading: null, sortOrder: 0 }, { name: `${s.name} butter`, heading: 'Sauce', sortOrder: 1 }, { name: `${s.name} salt`, heading: null, sortOrder: 2 }]);
+    expect(value.instructions.map(({ stepNumber, heading }) => ({ stepNumber, heading }))).toEqual([
+      { stepNumber: 1, heading: null }, { stepNumber: 2, heading: 'Make the sauce' }, { stepNumber: 3, heading: null }]);
+    const [mix, melt, pour] = value.instructions;
+    expect(await s.savedId(await patch(id, { ...unchanged(value),
+      ingredients: [{ name: `${s.name} flour`, quantity: 1.5, unit: 'cup' }, { name: `${s.name} butter`, quantity: 0.25, unit: 'cup' }, { name: `${s.name} salt`, quantity: null, unit: null, heading: 'To finish' }],
+      instructions: [{ id: mix.id, description: 'Mix', image: 'keep' }, { id: pour.id, description: 'Pour', image: 'keep', heading: 'Serve' }, { id: melt.id, description: 'Melt', image: 'keep' }] }), 200)).toBe(id);
+    const updated = await s.detail(id);
+    expect(updated.ingredients.map(({ heading }) => heading)).toEqual([null, null, 'To finish']);
+    expect(updated.instructions.map(({ id, stepNumber, heading }) => ({ id, stepNumber, heading }))).toEqual([
+      { id: mix.id, stepNumber: 1, heading: null }, { id: pour.id, stepNumber: 2, heading: 'Serve' }, { id: melt.id, stepNumber: 3, heading: null }]);
+    expect(await s.photoAt(updated.instructions[2].imageUrl)).toEqual(storedPhoto(30));
   }, 60_000);
 
   it('moves kept photos with their steps, replaces the cover, and cleans replaced, removed and deleted-step photos', async () => {

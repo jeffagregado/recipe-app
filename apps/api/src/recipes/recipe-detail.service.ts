@@ -36,7 +36,7 @@ export class RecipeDetailService {
       try {
         const imageUrl = recipe.images[0] ? await this.storage.signedDownloadUrl(recipe.images[0].objectKey) : null;
         const instructions = await Promise.all(recipe.instructions.map(async (step) => ({
-          id: step.id, stepNumber: step.stepNumber, description: step.description,
+          id: step.id, stepNumber: step.stepNumber, description: step.description, heading: step.heading,
           imageUrl: step.image ? await this.storage.signedDownloadUrl(step.image.objectKey) : null,
         })));
         signal.throwIfAborted();

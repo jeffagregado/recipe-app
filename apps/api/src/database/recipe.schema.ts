@@ -51,6 +51,7 @@ export const recipeIngredients = pgTable('recipe_ingredients', {
   unit: text('unit').$type<MeasurementUnit>(),
   preparation: text('preparation'),
   note: text('note'),
+  heading: text('heading'),
   sortOrder: integer('sort_order').notNull(),
 }, (t) => [
   primaryKey({ name: 'recipe_ingredients_pkey', columns: [t.id] }),
@@ -63,12 +64,13 @@ export const recipeIngredients = pgTable('recipe_ingredients', {
   check('recipe_ingredients_unit_check', sql`${t.unit} IN (${units})`),
   check('recipe_ingredients_preparation_check', sql`length(${t.preparation}) <= 200`),
   check('recipe_ingredients_note_check', sql`length(${t.note}) <= 500`),
+  check('recipe_ingredients_heading_check', sql`length(btrim(${t.heading})) BETWEEN 1 AND ${sql.raw(String(RECIPE_LIMITS.groupHeading))}`),
   check('recipe_ingredients_sort_order_check', sql`${t.sortOrder} >= 0`),
 ]);
 
 export const recipeInstructions = pgTable('recipe_instructions', {
   id: textId(), recipeId: text('recipe_id').notNull(), stepNumber: integer('step_number').notNull(), description: text('description').notNull(),
-  imageId: text('image_id'),
+  imageId: text('image_id'), heading: text('heading'),
 }, (t) => [
   primaryKey({ name: 'recipe_instructions_pkey', columns: [t.id] }),
   foreignKey({ name: 'recipe_instructions_recipe_id_fkey', columns: [t.recipeId], foreignColumns: [recipes.id] }).onDelete('cascade'),
@@ -77,6 +79,7 @@ export const recipeInstructions = pgTable('recipe_instructions', {
   unique('recipe_instructions_recipe_step_key').on(t.recipeId, t.stepNumber),
   check('recipe_instructions_step_number_check', sql`${t.stepNumber} > 0`),
   check('recipe_instructions_description_check', sql`length(btrim(${t.description})) BETWEEN 1 AND 5000`),
+  check('recipe_instructions_heading_check', sql`length(btrim(${t.heading})) BETWEEN 1 AND ${sql.raw(String(RECIPE_LIMITS.groupHeading))}`),
 ]);
 
 export const categories = pgTable('categories', {

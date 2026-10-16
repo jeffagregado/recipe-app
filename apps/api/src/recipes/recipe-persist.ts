@@ -18,7 +18,7 @@ export async function persistRecipe(tx: RecipeTransaction, metadata: CreateRecip
     id: image.id, recipeId, objectKey: image.key, sortOrder: image.sortOrder,
   })));
   await tx.insert(recipeInstructions).values(metadata.instructions.map((step, index) => ({
-    id: randomUUID(), recipeId, stepNumber: index + 1, description: step.description,
+    id: randomUUID(), recipeId, stepNumber: index + 1, description: step.description, heading: step.heading ?? null,
     imageId: images.find((image) => image.photo.fieldname === `step-${index}`)?.id ?? null,
   })));
   await insertRecipeCategories(tx, recipeId, userId, metadata.categoryIds);
@@ -40,7 +40,7 @@ export async function insertRecipeIngredients(tx: RecipeTransaction, recipeId: s
   }
   await tx.insert(recipeIngredients).values(rows.map((row, sortOrder) => ({
     recipeId, ingredientId: canonical.get(row.name.toLowerCase())!, name: row.name,
-    quantity: row.quantity === null ? null : String(row.quantity), unit: row.unit, preparation: null, note: null, sortOrder,
+    quantity: row.quantity === null ? null : String(row.quantity), unit: row.unit, preparation: null, note: null, heading: row.heading ?? null, sortOrder,
   })));
 }
 

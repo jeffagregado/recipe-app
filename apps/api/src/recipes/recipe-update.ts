@@ -53,7 +53,7 @@ export async function applyRecipeUpdate(tx: RecipeTransaction, { id, userId, met
   if (plan.stale.length) await tx.delete(recipeImages).where(inArray(recipeImages.id, plan.stale.map((image) => image.id)));
   if (plan.added.length) await tx.insert(recipeImages).values(plan.added.map((image) => ({ ...image, recipeId: id })));
   await tx.insert(recipeInstructions).values(metadata.instructions.map((step, index) => ({
-    id: step.id ?? randomUUID(), recipeId: id, stepNumber: index + 1, description: step.description, imageId: plan.stepImageIds[index],
+    id: step.id ?? randomUUID(), recipeId: id, stepNumber: index + 1, description: step.description, heading: step.heading ?? null, imageId: plan.stepImageIds[index],
   })));
   await tx.delete(recipeIngredients).where(eq(recipeIngredients.recipeId, id));
   await insertRecipeIngredients(tx, id, metadata.ingredients);
