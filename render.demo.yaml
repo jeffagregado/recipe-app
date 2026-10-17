@@ -1,0 +1,51 @@
+# Render Blueprint for the live demo API (#112, #116). Apply it as its own Blueprint with the file path render.demo.yaml
+# and branch demo. It names only recapp-demo-api; production's recapp-api lives in render.yaml. See DEPLOY.md "Live demo".
+# Secrets are declared with sync: false and hold no value here: Render asks for them when the Blueprint is first applied.
+services:
+  - type: web
+    name: recapp-demo-api
+    runtime: node
+    plan: free
+    region: singapore
+    branch: demo
+    autoDeployTrigger: commit
+    previews:
+      generation: off
+    # Same build as render.yaml: pnpm runs through npx because corepack enable fails on Render, and --prod=false keeps
+    # the devDependencies the build needs.
+    buildCommand: npx --yes pnpm@12.9.1 install --frozen-lockfile --prod=false && npx --yes pnpm@12.9.1 exec turbo build --filter=@recipe/api
+    startCommand: node apps/api/dist/main.js
+    healthCheckPath: /api/auth/ok
+    domains:
+      - demo-api.recapp.site
+    envVars:
+      - key: NODE_VERSION
+        value: "25"
+      - key: NODE_ENV
+        value: production
+      - key: DEMO_MODE
+        value: "true"
+      - key: AWS_REGION
+        value: ap-southeast-1
+      - key: S3_BUCKET
+        value: recipe-app-v2-demo
+      - key: AWS_ENDPOINT_URL_S3
+        value: https://br-floral-sky-b3ub6ga4.storage.c-4.ap-southeast-1.aws.neon.tech
+      - key: BETTER_AUTH_URL
+        value: https://demo-api.recapp.site
+      - key: AUTH_TRUSTED_ORIGINS
+        value: https://demo.recapp.site
+      - key: TRUST_PROXY_HOPS
+        value: "2"
+      # No RESEND_API_KEY: the API refuses to start with DEMO_MODE on and a mail key. No Google client, so no Google
+      # variables. MAIL_FROM keeps its default; nothing is sent without a key.
+      - key: DATABASE_URL
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: BETTER_AUTH_SECRET
+        sync: false
+      - key: RECIPE_WEB_PROXY_SECRET
+        sync: false

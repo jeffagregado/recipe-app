@@ -140,3 +140,69 @@ Render's free plan blocks outbound SMTP, so mail goes through Resend's HTTP API.
 
 - The free Render service sleeps after 15 minutes without requests, so the first request after that is slow.
 - Preview deployments cannot sign in. Only the production web origins are in `AUTH_TRUSTED_ORIGINS`.
+
+## Live demo
+
+The live demo (#112) runs from the long-lived `demo` git branch, with `DEMO_MODE` on in both apps. [`DEMO.md`](DEMO.md)
+holds its operating notes.
+
+| Part | Host | Name | URL |
+| --- | --- | --- | --- |
+| Web | Vercel | project `recapp-demo`, production branch `demo`, region `sin1` | https://demo.recapp.site |
+| API | Render | web service `recapp-demo-api`, free plan, region `singapore`, from [`render.demo.yaml`](render.demo.yaml) | https://demo-api.recapp.site |
+| Postgres and object storage | Neon | project `recipe-app-v2`, schema-only branch `demo` (`br-floral-sky-b3ub6ga4`), bucket `recipe-app-v2-demo` | |
+
+The `demo` Neon branch is a root branch: it has no parent, so it has its own bucket and its own storage credential, and
+`production` and `dev` keys do not work on it. CI never tests on it, because CI uses only children of `dev`. Both CNAME
+records in Cloudflare, `demo` and `demo-api`, are DNS only.
+
+The API comes from its own Blueprint: **New > Blueprint**, branch `demo`, Blueprint file path `render.demo.yaml`. That
+file names only `recapp-demo-api`, so it never manages production's `recapp-api`. Never point a Blueprint at the `demo`
+branch's `render.yaml`. Render asks for these secrets when the Blueprint is first applied:
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | the database URL of the Neon `demo` branch |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | the storage credential created on the Neon `demo` branch |
+| `BETTER_AUTH_SECRET` | a new value of at least 32 characters, not production's |
+| `RECIPE_WEB_PROXY_SECRET` | a new value, the same as on the `recapp-demo` Vercel project |
+
+The demo API has no `RESEND_API_KEY`, because the API refuses to start with `DEMO_MODE` on and a mail key, and no Google
+variables. On Vercel, `recapp-demo` sets `DEMO_MODE=true`, `RECIPE_API_URL=https://demo-api.recapp.site`,
+`RECIPE_STORAGE_HOST=br-floral-sky-b3ub6ga4.storage.c-4.ap-southeast-1.aws.neon.tech`, `CONTACT_EMAIL` and
+`RECIPE_WEB_PROXY_SECRET`, and leaves `NEXT_PUBLIC_GA_ID` unset.
+
+### Bringing master into demo
+
+Merge `master` into `demo` only when the owner asks. Never merge `demo` into `master`.
+
+1. Start a sync branch from `demo` and merge `master` into it:
+
+   ```
+   git fetch origin
+   git switch -c sync/master-into-demo-<date> origin/demo
+   git merge origin/master
+   ```
+
+   Resolve any conflict in favour of `master`'s behaviour with `DEMO_MODE` off.
+2. List the migrations the merge brings: `git diff --name-only origin/demo -- apps/api/drizzle`.
+3. If there are any, migrate the Neon `demo` branch **before** the merge reaches `demo`, because a merge into `demo`
+   deploys the demo API. From the sync branch:
+
+   ```
+   pnpm install
+   pnpm --filter @recipe/api db:migrate
+   ```
+
+   Give the command the `demo` branch's database URL in `DATABASE_URL` in the process environment. Do not write it to
+   a file in the repository. As for production, write migrations that the running API can tolerate.
+4. Push the sync branch and open a pull request into `demo`. Wait for CI to pass, the demo end-to-end job included.
+   Merging it deploys Render `recapp-demo-api` and Vercel `recapp-demo` from the merge commit.
+5. If the merge changed `apps/api/src/demo/template/` or the demo seed, reseed the `demo` branch as `DEMO.md`
+   describes, when the demo is quiet.
+6. Check: `https://demo-api.recapp.site/api/auth/ok` answers `{"ok":true}`, and Start demo on https://demo.recapp.site
+   lands on the recipe list.
+
+The migration journal on the `demo` branch (`drizzle.__drizzle_migrations`) was copied from `dev` when the branch was
+created, because a schema-only branch copies tables but no rows. Never empty it: `db:migrate` would then try to apply
+every migration again from `0000`.
