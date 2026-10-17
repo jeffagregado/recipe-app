@@ -9,7 +9,7 @@ import { jpeg } from './recipe-photos.js';
 export type DemoTemplate = Awaited<ReturnType<typeof seedDemoTemplate>>;
 
 /** The stored photos of the Demo template's recipes. */
-async function templateObjectKeys(db: DrizzleDb): Promise<string[]> {
+export async function templateObjectKeys(db: DrizzleDb): Promise<string[]> {
   const rows = await db.select({ key: recipeImages.objectKey }).from(recipeImages)
     .innerJoin(recipes, eq(recipes.id, recipeImages.recipeId)).where(eq(recipes.userId, DEMO_TEMPLATE_ID));
   return rows.map(({ key }) => key);

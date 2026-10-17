@@ -8,12 +8,13 @@ import { AUTH } from '../../src/auth/auth.tokens.js';
 import type { RecipeAuth } from '../../src/auth/auth.js';
 import type { RecipeDetail } from '@recipe-app/contracts/types';
 import type { DrizzleDb } from '../../src/database/database.service.js';
-import { authRateLimits, authSessions, ingredients, recipeImages, recipes, users } from '../../src/database/schema.js';
-import { DEMO_TEMPLATE_ID } from '../../src/demo/demo-template.js';
+import { authAccounts, authRateLimits, authSessions, categories, ingredients, recipeImages, recipes, users } from '../../src/database/schema.js';
+import { DEMO_TEMPLATE_EMAIL, DEMO_TEMPLATE_ID } from '../../src/demo/demo-template.js';
+import { runDemoSeed, writeDemoTemplate } from '../../src/demo/demo-template-seed.js';
 import { StorageError, StorageService } from '../../src/storage/storage.service.js';
 import { cookiePair, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
-import { removeDemoTemplate, seedDemoTemplate } from '../demo-template.js';
+import { removeDemoTemplate, seedDemoTemplate, templateObjectKeys } from '../demo-template.js';
 import type { DemoTemplate } from '../demo-template.js';
 import { describePhoto, jpeg } from '../recipe-photos.js';
 
@@ -511,5 +512,134 @@ describe('Live demo API (DEMO_MODE on)', () => {
       expect((await call('POST', '/auth/logout', {})).status).toBe(204);
       expect((await get('/auth/session', account.cookie)).status).toBe(401);
     }, 60_000);
+  });
+
+  // Last in the file: the demo seed replaces the small template the tests above share.
+  describe('the curated Demo template', () => {
+    const titles = async () => (await db.select({ title: recipes.title }).from(recipes)
+      .where(eq(recipes.userId, DEMO_TEMPLATE_ID)).orderBy(asc(recipes.title))).map(({ title }) => title);
+    /** Every seed writes new Category ids, so unchanged ids mean the seed wrote nothing. */
+    const categoryIds = async () => (await db.select({ id: categories.id }).from(categories)
+      .where(eq(categories.userId, DEMO_TEMPLATE_ID)).orderBy(asc(categories.id))).map(({ id }) => id);
+    const edamameOwner = async () => db.select({ userId: recipes.userId, title: recipes.title }).from(recipes).where(eq(recipes.id, 'demo-template-sesame-edamame'));
+
+    // Before the seed below, so no template recipe holds the id the collision case takes.
+    describe('refusals', () => {
+      it.each([
+        { refusal: 'the template owner has another email', message: 'Demo template owner collision', edamame: [],
+          arrange: async () => { await db.update(users).set({ email: testEmail() }).where(eq(users.id, DEMO_TEMPLATE_ID)); },
+          restore: async () => { await db.update(users).set({ email: DEMO_TEMPLATE_EMAIL }).where(eq(users.id, DEMO_TEMPLATE_ID)); } },
+        { refusal: 'the template owner has a Sign-in method', message: 'Demo template owner collision', edamame: [],
+          arrange: async () => { await db.insert(authAccounts).values({ accountId: DEMO_TEMPLATE_ID, providerId: 'credential', userId: DEMO_TEMPLATE_ID }); },
+          restore: async () => { await db.delete(authAccounts).where(eq(authAccounts.userId, DEMO_TEMPLATE_ID)); } },
+        { refusal: 'another account owns a template recipe id', message: 'Demo template recipe ID collision',
+          edamame: [{ userId: 'demo-seed-collision', title: 'Their edamame' }],
+          arrange: async () => {
+            await db.insert(users).values({ id: 'demo-seed-collision', name: 'Someone', email: testEmail(), emailVerified: true });
+            await db.insert(recipes).values({ id: 'demo-template-sesame-edamame', userId: 'demo-seed-collision', title: 'Their edamame' });
+          },
+          restore: async () => { await db.delete(users).where(eq(users.id, 'demo-seed-collision')); } },
+      ])('refuses to seed, and changes nothing, when $refusal', async ({ message, edamame, arrange, restore }) => {
+        const before = await categoryIds();
+        await arrange();
+        try {
+          await expect(writeDemoTemplate(db, storage)).rejects.toThrow(message);
+          expect(await categoryIds()).toEqual(before);
+          expect(await titles()).toEqual(['Template pancakes', 'Template salad']);
+          expect(await edamameOwner()).toEqual(edamame);
+        } finally {
+          await restore();
+        }
+      }, 60_000);
+    });
+
+    describe('seeded', () => {
+      beforeAll(async () => {
+        await writeDemoTemplate(db, storage);
+      }, 60_000);
+
+      it('fails the command and lists each replaced photo it could not delete', async () => {
+        const key = `recipes/demo-template-sesame-edamame/${randomUUID()}.webp`;
+        await storage.upload(key, jpeg(13), 'image/jpeg');
+        await db.insert(recipeImages).values({ recipeId: 'demo-template-sesame-edamame', objectKey: key, sortOrder: 9 });
+        const deleteObject = storage.deleteObject.bind(storage);
+        const failing = vi.spyOn(storage, 'deleteObject').mockImplementation(async (target) => {
+          if (target === key) throw new StorageError('Injected delete failure.');
+          return deleteObject(target);
+        });
+        const output = { log: [] as string[], error: [] as string[] };
+        try {
+          const exitCode = await runDemoSeed(db, storage, { log: (line) => output.log.push(line), error: (line) => output.error.push(line) });
+          expect({ exitCode, output }).toEqual({ exitCode: 1, output: { log: [], error: [
+            'Demo template written, but 1 replaced photo could not be deleted from storage. Delete these keys by hand:', key,
+          ] } });
+          expect(await stored(key)).toBe(true);
+          expect(await db.$count(recipeImages, eq(recipeImages.objectKey, key))).toBe(0);
+        } finally {
+          failing.mockRestore();
+          await storage.deleteObject(key);
+        }
+      }, 60_000);
+
+      it('keeps one template with every Photo stored when the seed runs again, and deletes the photos it replaced', async () => {
+        await writeDemoTemplate(db, storage);
+
+        expect(await titles()).toEqual([
+          'Blueberry Yogurt Bowl', 'Cheddar Chive Scones', 'Dark Chocolate Mousse', 'Eggplant Tomato Bake', 'Ginger Salmon Rice',
+          'Lemon Herb Hummus', 'Lemon Ricotta Pancakes', 'Peach Oat Crumble', 'Pesto Mozzarella Panini', 'Raspberry Cheesecake Cups',
+          'Roasted Beet Feta Salad', 'Rosemary Roast Chicken', 'Sesame Edamame', 'Sesame Soba Noodles', 'Tomato Olive Puff Tarts',
+        ]);
+        const keys = await templateObjectKeys(db);
+        expect(keys).toHaveLength(21);
+        expect((await Promise.all(keys.map(stored))).every(Boolean)).toBe(true);
+        expect(await Promise.all(template.objectKeys.map(stored))).toEqual([false, false]);
+      }, 60_000);
+
+      it('starts a Demo account holding the 15 template recipes with their Categories, Favorites and cover Photos', async () => {
+        const { cookie } = await startedAccount();
+        const tags = categoryListSchema.parse(await (await get('/categories', cookie)).json());
+        expect(tags.map(({ name: categoryName, recipeCount }) => [categoryName, recipeCount])).toEqual([
+          ['Breakfast', 3], ['Lunch', 3], ['Dinner', 3], ['Desserts', 3], ['Snacks', 3], ['Vegetarian', 13], ['Quick', 6], ['Baking', 3],
+        ]);
+
+        const { data, counts } = await list(cookie);
+        expect(data.map(({ title, isFavorite, categories: recipeTags }) => [title, isFavorite, recipeTags.map((tag) => tag.name)])).toEqual([
+          ['Rosemary Roast Chicken', true, ['Dinner']],
+          ['Lemon Ricotta Pancakes', true, ['Breakfast', 'Vegetarian']],
+          ['Sesame Soba Noodles', true, ['Lunch', 'Quick', 'Vegetarian']],
+          ['Dark Chocolate Mousse', true, ['Desserts', 'Vegetarian']],
+          ['Pesto Mozzarella Panini', false, ['Lunch', 'Quick', 'Vegetarian']],
+          ['Ginger Salmon Rice', false, ['Dinner', 'Quick']],
+          ['Blueberry Yogurt Bowl', false, ['Breakfast', 'Quick', 'Vegetarian']],
+          ['Tomato Olive Puff Tarts', false, ['Snacks', 'Baking', 'Vegetarian']],
+          ['Roasted Beet Feta Salad', false, ['Lunch', 'Vegetarian']],
+          ['Peach Oat Crumble', false, ['Desserts', 'Baking', 'Vegetarian']],
+          ['Cheddar Chive Scones', false, ['Breakfast', 'Baking', 'Vegetarian']],
+          ['Eggplant Tomato Bake', false, ['Dinner', 'Vegetarian']],
+          ['Lemon Herb Hummus', false, ['Snacks', 'Quick', 'Vegetarian']],
+          ['Raspberry Cheesecake Cups', false, ['Desserts', 'Vegetarian']],
+          ['Sesame Edamame', false, ['Snacks', 'Quick', 'Vegetarian']],
+        ]);
+        expect({ total: counts.total, favorites: counts.favorites }).toEqual({ total: 15, favorites: 4 });
+        expect(data.filter(({ imageUrl }) => imageUrl === null)).toEqual([]);
+
+        const bake = await detail(data.find(({ title }) => title === 'Eggplant Tomato Bake')!.id, cookie);
+        expect({
+          servings: bake.servings, prepTimeMinutes: bake.prepTimeMinutes, cookTimeMinutes: bake.cookTimeMinutes, videoUrl: bake.videoUrl,
+          ingredients: bake.ingredients.map(({ name: item, quantity, unit, heading }) => [item, quantity, unit, heading]),
+          instructions: bake.instructions.map(({ stepNumber, heading, imageUrl }) => [stepNumber, heading, imageUrl !== null]),
+        }).toEqual({
+          servings: 4, prepTimeMinutes: 15, cookTimeMinutes: 40, videoUrl: null,
+          ingredients: [
+            ['eggplants', 2, 'piece', 'Eggplant'], ['olive oil', 3, 'tbsp', null], ['salt', 0.5, 'tsp', null],
+            ['tomato sauce', 400, 'ml', 'Layers'], ['fresh mozzarella', 200, 'g', null], ['parmesan, grated', 30, 'g', null], ['fresh basil', null, null, null],
+          ],
+          instructions: [
+            [1, 'Roast the eggplant', false], [2, null, false], [3, 'Assemble and bake', true], [4, null, false], [5, null, false],
+          ],
+        });
+        expect(bake.instructions[2].description).toBe('Layer the eggplant, tomato sauce and mozzarella in a baking dish, finishing with sauce and cheese.');
+      }, 60_000);
+    });
   });
 });
