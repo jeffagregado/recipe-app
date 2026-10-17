@@ -35,7 +35,7 @@ Do these steps in order.
 
 ### Render service settings
 
-`render.yaml` holds these settings. Keep the file and the dashboard the same.
+`render.yaml` holds these settings. Keep the file and the dashboard the same. The demo's [`render.demo.yaml`](render.demo.yaml) repeats the build and start commands, so change both files together.
 
 - Runtime `node`, no root directory, auto-deploy from `master` on each commit, pull request previews off.
 - Build command:
@@ -140,3 +140,72 @@ Render's free plan blocks outbound SMTP, so mail goes through Resend's HTTP API.
 
 - The free Render service sleeps after 15 minutes without requests, so the first request after that is slow.
 - Preview deployments cannot sign in. Only the production web origins are in `AUTH_TRUSTED_ORIGINS`.
+
+## Live demo
+
+The live demo (#112) runs from the long-lived `demo` git branch, with `DEMO_MODE` on in both apps. [`DEMO.md`](DEMO.md) holds its operating notes.
+
+| Part | Host | Name | URL |
+| --- | --- | --- | --- |
+| Web | Vercel | project `recapp-demo`, production branch `demo`, region `sin1` | https://demo.recapp.site |
+| API | Render | web service `recapp-demo-api`, free plan, region `singapore`, from [`render.demo.yaml`](render.demo.yaml) | https://demo-api.recapp.site |
+| Postgres and object storage | Neon | project `recipe-app-v2` (`round-term-82774312`), schema-only branch `demo` (`br-floral-sky-b3ub6ga4`), bucket `recipe-app-v2-demo` | |
+
+The `demo` Neon branch is a root branch: it has no parent, so it has its own bucket and its own storage access key pair, and the `production` and `dev` keys do not work on it. CI never tests on it, because CI uses only children of `dev`. Both CNAME records in Cloudflare, `demo` and `demo-api`, are DNS only.
+
+### Demo API on Render
+
+The API comes from its own Blueprint: **New > Blueprint**, branch `demo`, Blueprint file path `render.demo.yaml`. That file names only `recapp-demo-api`, so it never manages production's `recapp-api`. Never point a Blueprint at the `demo` branch's `render.yaml`. Render asks for these secrets when the Blueprint is first applied:
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | the database URL of the Neon `demo` branch |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | the storage access key pair created on the Neon `demo` branch |
+| `BETTER_AUTH_SECRET` | a new value of at least 32 characters, not production's |
+| `RECIPE_WEB_PROXY_SECRET` | a new value of at least 32 characters with no whitespace, the same as on the `recapp-demo` Vercel project. Generate it as in [Proxy secret](#proxy-secret) |
+
+The demo API has no `RESEND_API_KEY`, because the API refuses to start with `DEMO_MODE` on and a mail key, and no Google variables.
+
+The Blueprint also adds the custom domain `demo-api.recapp.site`. A Hobby workspace allows two custom domains, and `api` and `demo-api` use both. If the Blueprint reports a domain error, remove `domains` from `render.demo.yaml` and add the domain in the service's **Settings > Custom Domains**.
+
+### Demo web on Vercel
+
+`recapp-demo` builds `apps/web` like `recipe-app`, with Node 24.x, Fluid compute and a default function max duration of 300 s, which covers the 90 s that Start demo waits for a sleeping API. Its Ignored Build Step is `[ "$VERCEL_GIT_COMMIT_REF" != "demo" ]`, so pushes to other branches build no preview. Its Production variables:
+
+| Variable | Value |
+| --- | --- |
+| `DEMO_MODE` | `true` |
+| `RECIPE_API_URL` | `https://demo-api.recapp.site` |
+| `RECIPE_STORAGE_HOST` | `br-floral-sky-b3ub6ga4.storage.c-4.ap-southeast-1.aws.neon.tech` |
+| `CONTACT_EMAIL` | `hello@recapp.site` |
+| `RECIPE_WEB_PROXY_SECRET` | secret: the same value as on Render |
+
+`NEXT_PUBLIC_GA_ID` stays unset: the demo uses Vercel Analytics instead.
+
+### Bringing master into demo
+
+Merge `master` into `demo` only when the owner asks. Never merge `demo` into `master`.
+
+1. In a new worktree, never the main checkout, which stays on `master`, start a sync branch from `demo` and merge `master` into it. Name the issue in the merge message:
+
+   ```
+   git fetch origin
+   git switch -c sync/master-into-demo-<date> origin/demo
+   git merge origin/master -m "Merge master into demo (#<issue>)"
+   ```
+
+   Resolve any conflict in favour of `master`'s behaviour with `DEMO_MODE` off.
+2. List the migrations the merge brings: `git diff --name-only origin/demo -- apps/api/drizzle`.
+3. If there are any, migrate the Neon `demo` branch **before** the merge reaches `demo`, because a merge into `demo` deploys the demo API. From the sync branch:
+
+   ```
+   pnpm install
+   pnpm --filter @recipe/api db:migrate
+   ```
+
+   Give the command the `demo` branch's database URL in `DATABASE_URL` in the process environment. Do not write it to a file in the repository. As for production, write migrations that the running API can tolerate.
+4. Push the sync branch and open a pull request into `demo`. Wait for CI to pass, the demo end-to-end job included. Merging it deploys Render `recapp-demo-api` and Vercel `recapp-demo` from the merge commit.
+5. If the merge changed `apps/api/src/demo/template/` or the demo seed, reseed the `demo` branch as `DEMO.md` describes, when the demo is quiet.
+6. Check: `https://demo-api.recapp.site/api/auth/ok` answers `{"ok":true}`, and Start demo on https://demo.recapp.site lands on the recipe list.
+
+The migration journal on the `demo` branch (`drizzle.__drizzle_migrations`) was copied from `dev` when the branch was created, because a schema-only branch copies tables but no rows. Never empty it: `db:migrate` would then try to apply every migration again from `0000`.
