@@ -14,6 +14,7 @@ import { AccountModule } from './account/account.module.js';
 import { MailModule } from './mail/mail.module.js';
 import { recipeResiliencePresets } from './recipes/recipes.resilience.js';
 import { authResiliencePresets } from './auth/auth.resilience.js';
+import { demoModeModule } from './demo/demo.module.js';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { authResiliencePresets } from './auth/auth.resilience.js';
     AccountModule,
     RecipesModule,
     CategoriesModule,
+    demoModeModule(),
   ],
   controllers: [AppController],
   providers: [AppService],

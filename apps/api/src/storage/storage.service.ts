@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { z } from 'zod';
 import type { Environment } from '../config/environment.js';
@@ -50,6 +50,19 @@ export class StorageService implements OnApplicationShutdown {
       return key;
     } catch (cause) {
       throw new StorageError('Storage upload failed. Check storage configuration, bucket access, and network availability.', { cause });
+    }
+  }
+
+  /** Copies a stored object to a new key in the same bucket, keeping its content type. */
+  async copyObject(sourceKey: string, targetKey: string): Promise<void> {
+    validateKey(sourceKey);
+    validateKey(targetKey);
+    try {
+      await this.client.send(new CopyObjectCommand({
+        Bucket: this.bucket, Key: targetKey, CopySource: `${this.bucket}/${sourceKey.split('/').map(encodeURIComponent).join('/')}`,
+      }), { abortSignal: AbortSignal.timeout(10_000) });
+    } catch (cause) {
+      throw new StorageError('Storage copy failed. Check storage configuration, bucket access, and network availability.', { cause });
     }
   }
 

@@ -3,11 +3,11 @@ import type { ServerResponse } from 'node:http';
 import { Catch, HttpException, Logger } from '@nestjs/common';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import { ResilienceError, ResilienceTimeoutError } from '@nestjs/resilience';
-import type { ApiErrorEnvelope } from '@recipe-app/contracts/types';
+import type { ApiErrorEnvelope, DemoErrorCode } from '@recipe-app/contracts/types';
 import { AuthError } from '../auth/auth.errors.js';
 
 type RecipeErrorCode = 'VALIDATION_FAILED' | 'NOT_FOUND' | 'IDEMPOTENCY_CONFLICT' | 'IDEMPOTENCY_IN_PROGRESS'
-  | 'PAYLOAD_TOO_LARGE' | 'UNSUPPORTED_MEDIA_TYPE' | 'RATE_LIMITED' | 'SERVICE_UNAVAILABLE' | 'TIMEOUT';
+  | 'PAYLOAD_TOO_LARGE' | 'UNSUPPORTED_MEDIA_TYPE' | 'RATE_LIMITED' | 'SERVICE_UNAVAILABLE' | 'TIMEOUT' | DemoErrorCode;
 
 export class RecipeError extends HttpException {
   constructor(status: number, code: RecipeErrorCode, message: string, options: { cause?: unknown; fieldErrors?: Record<string, string[]> } = {}) {
