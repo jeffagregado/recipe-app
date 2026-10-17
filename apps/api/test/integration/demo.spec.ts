@@ -9,7 +9,8 @@ import type { RecipeAuth } from '../../src/auth/auth.js';
 import type { RecipeDetail } from '@recipe-app/contracts/types';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authRateLimits, authSessions, ingredients, recipeImages, recipes, users } from '../../src/database/schema.js';
-import { DEMO_TEMPLATE_ID } from '../../src/demo/demo-template.js';
+import { DEMO_TEMPLATE_EMAIL, DEMO_TEMPLATE_ID } from '../../src/demo/demo-template.js';
+import { writeDemoTemplate } from '../../src/demo/demo-template-seed.js';
 import { StorageError, StorageService } from '../../src/storage/storage.service.js';
 import { cookiePair, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
@@ -511,5 +512,99 @@ describe('Live demo API (DEMO_MODE on)', () => {
       expect((await call('POST', '/auth/logout', {})).status).toBe(204);
       expect((await get('/auth/session', account.cookie)).status).toBe(401);
     }, 60_000);
+  });
+
+  // Last in the file: the demo seed replaces the small template the tests above share.
+  describe('the curated Demo template', () => {
+    const templateTitles = async () => (await db.select({ title: recipes.title }).from(recipes)
+      .where(eq(recipes.userId, DEMO_TEMPLATE_ID)).orderBy(asc(recipes.title))).map(({ title }) => title);
+    const templateKeys = async () => (await db.select({ key: recipeImages.objectKey }).from(recipeImages)
+      .innerJoin(recipes, eq(recipes.id, recipeImages.recipeId)).where(eq(recipes.userId, DEMO_TEMPLATE_ID))).map(({ key }) => key);
+
+    it.each([
+      { refusal: 'the template owner has another email', message: 'Demo template owner collision',
+        arrange: async () => { await db.update(users).set({ email: testEmail() }).where(eq(users.id, DEMO_TEMPLATE_ID)); },
+        restore: async () => { await db.update(users).set({ email: DEMO_TEMPLATE_EMAIL }).where(eq(users.id, DEMO_TEMPLATE_ID)); } },
+      { refusal: 'another account owns a template recipe id', message: 'Demo template recipe ID collision',
+        arrange: async () => {
+          await db.insert(users).values({ id: 'demo-seed-collision', name: 'Someone', email: testEmail(), emailVerified: true });
+          await db.insert(recipes).values({ id: 'demo-template-sesame-edamame', userId: 'demo-seed-collision', title: 'Their edamame' });
+        },
+        restore: async () => {
+          expect(await db.select({ userId: recipes.userId, title: recipes.title }).from(recipes).where(eq(recipes.id, 'demo-template-sesame-edamame')))
+            .toEqual([{ userId: 'demo-seed-collision', title: 'Their edamame' }]);
+          await db.delete(users).where(eq(users.id, 'demo-seed-collision'));
+        } },
+    ])('refuses to seed, and changes nothing, when $refusal', async ({ message, arrange, restore }) => {
+      await arrange();
+      try {
+        await expect(writeDemoTemplate(db, storage)).rejects.toThrow(message);
+        expect(await templateTitles()).toEqual(['Template pancakes', 'Template salad']);
+      } finally {
+        await restore();
+      }
+    }, 60_000);
+
+    it('seeds the 15 recipes once however often it runs, with every Photo stored, and removes the replaced photos', async () => {
+      await writeDemoTemplate(db, storage);
+      await writeDemoTemplate(db, storage);
+
+      expect(await templateTitles()).toEqual([
+        'Blueberry Yogurt Bowl', 'Cheddar Chive Scones', 'Dark Chocolate Mousse', 'Eggplant Tomato Bake', 'Ginger Salmon Rice',
+        'Lemon Herb Hummus', 'Lemon Ricotta Pancakes', 'Peach Oat Crumble', 'Pesto Mozzarella Panini', 'Raspberry Cheesecake Cups',
+        'Roasted Beet Feta Salad', 'Rosemary Roast Chicken', 'Sesame Edamame', 'Sesame Soba Noodles', 'Tomato Olive Puff Tarts',
+      ]);
+      const keys = await templateKeys();
+      expect(keys).toHaveLength(21);
+      expect((await Promise.all(keys.map(stored))).every(Boolean)).toBe(true);
+      expect(await Promise.all(template.objectKeys.map(stored))).toEqual([false, false]);
+    }, 120_000);
+
+    it('starts a Demo account holding the 15 template recipes with their Categories, Favorites and cover Photos', async () => {
+      const { cookie } = await startedAccount();
+      const categories = categoryListSchema.parse(await (await get('/categories', cookie)).json());
+      expect(categories.map(({ name: categoryName, recipeCount }) => [categoryName, recipeCount])).toEqual([
+        ['Breakfast', 3], ['Lunch', 3], ['Dinner', 3], ['Desserts', 3], ['Snacks', 3], ['Vegetarian', 10], ['Quick', 6], ['Baking', 3],
+      ]);
+
+      const { data, counts } = await list(cookie);
+      expect(data.map(({ title, isFavorite, categories: tags }) => [title, isFavorite, tags.map((tag) => tag.name)])).toEqual([
+        ['Rosemary Roast Chicken', true, ['Dinner']],
+        ['Lemon Ricotta Pancakes', true, ['Breakfast', 'Vegetarian']],
+        ['Sesame Soba Noodles', true, ['Lunch', 'Quick', 'Vegetarian']],
+        ['Dark Chocolate Mousse', true, ['Desserts']],
+        ['Pesto Mozzarella Panini', false, ['Lunch', 'Quick', 'Vegetarian']],
+        ['Ginger Salmon Rice', false, ['Dinner', 'Quick']],
+        ['Blueberry Yogurt Bowl', false, ['Breakfast', 'Quick', 'Vegetarian']],
+        ['Tomato Olive Puff Tarts', false, ['Snacks', 'Baking', 'Vegetarian']],
+        ['Roasted Beet Feta Salad', false, ['Lunch', 'Vegetarian']],
+        ['Peach Oat Crumble', false, ['Desserts', 'Baking']],
+        ['Cheddar Chive Scones', false, ['Breakfast', 'Baking', 'Vegetarian']],
+        ['Eggplant Tomato Bake', false, ['Dinner', 'Vegetarian']],
+        ['Lemon Herb Hummus', false, ['Snacks', 'Quick', 'Vegetarian']],
+        ['Raspberry Cheesecake Cups', false, ['Desserts']],
+        ['Sesame Edamame', false, ['Snacks', 'Quick', 'Vegetarian']],
+      ]);
+      expect({ total: counts.total, favorites: counts.favorites }).toEqual({ total: 15, favorites: 4 });
+      expect(data.filter(({ imageUrl }) => imageUrl === null)).toEqual([]);
+
+      const bake = await detail(data[11].id, cookie);
+      expect({
+        title: bake.title, servings: bake.servings, prepTimeMinutes: bake.prepTimeMinutes, cookTimeMinutes: bake.cookTimeMinutes,
+        videoUrl: bake.videoUrl, isFavorite: bake.isFavorite,
+        ingredients: bake.ingredients.map(({ name: item, quantity, unit, heading }) => [item, quantity, unit, heading]),
+        instructions: bake.instructions.map(({ stepNumber, heading, imageUrl }) => [stepNumber, heading, imageUrl !== null]),
+      }).toEqual({
+        title: 'Eggplant Tomato Bake', servings: 4, prepTimeMinutes: 15, cookTimeMinutes: 40, videoUrl: null, isFavorite: false,
+        ingredients: [
+          ['eggplants', 2, 'piece', 'Eggplant'], ['olive oil', 3, 'tbsp', null], ['salt', 0.5, 'tsp', null],
+          ['tomato sauce', 400, 'ml', 'Layers'], ['fresh mozzarella', 200, 'g', null], ['parmesan, grated', 30, 'g', null], ['fresh basil', null, null, null],
+        ],
+        instructions: [
+          [1, 'Roast the eggplant', false], [2, null, false], [3, 'Assemble and bake', true], [4, null, false], [5, null, false],
+        ],
+      });
+      expect(bake.instructions[2].description).toBe('Layer the eggplant, tomato sauce and mozzarella in a baking dish, finishing with sauce and cheese.');
+    }, 120_000);
   });
 });
