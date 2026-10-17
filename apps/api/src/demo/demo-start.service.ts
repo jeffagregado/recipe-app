@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, like, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, like, lte, sql } from 'drizzle-orm';
 import type { DemoStartResponse } from '@recipe-app/contracts/types';
 import { AUTH } from '../auth/auth.tokens.js';
 import type { RecipeAuth } from '../auth/auth.js';
@@ -10,7 +10,7 @@ import type { AuthRequest } from '../auth/auth.request.js';
 import { readPublicUser } from '../auth/auth.user.js';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
-import { recipeImages, recipes, recipeWriteAttempts, users } from '../database/schema.js';
+import { authSessions, recipeImages, recipes, recipeWriteAttempts, users } from '../database/schema.js';
 import { StorageService } from '../storage/storage.service.js';
 import { demoBusy, demoUnavailable } from './demo-errors.js';
 import { copyDemoTemplate } from './demo-template-copy.js';
@@ -22,11 +22,12 @@ export const DEMO_EMAIL_DOMAIN = 'demo.invalid';
 export const DEMO_DISPLAY_NAME = 'Demo visitor';
 /** A Demo account, and its session, expire this long after the account's creation. */
 export const DEMO_LIFETIME_MS = 24 * 60 * 60 * 1000;
-/** The most Demo accounts alive at once. */
+/** The most Demo accounts alive at once: unexpired ones only, so an expired account awaiting the sweep takes no slot. */
 export const DEMO_LIVE_LIMIT = 200;
 /** The most expired Demo accounts one Start demo deletes. */
 export const DEMO_SWEEP_BATCH = 10;
 const PHOTO_COPY_CONCURRENCY = 4;
+const OBJECT_DELETE_CONCURRENCY = 8;
 
 const lifetime = sql.raw(`interval '${DEMO_LIFETIME_MS} milliseconds'`);
 const demoAccount = like(users.email, `%@${DEMO_EMAIL_DOMAIN}`);
@@ -48,29 +49,44 @@ export class DemoStartService {
       if (!account) throw new Error('Demo account missing after start.');
       return { user: account, expiresAt: expiresAt.toISOString(), cookie };
     } catch (cause) {
-      // Nothing the visitor could reach is left: the Account, its rows and session cascade, then every copy is deleted.
-      try { await this.db.delete(users).where(eq(users.id, user.id)); } catch (rollbackCause) { logAuthFailure('demo-rollback', rollbackCause); }
-      await this.deleteObjects(copies.map(({ target }) => target), 'demo-rollback');
+      await this.rollback(user.id);
       throw demoUnavailable('demo-start', cause);
     }
   }
 
-  /** Deletes a bounded batch of expired Demo accounts, their rows cascading, and then their stored photos. */
+  /**
+   * Removes a start that failed after its Account was written. When an object cannot be deleted, the Account stays with no
+   * session: no one can reach it, it holds one live slot until it expires, and the sweep then retries its objects.
+   */
+  private async rollback(userId: string): Promise<void> {
+    try {
+      if (await this.removeAccount(userId, 'demo-rollback')) return;
+      await this.db.delete(authSessions).where(eq(authSessions.userId, userId));
+    } catch (cause) { logAuthFailure('demo-rollback', cause); }
+  }
+
+  /** Removes a bounded batch of expired Demo accounts, oldest first. An Account whose objects cannot all be deleted stays for the next sweep. */
   private async sweep(): Promise<void> {
-    const keys = await this.db.transaction(async (tx) => {
-      const expired = await tx.select({ id: users.id }).from(users)
-        .where(and(demoAccount, lte(users.createdAt, sql`now() - ${lifetime}`)))
-        .orderBy(asc(users.createdAt)).limit(DEMO_SWEEP_BATCH).for('update', { skipLocked: true });
-      if (!expired.length) return [];
-      const ids = expired.map(({ id }) => id);
-      const images = await tx.select({ key: recipeImages.objectKey }).from(recipeImages)
-        .innerJoin(recipes, eq(recipes.id, recipeImages.recipeId)).where(inArray(recipes.userId, ids));
-      const attempts = await tx.select({ keys: recipeWriteAttempts.objectKeys, stale: recipeWriteAttempts.staleObjectKeys })
-        .from(recipeWriteAttempts).where(inArray(recipeWriteAttempts.userId, ids));
-      await tx.delete(users).where(inArray(users.id, ids));
-      return [...new Set([...images.map(({ key }) => key), ...attempts.flatMap(({ keys: written, stale }) => [...written, ...stale])])];
-    });
-    await this.deleteObjects(keys, 'demo-sweep');
+    const expired = await this.db.select({ id: users.id }).from(users)
+      .where(and(demoAccount, lte(users.createdAt, sql`now() - ${lifetime}`)))
+      .orderBy(asc(users.createdAt)).limit(DEMO_SWEEP_BATCH);
+    for (const { id } of expired) await this.removeAccount(id, 'demo-sweep');
+  }
+
+  /**
+   * Deletes every object the Account's rows name, then, only when all of them are gone, the Account, its rows cascading.
+   * The rows are the only record of the keys, so they outlive any object that could not be deleted. Returns whether the
+   * Account is gone. Deleting an object that is already gone succeeds, so a retry repeats safely.
+   */
+  private async removeAccount(userId: string, operation: string): Promise<boolean> {
+    const images = await this.db.select({ key: recipeImages.objectKey }).from(recipeImages)
+      .innerJoin(recipes, eq(recipes.id, recipeImages.recipeId)).where(eq(recipes.userId, userId));
+    const attempts = await this.db.select({ keys: recipeWriteAttempts.objectKeys, stale: recipeWriteAttempts.staleObjectKeys })
+      .from(recipeWriteAttempts).where(eq(recipeWriteAttempts.userId, userId));
+    const keys = [...new Set([...images.map(({ key }) => key), ...attempts.flatMap(({ keys: written, stale }) => [...written, ...stale])])];
+    if (!await this.deleteObjects(keys, operation)) return false;
+    await this.db.delete(users).where(eq(users.id, userId));
+    return true;
   }
 
   /** One transaction: refuses when the demo is full, then writes the Account and its copy of the template. */
@@ -95,10 +111,14 @@ export class DemoStartService {
     }
   }
 
-  /** Deletes each object once; a failure is logged and leaves the rest to go ahead. */
-  private async deleteObjects(keys: string[], operation: string): Promise<void> {
-    for (const key of keys) {
-      try { await this.storage.deleteObject(key); } catch (cause) { logAuthFailure(operation, cause); }
+  /** Tries to delete each object once, a few at a time, and returns whether all are gone. A failure is logged. */
+  private async deleteObjects(keys: string[], operation: string): Promise<boolean> {
+    let deleted = true;
+    for (let index = 0; index < keys.length; index += OBJECT_DELETE_CONCURRENCY) {
+      for (const result of await Promise.allSettled(keys.slice(index, index + OBJECT_DELETE_CONCURRENCY).map((key) => this.storage.deleteObject(key)))) {
+        if (result.status === 'rejected') { deleted = false; logAuthFailure(operation, result.reason); }
+      }
     }
+    return deleted;
   }
 }

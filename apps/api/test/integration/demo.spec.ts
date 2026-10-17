@@ -5,12 +5,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { authSessionResponseSchema, authUserResponseSchema, categoryListSchema, demoStartResponseSchema, recipeDetailSchema, recipeListResponseSchema } from '@recipe-app/contracts/schemas';
 import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import { AUTH } from '../../src/auth/auth.tokens.js';
+import type { RecipeAuth } from '../../src/auth/auth.js';
 import type { RecipeDetail } from '@recipe-app/contracts/types';
 import type { DrizzleDb } from '../../src/database/database.service.js';
-import { authRateLimits, ingredients, recipeImages, recipes, users } from '../../src/database/schema.js';
-import { DEMO_STARTS_PER_HOUR } from '../../src/demo/demo.controller.js';
-import { DEMO_RECIPE_LIMIT } from '../../src/demo/demo-recipe-policy.js';
-import { DEMO_EMAIL_DOMAIN, DEMO_LIFETIME_MS, DEMO_LIVE_LIMIT, DEMO_SWEEP_BATCH } from '../../src/demo/demo-start.service.js';
+import { authRateLimits, authSessions, ingredients, recipeImages, recipes, users } from '../../src/database/schema.js';
 import { DEMO_TEMPLATE_ID } from '../../src/demo/demo-template.js';
 import { StorageError, StorageService } from '../../src/storage/storage.service.js';
 import { cookiePair, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
@@ -18,6 +16,9 @@ import type { RecordingMailTransport } from '../recording-mail.js';
 import { removeDemoTemplate, seedDemoTemplate } from '../demo-template.js';
 import type { DemoTemplate } from '../demo-template.js';
 import { describePhoto, jpeg } from '../recipe-photos.js';
+
+/** A Demo account's lifetime, written out: 24 hours. */
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 describe('Live demo API (DEMO_MODE on)', () => {
   let app: NestExpressApplication;
@@ -84,7 +85,7 @@ describe('Live demo API (DEMO_MODE on)', () => {
   }
 
   /** A fresh address on the reserved domain, the way Start demo names a Demo account. */
-  const demoEmail = () => `${randomUUID().replaceAll('-', '')}@${DEMO_EMAIL_DOMAIN}`;
+  const demoEmail = () => `${randomUUID().replaceAll('-', '')}@demo.invalid`;
   const get = (path: string, cookie: string) => fetch(`${baseUrl}${path}`, { headers: { Cookie: cookie } });
   async function list(cookie: string) {
     const response = await get('/recipes', cookie);
@@ -139,7 +140,7 @@ describe('Live demo API (DEMO_MODE on)', () => {
     expect(body.user.email).toMatch(/^[0-9a-f]{32}@demo\.invalid$/);
     const [account] = await db.select({ createdAt: users.createdAt, emailVerified: users.emailVerified }).from(users).where(eq(users.id, body.user.id));
     expect(account.emailVerified).toBe(true);
-    expect(new Date(body.expiresAt).getTime()).toBe(account.createdAt.getTime() + DEMO_LIFETIME_MS);
+    expect(new Date(body.expiresAt).getTime()).toBe(account.createdAt.getTime() + DAY_MS);
 
     const [cookie] = response.headers.getSetCookie();
     expect(response.headers.getSetCookie()).toHaveLength(1);
@@ -147,8 +148,8 @@ describe('Live demo API (DEMO_MODE on)', () => {
     expect(cookie).toMatch(/; SameSite=Lax/);
     expect(cookie).toMatch(/; Path=\//);
     const maxAge = Number(/; Max-Age=(\d+)/.exec(cookie)?.[1]);
-    expect(maxAge).toBeGreaterThan(DEMO_LIFETIME_MS / 1000 - 120);
-    expect(maxAge).toBeLessThanOrEqual(DEMO_LIFETIME_MS / 1000);
+    expect(maxAge).toBeGreaterThan(DAY_MS / 1000 - 120);
+    expect(maxAge).toBeLessThanOrEqual(DAY_MS / 1000);
 
     const session = await get('/auth/session', cookiePair(response));
     expect(session.status).toBe(200);
@@ -268,21 +269,21 @@ describe('Live demo API (DEMO_MODE on)', () => {
   });
 
   describe('limits', () => {
-    it(`refuses a create once the account holds ${DEMO_RECIPE_LIMIT} recipes, and saves one again after a delete`, async () => {
+    it(`refuses a create once the account holds 30 recipes, and saves one again after a delete`, async () => {
       const account = await startedAccount();
       const [first] = (await list(account.cookie)).data;
-      await db.insert(recipes).values(Array.from({ length: DEMO_RECIPE_LIMIT - 2 }, (_, index) => ({ userId: account.user.id, title: `Filler ${index}`, sortOrder: index + 2 })));
+      await db.insert(recipes).values(Array.from({ length: 30 - 2 }, (_, index) => ({ userId: account.user.id, title: `Filler ${index}`, sortOrder: index + 2 })));
       await expectCode(await send('/recipes', visitorRecipe(), account.cookie), 403, 'DEMO_RECIPE_LIMIT');
-      expect(await db.$count(recipes, eq(recipes.userId, account.user.id))).toBe(DEMO_RECIPE_LIMIT);
+      expect(await db.$count(recipes, eq(recipes.userId, account.user.id))).toBe(30);
 
       expect((await remove(first.id, account.cookie)).status).toBe(204);
       expect((await send('/recipes', visitorRecipe(), account.cookie)).status).toBe(201);
-      expect(await db.$count(recipes, eq(recipes.userId, account.user.id))).toBe(DEMO_RECIPE_LIMIT);
+      expect(await db.$count(recipes, eq(recipes.userId, account.user.id))).toBe(30);
     }, 60_000);
 
-    it(`allows ${DEMO_STARTS_PER_HOUR} starts an hour from one address`, async () => {
+    it(`allows 5 starts an hour from one address`, async () => {
       const address = testAddress();
-      for (let index = 0; index < DEMO_STARTS_PER_HOUR; index++) expect((await start(address)).status).toBe(201);
+      for (let index = 0; index < 5; index++) expect((await start(address)).status).toBe(201);
       const limited = await start(address);
       expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
       expect(limited.headers.getSetCookie()).toEqual([]);
@@ -292,9 +293,9 @@ describe('Live demo API (DEMO_MODE on)', () => {
 
     // The ceiling counts every live Demo account on the branch, so this test fills it up to the limit. Any other demo start on
     // the same branch is answered busy until the fillers are deleted.
-    it(`answers busy while ${DEMO_LIVE_LIMIT} Demo accounts are live`, async () => {
-      const live = await db.$count(users, and(like(users.email, `%@${DEMO_EMAIL_DOMAIN}`), gt(users.createdAt, new Date(Date.now() - DEMO_LIFETIME_MS))));
-      const fillers = Array.from({ length: Math.max(0, DEMO_LIVE_LIMIT - live) }, () => ({ name: 'Demo filler', email: demoEmail(), emailVerified: true }));
+    it(`answers busy while 200 Demo accounts are live`, async () => {
+      const live = await db.$count(users, and(like(users.email, `%@demo.invalid`), gt(users.createdAt, new Date(Date.now() - DAY_MS))));
+      const fillers = Array.from({ length: Math.max(0, 200 - live) }, () => ({ name: 'Demo filler', email: demoEmail(), emailVerified: true }));
       const ids = (await db.insert(users).values(fillers).returning({ id: users.id })).map(({ id }) => id);
       try {
         const busy = await start();
@@ -308,84 +309,150 @@ describe('Live demo API (DEMO_MODE on)', () => {
   });
 
   describe('sweep', () => {
-    const expiredAt = () => new Date(Date.now() - DEMO_LIFETIME_MS - 60_000);
+    /** Older than any other expired account on the branch, so the sweep takes these first. */
+    const longExpired = (offset = 0) => new Date(Date.UTC(2000, 0, 1) + offset);
     const exists = async (id: string) => (await db.$count(users, eq(users.id, id))) === 1;
-
-    it('deletes an expired Demo account with its rows and stored photos, and leaves live and ordinary accounts', async () => {
-      const [expired] = await db.insert(users).values({ name: 'Demo visitor', email: demoEmail(), emailVerified: true, createdAt: expiredAt() }).returning();
-      const [ordinary] = await db.insert(users).values({ name: 'Ordinary', email: `t_${randomUUID().replaceAll('-', '')}@example.invalid`, emailVerified: true, createdAt: expiredAt() }).returning();
-      started.add(expired.id); started.add(ordinary.id);
-      const [recipe] = await db.insert(recipes).values({ userId: expired.id, title: 'Expired recipe' }).returning();
+    /** An expired Demo account holding one recipe with a stored photo. */
+    async function expiredWithPhoto() {
+      const [account] = await db.insert(users).values({ name: 'Demo visitor', email: demoEmail(), emailVerified: true, createdAt: longExpired() }).returning();
+      started.add(account.id);
+      const [recipe] = await db.insert(recipes).values({ userId: account.id, title: 'Expired recipe' }).returning();
       const key = `recipes/${recipe.id}/${randomUUID()}.jpg`;
       await storage.upload(key, jpeg(6), 'image/jpeg');
+      await db.insert(recipeImages).values({ recipeId: recipe.id, objectKey: key, sortOrder: 0 });
+      return { id: account.id, recipeId: recipe.id, key };
+    }
+
+    it('deletes an expired Demo account with its rows and stored photos, and leaves live and ordinary accounts', async () => {
+      const expired = await expiredWithPhoto();
+      const [ordinary] = await db.insert(users).values({ name: 'Ordinary', email: `t_${randomUUID().replaceAll('-', '')}@example.invalid`, emailVerified: true, createdAt: longExpired() }).returning();
+      started.add(ordinary.id);
       try {
-        await db.insert(recipeImages).values({ recipeId: recipe.id, objectKey: key, sortOrder: 0 });
         const current = await startedAccount();
 
         expect((await start()).status).toBe(201);
         expect(await exists(expired.id)).toBe(false);
-        expect(await db.$count(recipes, eq(recipes.id, recipe.id))).toBe(0);
-        expect(await stored(key)).toBe(false);
+        expect(await db.$count(recipes, eq(recipes.id, expired.recipeId))).toBe(0);
+        expect(await stored(expired.key)).toBe(false);
         expect([await exists(ordinary.id), await exists(current.user.id)]).toEqual([true, true]);
       } finally {
-        await storage.deleteObject(key);
+        await storage.deleteObject(expired.key);
       }
     }, 60_000);
 
-    it(`deletes at most ${DEMO_SWEEP_BATCH} expired Demo accounts per start, oldest first`, async () => {
-      // Older than any other expired account, so this batch is swept first.
-      const ids = (await db.insert(users).values(Array.from({ length: DEMO_SWEEP_BATCH + 1 }, (_, index) => ({
-        name: 'Demo visitor', email: demoEmail(), emailVerified: true, createdAt: new Date(Date.UTC(2000, 0, 1) + index),
+    it('keeps an expired account whose photo cannot be deleted, and a later sweep removes both', async () => {
+      const expired = await expiredWithPhoto();
+      const deleteObject = storage.deleteObject.bind(storage);
+      const failing = vi.spyOn(storage, 'deleteObject').mockImplementation(async (key) => {
+        if (key === expired.key) throw new StorageError('Injected delete failure.');
+        return deleteObject(key);
+      });
+      try {
+        try { expect((await start()).status).toBe(201); } finally { failing.mockRestore(); }
+        expect(await exists(expired.id)).toBe(true);
+        expect(await db.$count(recipeImages, eq(recipeImages.objectKey, expired.key))).toBe(1);
+        expect(await stored(expired.key)).toBe(true);
+
+        expect((await start()).status).toBe(201);
+        expect(await exists(expired.id)).toBe(false);
+        expect(await stored(expired.key)).toBe(false);
+      } finally {
+        await storage.deleteObject(expired.key);
+      }
+    }, 60_000);
+
+    it('deletes at most 10 expired Demo accounts per start, oldest first', async () => {
+      const ids = (await db.insert(users).values(Array.from({ length: 11 }, (_, index) => ({
+        name: 'Demo visitor', email: demoEmail(), emailVerified: true, createdAt: longExpired(index),
       }))).returning({ id: users.id })).map(({ id }) => id);
       ids.forEach((id) => started.add(id));
       const remaining = () => db.$count(users, inArray(users.id, ids));
 
       expect((await start()).status).toBe(201);
       expect(await remaining()).toBe(1);
-      expect(await exists(ids[DEMO_SWEEP_BATCH])).toBe(true);
+      expect(await exists(ids[10])).toBe(true);
       expect((await start()).status).toBe(201);
       expect(await remaining()).toBe(0);
     }, 60_000);
   });
 
   describe('a start that fails after the account is written', () => {
-    /** Records each photo copy; `failAt` makes that copy (1-based) fail. */
-    function recordCopies(failAt?: number) {
-      const copy = storage.copyObject.bind(storage);
-      const targets: string[] = [];
-      const spy = vi.spyOn(storage, 'copyObject').mockImplementation(async (source, target) => {
-        targets.push(target);
-        if (targets.length === failAt) throw new StorageError('Injected copy failure.');
-        return copy(source, target);
-      });
-      return { targets, restore: () => spy.mockRestore() };
-    }
     /** The recipe a copy target belongs to: keys are `recipes/<recipe id>/<file>`. */
     const recipeOf = (key: string) => key.split('/')[1];
 
-    async function expectNothingLeft(response: Response, targets: string[]) {
+    /** Records each photo copy and the Account it is for; `failAt` makes that copy (1-based) fail. */
+    function recordCopies(failAt?: number) {
+      const copy = storage.copyObject.bind(storage);
+      const targets: string[] = [];
+      let owner: string | undefined;
+      const spy = vi.spyOn(storage, 'copyObject').mockImplementation(async (source, target) => {
+        targets.push(target);
+        const [recipe] = await db.select({ userId: recipes.userId }).from(recipes).where(eq(recipes.id, recipeOf(target)));
+        if (recipe) { owner = recipe.userId; started.add(owner); }
+        if (targets.length === failAt) throw new StorageError('Injected copy failure.');
+        return copy(source, target);
+      });
+      return { targets, owner: () => owner!, restore: () => spy.mockRestore() };
+    }
+
+    /** Lets Better Auth store the session row, then fails, so the rollback has a session to remove. */
+    async function failAfterSessionRow() {
+      const { internalAdapter } = await app.get<RecipeAuth>(AUTH).$context;
+      const createSession = internalAdapter.createSession;
+      const sessionIds: string[] = [];
+      const spy = vi.spyOn(internalAdapter, 'createSession').mockImplementation(async (...args: Parameters<typeof createSession>) => {
+        sessionIds.push((await createSession(...args)).id);
+        throw new Error('Injected failure after the session row.');
+      });
+      return { sessionIds, restore: () => spy.mockRestore() };
+    }
+
+    async function expectRefused(response: Response) {
       expect(response.headers.getSetCookie()).toEqual([]);
       await expectCode(response, 503, 'SERVICE_UNAVAILABLE');
-      expect(targets).toHaveLength(2);
-      expect(await Promise.all(targets.map(stored))).toEqual([false, false]);
-      expect(await db.$count(recipes, inArray(recipes.id, targets.map(recipeOf)))).toBe(0);
+    }
+    const sessionsOf = (userId: string) => db.$count(authSessions, eq(authSessions.userId, userId));
+
+    async function expectNothingLeft(copies: ReturnType<typeof recordCopies>) {
+      expect(copies.targets).toHaveLength(2);
+      expect(await Promise.all(copies.targets.map(stored))).toEqual([false, false]);
+      expect(await db.$count(recipes, inArray(recipes.id, copies.targets.map(recipeOf)))).toBe(0);
+      expect(await db.$count(users, eq(users.id, copies.owner()))).toBe(0);
+      expect(await sessionsOf(copies.owner())).toBe(0);
     }
 
     it('deletes the new account and the photos it copied when a photo copy fails', async () => {
       const copies = recordCopies(2);
       let response: Response;
       try { response = await start(); } finally { copies.restore(); }
-      await expectNothingLeft(response, copies.targets);
+      await expectRefused(response);
+      await expectNothingLeft(copies);
     }, 60_000);
 
-    it('deletes the new account and its copied photos when the session cannot be created', async () => {
-      const auth = app.get<{ $context: Promise<unknown> }>(AUTH);
-      const context = Object.getOwnPropertyDescriptor(auth, '$context')!;
-      Object.defineProperty(auth, '$context', { configurable: true, get: () => Promise.reject(new Error('Injected session failure.')) });
+    it('deletes the new account, its session and its copied photos when a step after the session row fails', async () => {
       const copies = recordCopies();
+      const session = await failAfterSessionRow();
       let response: Response;
-      try { response = await start(); } finally { copies.restore(); Object.defineProperty(auth, '$context', context); }
-      await expectNothingLeft(response, copies.targets);
+      try { response = await start(); } finally { copies.restore(); session.restore(); }
+      await expectRefused(response);
+      expect(session.sessionIds).toHaveLength(1);
+      expect(await db.$count(authSessions, eq(authSessions.id, session.sessionIds[0]))).toBe(0);
+      await expectNothingLeft(copies);
+    }, 60_000);
+
+    it('keeps the account without a session, for the sweep, when its copied photos cannot be deleted', async () => {
+      const copies = recordCopies();
+      const session = await failAfterSessionRow();
+      const failing = vi.spyOn(storage, 'deleteObject').mockRejectedValue(new StorageError('Injected delete failure.'));
+      let response: Response;
+      try { response = await start(); } finally { copies.restore(); session.restore(); failing.mockRestore(); }
+      await expectRefused(response);
+      // Every copy succeeded and the failure came after the session row.
+      expect(session.sessionIds).toHaveLength(1);
+      expect(await db.$count(users, eq(users.id, copies.owner()))).toBe(1);
+      expect(await sessionsOf(copies.owner())).toBe(0);
+      expect(await Promise.all(copies.targets.map(stored))).toEqual([true, true]);
+      expect(await db.$count(recipeImages, inArray(recipeImages.objectKey, copies.targets))).toBe(2);
     }, 60_000);
   });
 
