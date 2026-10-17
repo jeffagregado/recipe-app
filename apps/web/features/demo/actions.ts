@@ -7,16 +7,8 @@ import { redirect } from 'next/navigation'
 import { logout } from '@/features/auth/actions'
 import { apiHeaders, getApiOrigin } from '@/features/auth/api'
 import { applySessionCookies, countSessionCookies } from '@/features/auth/session-cookie'
+import { DEMO_START_MESSAGES, type DemoStartFailure, type ResetDemoResult } from './results'
 
-export type DemoStartFailure = { ok: false; code: DemoStartErrorCode; message: string }
-export type ResetDemoResult = { ok: true } | DemoStartFailure
-
-const MESSAGES: Record<DemoStartErrorCode, string> = {
-	DEMO_BUSY: 'The demo is busy right now. Please try again in a few minutes.',
-	RATE_LIMITED: 'You have started too many demos. Please try again in an hour.',
-	ORIGIN_REJECTED: 'This request could not be verified. Refresh the page and try again.',
-	SERVICE_UNAVAILABLE: 'The demo could not start. Please try again.',
-}
 
 /** Render's free plan can take about a minute to wake the API, and the start page says so while it waits. */
 const START_TIMEOUT_MS = 90_000
@@ -24,7 +16,7 @@ const START_TIMEOUT_MS = 90_000
 /** The one server record of why a start failed: the code and upstream status only. */
 function failure(code: DemoStartErrorCode, status?: number): DemoStartFailure {
 	console.warn(`Demo: start failed with ${code}${status === undefined ? '' : ` (upstream ${status})`}.`)
-	return { ok: false, code, message: MESSAGES[code] }
+	return { ok: false, code, message: DEMO_START_MESSAGES[code] }
 }
 
 function failureCode(status: number, payload: unknown): DemoStartErrorCode {

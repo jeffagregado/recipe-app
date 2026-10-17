@@ -7,7 +7,7 @@ import { NoticeToast } from '@/components/layout/notice-toast'
 import { SessionErrorBoundary } from '@/features/auth/session-error'
 import { ShellSession } from '@/features/auth/shell-session'
 import { DemoBanner } from '@/features/demo/demo-banner'
-import { DemoModeProvider } from '@/features/demo/demo-mode'
+import { DemoModeProvider } from '@/features/demo/demo-mode-context'
 import { isDemoMode } from '@/lib/demo-mode'
 
 type PrivateLayoutProps = {

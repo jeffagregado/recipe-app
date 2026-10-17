@@ -4,11 +4,12 @@ import { Loader2 } from 'lucide-react'
 import { unstable_rethrow } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
-import { startDemo, type DemoStartFailure } from './actions'
+import { startDemo } from './actions'
+import { DEMO_START_MESSAGES, type DemoStartFailure } from './results'
 
 /** How long a start may take before the page explains Render's cold start. A warm API answers in about a second. */
 const WAKING_UP_AFTER_MS = 3_000
-const START_FAILED = 'The demo could not start. Please try again.'
+const START_FAILED = DEMO_START_MESSAGES.SERVICE_UNAVAILABLE
 
 /** Start demo: success leaves for the recipe list; a refusal stays here as a message. */
 export function StartDemoButton({ onStart = startDemo }: { onStart?: () => Promise<DemoStartFailure> }) {

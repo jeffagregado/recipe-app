@@ -1,5 +1,5 @@
 import type { ChangeEvent, ReactNode } from 'react'
-import { useDemoMode } from '@/features/demo/demo-mode'
+import { useDemoMode } from '@/features/demo/demo-mode-context'
 import { cn } from '@/lib/utils'
 import { IMAGE_ACCEPT } from '../lib/recipe-files'
 import type { FieldA11yProps } from '../lib/field-props'

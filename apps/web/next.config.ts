@@ -1,5 +1,6 @@
 import type { NextConfig } from 'next'
-import { demoRedirects, parseDemoMode } from './lib/demo-mode'
+import { demoRedirects } from './features/demo/demo-redirects'
+import { parseDemoMode } from './lib/demo-mode'
 import { recipeStorageHost } from './lib/recipe-storage-host'
 
 const nextConfig: NextConfig = {

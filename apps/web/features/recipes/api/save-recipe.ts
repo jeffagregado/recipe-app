@@ -4,6 +4,7 @@ import { createRecipeResultSchema } from '@recipe-app/contracts/schemas'
 import { RECIPE_LIMITS, type ApiErrorEnvelope } from '@recipe-app/contracts/types'
 import { z } from 'zod'
 import { getSession } from '@/features/auth/queries'
+import { demoSaveRefusal } from '@/features/demo/results'
 import { checkRecipeImage } from '@/features/recipes/form/lib/recipe-files'
 import type { SaveMessages, SaveRecipeFieldErrors, SaveRecipeResponse, SaveRecipeResult } from '@/features/recipes/form/lib/save-recipe-result'
 import { readErrorEnvelope, readWriteContext, sendWrite, type WriteContext } from './write-request'
@@ -120,7 +121,7 @@ function mapFailure(status: number, envelope: ApiErrorEnvelope | null, { message
 	const mappers: Record<number, () => SaveRecipeResult> = {
 		400: () => invalid(envelope?.fieldErrors ?? {}),
 		401: sessionExpired,
-		403: () => failed(messages.unverified),
+		403: () => failed(demoSaveRefusal(envelope?.code) ?? messages.unverified),
 		404: () => (notFound ? { status: 'not-found', message: notFound } : unknown()),
 		409: () => (envelope?.code === 'IDEMPOTENCY_CONFLICT' ? failed() : unknown()),
 		413: () => invalid(envelope?.fieldErrors ?? { recipe: ['The recipe or its photos are too large to save.'] }),

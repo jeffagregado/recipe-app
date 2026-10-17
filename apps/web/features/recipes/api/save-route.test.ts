@@ -161,6 +161,7 @@ it('maps the remaining statuses to the documented outcomes', async () => {
 	const cases: [Response, string, string?][] = [
 		[json({ code: 'UNAUTHORIZED', message: 'x' }, 401), 'session-expired'],
 		[json({ code: 'ORIGIN_REJECTED', message: 'x' }, 403), 'failed', SAVE_MESSAGES.unverified],
+		[json({ code: 'DEMO_RECIPE_LIMIT', message: 'x' }, 403), 'failed', 'The demo holds up to 30 recipes. Delete one to add another.'],
 		[json({ code: 'IDEMPOTENCY_IN_PROGRESS', message: 'x' }, 409), 'unknown', SAVE_MESSAGES.unknown],
 		[json({ code: 'IDEMPOTENCY_CONFLICT', message: 'x' }, 409), 'failed', SAVE_MESSAGES.failed],
 		[json({ code: 'RATE_LIMITED', message: 'x' }, 429), 'failed', SAVE_MESSAGES.rateLimited],

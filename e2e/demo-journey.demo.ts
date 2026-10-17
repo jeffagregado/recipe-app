@@ -61,6 +61,7 @@ const test = base.extend<Record<never, never>, { demo: Demo }>({
         await pool.end();
       }
     }
+  // The shared fixtures' limits (e2e/fixtures.ts), which also open a pool and seed rows before the first test.
   }, { scope: 'worker', timeout: 90_000 }],
   context: async ({ context, demo }, use) => {
     await context.setExtraHTTPHeaders({ 'X-Forwarded-For': demo.address });

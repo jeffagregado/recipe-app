@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { DemoStartFailure } from './actions'
+import type { DemoStartFailure } from './results'
 import { StartDemoButton } from './start-demo-button'
 
 // Testing Library's async helpers wait on real timers, so these tests advance fake time by hand.

@@ -5,7 +5,7 @@ import { AppToaster } from '@/components/layout/app-toaster'
 import { toRecipeFormValues } from '@/features/recipes/form/lib/recipe-edit'
 import { RecipeForm } from '@/features/recipes/form/components/recipe-form'
 import { recipeDetailFixture } from '@/features/recipes/queries/recipe-detail.fixture'
-import { DemoModeProvider } from './demo-mode'
+import { DemoModeProvider } from './demo-mode-context'
 
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ push: vi.fn() }) }))
 // The image optimizer needs remotePatterns and a server; render a plain img instead.
@@ -30,7 +30,7 @@ function renderForm(mode: 'create' | 'edit') {
 	const form = mode === 'edit'
 		? <RecipeForm categories={[]} mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={vi.fn()} initialValues={toRecipeFormValues(recipe)} />
 		: <RecipeForm categories={[]} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={vi.fn()} />
-	render(<AppToaster><DemoModeProvider>{form}</DemoModeProvider></AppToaster>)
+	render(<AppToaster><DemoModeProvider enabled>{form}</DemoModeProvider></AppToaster>)
 }
 
 const section = (name: string | RegExp) => screen.getByRole('region', { name })

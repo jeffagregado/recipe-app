@@ -1,7 +1,7 @@
 import { ImagePlus, ListOrdered } from 'lucide-react'
 import { useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
-import { PHOTO_UPLOADS_OFF, useDemoMode } from '@/features/demo/demo-mode'
+import { PHOTO_UPLOADS_OFF, useDemoMode } from '@/features/demo/demo-mode-context'
 import { cn } from '@/lib/utils'
 import { emptyInstructionRow, MAX_ROWS, type RecipeFormValues } from '../lib/recipe-form-schema'
 import { fieldA11y, textareaClass } from '../lib/field-props'

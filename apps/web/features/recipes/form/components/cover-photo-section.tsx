@@ -1,7 +1,7 @@
 import { ImageIcon } from 'lucide-react'
 import { useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
-import { PHOTO_UPLOADS_OFF, useDemoMode } from '@/features/demo/demo-mode'
+import { PHOTO_UPLOADS_OFF, useDemoMode } from '@/features/demo/demo-mode-context'
 import { IMAGE_HINT } from '../lib/recipe-files'
 import type { RecipeFormValues } from '../lib/recipe-form-schema'
 import { fieldA11y } from '../lib/field-props'

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { AuthServiceError } from '@/features/auth/errors'
-import { ContinueDemo } from './demo-start-page'
+import { ContinueDemo } from './continue-demo'
 
 const queries = vi.hoisted(() => ({ getSession: vi.fn() }))
 vi.mock('@/features/auth/queries', () => queries)

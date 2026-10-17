@@ -404,7 +404,9 @@ jobs:
     needs: [check, gate, neon, integration]
     if: ${{ !cancelled() && needs.check.result == 'success' && needs.neon.result == 'success' && needs.gate.outputs.suite != 'skip' && github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # e2e's limit: playwright.demo.config.ts keeps the base config's 35-minute globalTimeout, so a hung run stops itself first
+    # and keeps its list output and screenshots.
+    timeout-minutes: 45
     environment: dev
     steps:
       - uses: actions/checkout@v7

@@ -5,7 +5,7 @@ import { createContext, use, type ReactNode } from 'react'
 const DemoModeContext = createContext(false)
 
 /** Set around the signed-in pages, on with `isDemoMode()`, so client components can switch off what the demo does not offer. */
-export function DemoModeProvider({ enabled = true, children }: { enabled?: boolean; children: ReactNode }) {
+export function DemoModeProvider({ enabled, children }: { enabled: boolean; children: ReactNode }) {
 	return <DemoModeContext value={enabled}>{children}</DemoModeContext>
 }
 
