@@ -7,8 +7,8 @@ export type DemoTemplateCategory = (typeof DEMO_TEMPLATE_CATEGORIES)[number];
 
 /** An ingredient row: name, then amount and unit, or null for both ("to taste"). */
 type Ingredient = readonly [name: string, quantity: number, unit: MeasurementUnit] | readonly [name: string, quantity: null, unit: null];
-/** A step's text; `{ photo }` marks the one step that carries the recipe's step Photo. */
-type Step = string | { readonly photo: string };
+/** A step's text, or the one step that carries the recipe's step Photo. */
+type Step = string | { readonly description: string; readonly photo: true };
 /** A Group: a run of rows under an optional name. */
 type Group<Row> = { readonly heading: string | null; readonly rows: readonly Row[] };
 
@@ -106,7 +106,7 @@ export const DEMO_TEMPLATE_RECIPES: readonly DemoTemplateRecipe[] = [
   {
     slug: 'dark-chocolate-mousse', title: 'Dark Chocolate Mousse',
     description: 'A silky, egg-free chocolate mousse lightened with whipped cream.',
-    servings: 4, prepTimeMinutes: 15, cookTimeMinutes: 5, categories: ['Desserts'], favorite: true,
+    servings: 4, prepTimeMinutes: 15, cookTimeMinutes: 5, categories: ['Desserts', 'Vegetarian'], favorite: true,
     notes: 'Fold the cream in while the chocolate is just warm: too hot and the cream melts, too cold and the chocolate sets in streaks.',
     videoUrl: 'https://www.youtube.com/watch?v=Nx-6MlgTpNA',
     ingredients: [{ heading: null, rows: [
@@ -130,7 +130,7 @@ export const DEMO_TEMPLATE_RECIPES: readonly DemoTemplateRecipe[] = [
       ['olive oil', 1, 'tbsp'], ['black pepper', null, null],
     ] }],
     steps: [{ heading: null, rows: [
-      { photo: 'Spread the pesto over the bread, then layer sliced tomato and mozzarella on two of the slices and season with pepper.' },
+      { description: 'Spread the pesto over the bread, then layer sliced tomato and mozzarella on two of the slices and season with pepper.', photo: true },
       'Close the sandwiches and brush the outsides lightly with olive oil.',
       'Toast in a hot sandwich press for four to five minutes, until the bread is crisp and the cheese melts.',
       'Cut diagonally and serve straight away.',
@@ -148,7 +148,7 @@ export const DEMO_TEMPLATE_RECIPES: readonly DemoTemplateRecipe[] = [
     ],
     steps: [{ heading: null, rows: [
       'Rinse the rice, then simmer it covered in the water for 15 minutes and rest it off the heat.',
-      { photo: 'Mix the ginger, soy sauce, honey and grated garlic, then brush the glaze over the salmon in a baking dish.' },
+      { description: 'Mix the ginger, soy sauce, honey and grated garlic, then brush the glaze over the salmon in a baking dish.', photo: true },
       'Bake at 200 C for 12 to 15 minutes, until the salmon flakes easily and reaches 63 C.',
       'Spoon the pan juices over the salmon and serve it on the rice.',
     ] }],
@@ -180,7 +180,7 @@ export const DEMO_TEMPLATE_RECIPES: readonly DemoTemplateRecipe[] = [
     ],
     steps: [{ heading: null, rows: [
       'Heat the oven to 200 C and cut the pastry into 12 squares on a lined baking tray.',
-      { photo: 'Top with halved tomatoes, sliced olives and crumbled feta, leaving the edges clear.' },
+      { description: 'Top with halved tomatoes, sliced olives and crumbled feta, leaving the edges clear.', photo: true },
       'Brush the bare edges with beaten egg and sprinkle the oregano over the topping.',
       'Bake for 18 to 20 minutes, until the pastry is puffed and golden.',
     ] }],
@@ -205,7 +205,7 @@ export const DEMO_TEMPLATE_RECIPES: readonly DemoTemplateRecipe[] = [
   {
     slug: 'peach-oat-crumble', title: 'Peach Oat Crumble',
     description: 'Juicy baked peaches under a buttery cinnamon oat topping.',
-    servings: 6, prepTimeMinutes: 15, cookTimeMinutes: 35, categories: ['Desserts', 'Baking'], favorite: false,
+    servings: 6, prepTimeMinutes: 15, cookTimeMinutes: 35, categories: ['Desserts', 'Baking', 'Vegetarian'], favorite: false,
     notes: 'Frozen peaches work too: thaw and drain them before tossing with the sugar.',
     videoUrl: null,
     ingredients: [
@@ -216,7 +216,7 @@ export const DEMO_TEMPLATE_RECIPES: readonly DemoTemplateRecipe[] = [
     ],
     steps: [{ heading: null, rows: [
       'Heat the oven to 180 C. Slice the peaches and toss them in a baking dish with the sugar, lemon juice and cornstarch.',
-      { photo: 'Rub the butter into the oats, flour, sugar and cinnamon until crumbly and scatter it over the fruit.' },
+      { description: 'Rub the butter into the oats, flour, sugar and cinnamon until crumbly and scatter it over the fruit.', photo: true },
       'Bake for 30 to 35 minutes, until golden on top and bubbling at the edges.',
       'Cool for ten minutes before serving.',
     ] }],
@@ -236,7 +236,7 @@ export const DEMO_TEMPLATE_RECIPES: readonly DemoTemplateRecipe[] = [
     ],
     steps: [{ heading: null, rows: [
       'Heat the oven to 200 C and line a baking tray. Rub the butter into the flour, baking powder and salt until it looks like coarse crumbs.',
-      { photo: 'Mix in the cheddar and chives, add the milk and gently bring the dough together.' },
+      { description: 'Mix in the cheddar and chives, add the milk and gently bring the dough together.', photo: true },
       'Pat the dough out 2 cm thick, cut it into 8 rounds and set them on the tray.',
       'Brush with the egg beaten with the milk, and bake for 18 to 20 minutes, until risen and golden.',
     ] }],
@@ -259,7 +259,7 @@ export const DEMO_TEMPLATE_RECIPES: readonly DemoTemplateRecipe[] = [
         'Roast on two trays for 15 to 20 minutes, until soft and golden.',
       ] },
       { heading: 'Assemble and bake', rows: [
-        { photo: 'Layer the eggplant, tomato sauce and mozzarella in a baking dish, finishing with sauce and cheese.' },
+        { description: 'Layer the eggplant, tomato sauce and mozzarella in a baking dish, finishing with sauce and cheese.', photo: true },
         'Scatter the parmesan over the top and bake for 20 minutes, until bubbling.',
         'Rest for ten minutes so the layers hold, then scatter with basil and serve.',
       ] },
@@ -285,7 +285,7 @@ export const DEMO_TEMPLATE_RECIPES: readonly DemoTemplateRecipe[] = [
   {
     slug: 'raspberry-cheesecake-cups', title: 'Raspberry Cheesecake Cups',
     description: 'No-bake cream cheese cups on a crushed biscuit base, topped with raspberries.',
-    servings: 4, prepTimeMinutes: 20, cookTimeMinutes: 0, categories: ['Desserts'], favorite: false,
+    servings: 4, prepTimeMinutes: 20, cookTimeMinutes: 0, categories: ['Desserts', 'Vegetarian'], favorite: false,
     notes: 'Make the cups up to a day ahead and add the raspberries just before serving.',
     videoUrl: null,
     ingredients: [
@@ -328,7 +328,7 @@ export function templateMetadata(recipe: DemoTemplateRecipe, categoryId: (name: 
       name, quantity, unit, heading: index === 0 ? heading : null,
     }))),
     instructions: recipe.steps.flatMap(({ heading, rows }) => rows.map((step, index) => ({
-      description: typeof step === 'string' ? step : step.photo, hasImage: typeof step !== 'string', heading: index === 0 ? heading : null,
+      description: typeof step === 'string' ? step : step.description, hasImage: typeof step !== 'string', heading: index === 0 ? heading : null,
     }))),
   };
 }

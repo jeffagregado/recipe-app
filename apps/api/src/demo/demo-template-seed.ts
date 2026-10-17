@@ -34,12 +34,13 @@ const plan = DEMO_TEMPLATE_RECIPES.map((recipe, index) => {
 const recipeIds = plan.map(({ id }) => id);
 const photoKeys = plan.flatMap(({ photos }) => photos.map(({ key }) => key));
 
-/** Refuses when a template recipe id or Photo key belongs to anyone but the template. */
-async function checkRecipeIds(db: Reader): Promise<void> {
+/**
+ * Refuses when anyone but the template owns a template recipe id. That also keeps its Photo keys free, since the app stores
+ * every Photo under its own recipe's id.
+ */
+async function checkRecipeIdsFree(db: Reader): Promise<void> {
   const taken = await db.select({ id: recipes.id }).from(recipes).where(and(inArray(recipes.id, recipeIds), ne(recipes.userId, DEMO_TEMPLATE_ID)));
-  const keys = await db.select({ key: recipeImages.objectKey }).from(recipeImages).innerJoin(recipes, eq(recipes.id, recipeImages.recipeId))
-    .where(and(inArray(recipeImages.objectKey, photoKeys), ne(recipes.userId, DEMO_TEMPLATE_ID)));
-  if (taken.length || keys.length) throw new Error('Demo template recipe ID collision with another owner. No records changed.');
+  if (taken.length) throw new Error('Demo template recipe ID collision with another owner. No records changed.');
 }
 
 /** Refuses unless the template owner is absent or is the reserved identity without a Sign-in method. */
@@ -63,7 +64,9 @@ async function uploadPhotos(storage: StorageService): Promise<void> {
 
 /** The shared ingredient catalog's id for each name, case-insensitively, adding the names it lacks. */
 async function canonicalIngredients(tx: Transaction, names: string[]): Promise<Map<string, string>> {
-  const unique = [...new Map(names.map((name) => [name.trim().toLowerCase(), name.trim()])).values()];
+  // Sorted like the recipe writes, so a seed and a concurrent save take the shared rows' locks in the same order.
+  const unique = [...new Map(names.map((name) => [name.trim().toLowerCase(), name.trim()])).values()]
+    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   await tx.insert(ingredients).values(unique.map((name) => ({ name }))).onConflictDoNothing();
   const rows = await tx.select().from(ingredients).where(inArray(sql`lower(btrim(${ingredients.name}))`, unique.map((name) => name.toLowerCase())));
   return new Map(rows.map(({ id, name }) => [name.trim().toLowerCase(), id]));
@@ -76,7 +79,7 @@ async function canonicalIngredients(tx: Transaction, names: string[]): Promise<M
 async function replaceContent(tx: Transaction): Promise<string[]> {
   await tx.insert(users).values({ id: DEMO_TEMPLATE_ID, name: 'Demo template', email: DEMO_TEMPLATE_EMAIL, emailVerified: true }).onConflictDoNothing();
   await checkOwner(tx);
-  await checkRecipeIds(tx);
+  await checkRecipeIdsFree(tx);
   const previous = await tx.select({ key: recipeImages.objectKey }).from(recipeImages).innerJoin(recipes, eq(recipes.id, recipeImages.recipeId))
     .where(eq(recipes.userId, DEMO_TEMPLATE_ID));
   // Recipes first: their Category links, ingredients, steps, Photo rows and Favorites cascade with them.
@@ -121,13 +124,15 @@ async function replaceContent(tx: Transaction): Promise<string[]> {
  * Writes the Demo template that Start demo copies: its owner, Categories, 15 Recipes, Favorites and Photos. Running it again
  * converges on the same template. It refuses, before any upload or write, when the owner or a recipe id belongs to anyone
  * else. Photos are uploaded first under fixed keys, so the rows never point at a missing object; the photos of content it
- * replaced are deleted once the new rows are committed.
+ * replaced are deleted once the new rows are committed, and any that fail are reported.
  */
 export async function writeDemoTemplate(db: DrizzleDb, storage: StorageService): Promise<{ recipes: number; photos: number }> {
   await checkOwner(db);
-  await checkRecipeIds(db);
+  await checkRecipeIdsFree(db);
   await uploadPhotos(storage);
   const replaced = await db.transaction(replaceContent);
-  for (const key of replaced) await storage.deleteObject(key);
+  // The rows no longer name these keys, so a rerun cannot find them: try each one, then report what is left.
+  const failed = (await Promise.allSettled(replaced.map((key) => storage.deleteObject(key)))).filter(({ status }) => status === 'rejected');
+  if (failed.length) throw new Error(`Demo template written, but ${failed.length} replaced photo(s) could not be deleted from storage.`);
   return { recipes: plan.length, photos: photoKeys.length };
 }
