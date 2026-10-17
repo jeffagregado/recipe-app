@@ -12,7 +12,7 @@ import { DemoStartService } from './demo-start.service.js';
 export const DEMO_STARTS_PER_HOUR = 5;
 const HOUR_MS = 3_600_000;
 
-@Controller('api/demo')
+@Controller('demo')
 @UseFilters(DemoFilter)
 export class DemoController {
   constructor(private readonly demo: DemoStartService, private readonly limiter: AuthRateLimiter) {}

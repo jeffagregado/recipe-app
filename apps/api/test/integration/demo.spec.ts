@@ -68,7 +68,7 @@ describe('Live demo API (DEMO_MODE on)', () => {
   /** Start demo from a fresh address unless one is given. */
   async function start(address = testAddress()) {
     addresses.add(address);
-    const response = await fetch(`${baseUrl}/api/demo/start`, { method: 'POST', headers: { Origin: TEST_ORIGIN, 'X-Forwarded-For': address } });
+    const response = await fetch(`${baseUrl}/demo/start`, { method: 'POST', headers: { Origin: TEST_ORIGIN, 'X-Forwarded-For': address } });
     if (response.status === 201) {
       const body = demoStartResponseSchema.parse(await response.clone().json());
       started.add(body.user.id);

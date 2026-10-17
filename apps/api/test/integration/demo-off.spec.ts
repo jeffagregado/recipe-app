@@ -17,7 +17,7 @@ describe('Live demo API with DEMO_MODE off', () => {
   });
 
   it('has no Start demo endpoint', async () => {
-    const response = await fetch(`${baseUrl}/api/demo/start`, { method: 'POST', headers: { Origin: TEST_ORIGIN, 'X-Forwarded-For': testAddress() } });
+    const response = await fetch(`${baseUrl}/demo/start`, { method: 'POST', headers: { Origin: TEST_ORIGIN, 'X-Forwarded-For': testAddress() } });
     expect(response.status).toBe(404);
     expect(response.headers.getSetCookie()).toEqual([]);
   }, 30_000);
