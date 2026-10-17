@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { parseRecipeMetadata, recipeRequestHash, validateRecipeFiles } from './recipe-metadata.js';
@@ -8,12 +8,16 @@ import type { RecipeUploadRequest } from './recipe-upload.js';
 import { RecipeAttempts } from './recipe-attempts.js';
 import type { RecipeWriteResult } from './recipe-attempts.js';
 import { assertOwnedCategories, persistRecipe } from './recipe-persist.js';
+import { DEMO_RECIPE_POLICY } from '../demo/demo-recipe-policy.js';
+import type { DemoRecipePolicy } from '../demo/demo-recipe-policy.js';
 
 @Injectable()
 export class RecipeCreateService {
-  constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb, private readonly attempts: RecipeAttempts) {}
+  constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb, private readonly attempts: RecipeAttempts,
+    @Optional() @Inject(DEMO_RECIPE_POLICY) private readonly demo?: DemoRecipePolicy) {}
 
   async create(request: RecipeUploadRequest): Promise<RecipeWriteResult> {
+    this.demo?.refuseUploads(request.files);
     const metadata = parseRecipeMetadata(request.body ?? {});
     const photos = await validateRecipeFiles(metadata, request.files ?? [], writeDeadlineCheck(request.writeDeadline!));
     const userId = request.user!.id;
@@ -25,7 +29,10 @@ export class RecipeCreateService {
         recipeId, objectKeys: images.map((image) => image.key) },
       uploads: images,
       // Before any upload, so a stale category never costs a stored photo.
-      prepare: () => assertOwnedCategories(this.db, userId, metadata.categoryIds),
+      prepare: async () => {
+        await this.demo?.assertRoomForRecipe(userId);
+        await assertOwnedCategories(this.db, userId, metadata.categoryIds);
+      },
       apply: async (tx) => { await persistRecipe(tx, metadata, userId, recipeId, images); return []; },
     });
   }
