@@ -10,7 +10,7 @@ import type { RecipeDetail } from '@recipe-app/contracts/types';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authAccounts, authRateLimits, authSessions, categories, ingredients, recipeImages, recipes, users } from '../../src/database/schema.js';
 import { DEMO_TEMPLATE_EMAIL, DEMO_TEMPLATE_ID } from '../../src/demo/demo-template.js';
-import { writeDemoTemplate } from '../../src/demo/demo-template-seed.js';
+import { runDemoSeed, writeDemoTemplate } from '../../src/demo/demo-template-seed.js';
 import { StorageError, StorageService } from '../../src/storage/storage.service.js';
 import { cookiePair, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
@@ -556,6 +556,29 @@ describe('Live demo API (DEMO_MODE on)', () => {
     describe('seeded', () => {
       beforeAll(async () => {
         await writeDemoTemplate(db, storage);
+      }, 60_000);
+
+      it('fails the command and lists each replaced photo it could not delete', async () => {
+        const key = `recipes/demo-template-sesame-edamame/${randomUUID()}.webp`;
+        await storage.upload(key, jpeg(13), 'image/jpeg');
+        await db.insert(recipeImages).values({ recipeId: 'demo-template-sesame-edamame', objectKey: key, sortOrder: 9 });
+        const deleteObject = storage.deleteObject.bind(storage);
+        const failing = vi.spyOn(storage, 'deleteObject').mockImplementation(async (target) => {
+          if (target === key) throw new StorageError('Injected delete failure.');
+          return deleteObject(target);
+        });
+        const output = { log: [] as string[], error: [] as string[] };
+        try {
+          const exitCode = await runDemoSeed(db, storage, { log: (line) => output.log.push(line), error: (line) => output.error.push(line) });
+          expect({ exitCode, output }).toEqual({ exitCode: 1, output: { log: [], error: [
+            'Demo template written, but 1 replaced photo could not be deleted from storage. Delete these keys by hand:', key,
+          ] } });
+          expect(await stored(key)).toBe(true);
+          expect(await db.$count(recipeImages, eq(recipeImages.objectKey, key))).toBe(0);
+        } finally {
+          failing.mockRestore();
+          await storage.deleteObject(key);
+        }
       }, 60_000);
 
       it('keeps one template with every Photo stored when the seed runs again, and deletes the photos it replaced', async () => {

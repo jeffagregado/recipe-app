@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, DrizzleQueryError, eq, inArray, ne, sql } from 'drizzle-orm';
 import { createRecipeMetadataSchema } from '@recipe-app/contracts/schemas';
 import type { DrizzleDb } from '../database/database.service.js';
 import {
@@ -120,19 +120,48 @@ async function replaceContent(tx: Transaction): Promise<string[]> {
   return previous.map(({ key }) => key).filter((key) => !photoKeys.includes(key));
 }
 
+/** The template is written, but these replaced photos are still in storage and no row names them any more. */
+class DemoTemplateCleanupError extends Error {
+  override readonly name = 'DemoTemplateCleanupError';
+  constructor(readonly keys: readonly string[]) {
+    super(`Demo template written, but ${keys.length} replaced ${keys.length === 1 ? 'photo' : 'photos'} could not be deleted from storage.`);
+  }
+}
+
 /**
  * Writes the Demo template that Start demo copies: its owner, Categories, 15 Recipes, Favorites and Photos. Running it again
  * converges on the same template. It refuses, before any upload or write, when the owner or a recipe id belongs to anyone
  * else. Photos are uploaded first under fixed keys, so the rows never point at a missing object; the photos of content it
- * replaced are deleted once the new rows are committed, and any that fail are reported.
+ * replaced are deleted once the new rows are committed. A failed delete ends in `DemoTemplateCleanupError`.
  */
 export async function writeDemoTemplate(db: DrizzleDb, storage: StorageService): Promise<{ recipes: number; photos: number }> {
   await checkOwner(db);
   await checkRecipeIdsFree(db);
   await uploadPhotos(storage);
   const replaced = await db.transaction(replaceContent);
-  // The rows no longer name these keys, so a rerun cannot find them: try each one, then report what is left.
-  const failed = (await Promise.allSettled(replaced.map((key) => storage.deleteObject(key)))).filter(({ status }) => status === 'rejected');
-  if (failed.length) throw new Error(`Demo template written, but ${failed.length} replaced photo(s) could not be deleted from storage.`);
+  // The rows no longer name these keys, so a rerun cannot find them: try each one, then name the ones left.
+  const results = await Promise.allSettled(replaced.map((key) => storage.deleteObject(key)));
+  const left = replaced.filter((_, index) => results[index].status === 'rejected');
+  if (left.length) throw new DemoTemplateCleanupError(left);
   return { recipes: plan.length, photos: photoKeys.length };
+}
+
+/** Runs the seed as `db:seed:demo` does: reports through `output` and returns the exit code. */
+export async function runDemoSeed(db: DrizzleDb, storage: StorageService, output: Pick<Console, 'log' | 'error'>): Promise<number> {
+  try {
+    const { recipes: written, photos } = await writeDemoTemplate(db, storage);
+    output.log(`Demo template seed complete: ${written} recipes and ${photos} photos.`);
+    return 0;
+  } catch (error) {
+    if (error instanceof DemoTemplateCleanupError) {
+      output.error(`${error.message} Delete these keys by hand:`);
+      for (const key of error.keys) output.error(key);
+    } else if (error instanceof DrizzleQueryError) {
+      // A failed query's message can quote its parameters, so only its PostgreSQL error code is shown.
+      output.error(`Demo template seed write failed (code ${String(Object(error.cause).code)}).`);
+    } else {
+      output.error(String(error));
+    }
+    return 1;
+  }
 }
