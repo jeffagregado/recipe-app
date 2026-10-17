@@ -395,11 +395,66 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # The live demo site (issue #112) end to end: the API and a web build with DEMO_MODE on, and the one journey in
+  # e2e/*.demo.ts. It waits for integration rather than running beside it: the API demo suite's busy test briefly fills
+  # every live Demo account slot on the run's Neon branch, and a demo started then is answered busy. e2e starts no demo,
+  # so it stays beside integration. Like e2e, it runs whatever integration's result.
+  e2e-demo:
+    name: End-to-end tests (demo)
+    needs: [check, gate, neon, integration]
+    if: ${{ !cancelled() && needs.check.result == 'success' && needs.neon.result == 'success' && needs.gate.outputs.suite != 'skip' && github.event.pull_request.draft != true }}
+    runs-on: ubuntu-latest
+    # e2e's limit: playwright.demo.config.ts keeps the base config's 35-minute globalTimeout, so a hung run stops itself first
+    # and keeps its list output and screenshots.
+    timeout-minutes: 45
+    environment: dev
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+
+      - uses: ./.github/actions/neon-branch
+        with:
+          branch: ${{ needs.neon.outputs.branch }}
+          parent: ${{ env.NEON_PARENT_BRANCH }}
+          project-id: ${{ vars.NEON_PROJECT_ID }}
+          api-key: ${{ secrets.NEON_API_KEY }}
+
+      # The demo start page and the auth redirects are fixed at build time.
+      - name: Build
+        run: pnpm build
+        env:
+          DEMO_MODE: 'true'
+
+      - name: Install browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright
+        run: pnpm exec playwright test --config playwright.demo.config.ts
+        env:
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_URL: http://127.0.0.1:4101
+          # AWS_ENDPOINT_URL_S3 is this run's own storage, exported by the Neon branch step; a value here would override it.
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+
+      # PNG files only, for the reason given at e2e's upload.
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-demo-failure-screenshots
+          path: test-results/**/*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
   # Deletes NEON_RUN_BRANCH once the test jobs have ended, whether they passed, failed or were cancelled. A worktree
   # branch is never deleted here: it stays for the worktree until the cleanup after its merge.
   cleanup:
     name: Delete the run's Neon branch
-    needs: [neon, integration, e2e]
+    needs: [neon, integration, e2e, e2e-demo]
     if: ${{ always() && needs.neon.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

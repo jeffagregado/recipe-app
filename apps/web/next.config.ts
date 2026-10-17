@@ -1,4 +1,6 @@
 import type { NextConfig } from 'next'
+import { demoRedirects } from './features/demo/demo-redirects'
+import { parseDemoMode } from './lib/demo-mode'
 import { recipeStorageHost } from './lib/recipe-storage-host'
 
 const nextConfig: NextConfig = {
@@ -6,6 +8,8 @@ const nextConfig: NextConfig = {
 	reactCompiler: true,
 	cacheComponents: true,
 	partialPrefetching: true,
+	// The demo site has no sign-in, so its auth pages lead to the demo start page. None on the main site.
+	redirects: async () => demoRedirects(parseDemoMode(process.env.DEMO_MODE)),
 	images: {
 		// Signed recipe photos come from the storage host of one Neon branch of the recipe-app-v2 project:
 		// RECIPE_STORAGE_HOST, or the dev branch when it is unset. Next.js loads the env files before this file.

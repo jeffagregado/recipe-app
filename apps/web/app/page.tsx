@@ -6,6 +6,8 @@ import { LegalLinks } from '@/components/layout/legal-links'
 import { Logo } from '@/components/layout/logo'
 import { NoticeToast } from '@/components/layout/notice-toast'
 import { SessionErrorBoundary } from '@/features/auth/session-error'
+import { DemoStartPage } from '@/features/demo/demo-start-page'
+import { isDemoMode } from '@/lib/demo-mode'
 import { cn } from '@/lib/utils'
 import band from '@/public/landing/band.jpg'
 import featureCategories from '@/public/landing/feature-categories.jpg'
@@ -47,6 +49,7 @@ function Session({ placement }: { placement: 'header' | 'hero' | 'band' }) {
 }
 
 export default function HomePage() {
+	if (isDemoMode()) return <DemoStartPage />
 	return (
 		<AppToaster>
 			<div className="flex min-h-dvh flex-col bg-background">

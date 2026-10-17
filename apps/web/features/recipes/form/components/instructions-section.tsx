@@ -1,6 +1,8 @@
 import { ImagePlus, ListOrdered } from 'lucide-react'
 import { useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
+import { useDemoMode } from '@/features/demo/demo-mode-context'
+import { PHOTO_UPLOADS_OFF } from '@/features/demo/results'
 import { cn } from '@/lib/utils'
 import { emptyInstructionRow, MAX_ROWS, type RecipeFormValues } from '../lib/recipe-form-schema'
 import { fieldA11y, textareaClass } from '../lib/field-props'
@@ -114,6 +116,7 @@ function StepPhoto({ group, row, position, disabled }: { group: number; row: num
 	const { errors } = useFormState({ control })
 	const path = `instructions.${group}.steps.${row}.photo` as const
 	const photo = useWatch({ control, name: path })
+	const uploadsOff = useDemoMode()
 	const { pickError, pick, remove } = usePhotoPick((file) => setValue(path, file ? newPhoto(file) : noPhoto(), { shouldDirty: true, shouldTouch: true }))
 	const error = pickError ?? errors.instructions?.[group]?.steps?.[row]?.photo?.message
 	const fieldId = `recipe-step-${position - 1}-photo`
@@ -124,11 +127,11 @@ function StepPhoto({ group, row, position, disabled }: { group: number; row: num
 			{photo.kind !== 'none' ? (
 				<div className="flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-3">
 					<PhotoPreview photo={photo} label={`Current photo for step ${position}`} sizes="56px" className="size-14 shrink-0 rounded-lg" />
-					<p className="min-w-0 flex-1 basis-16 text-sm text-muted-foreground wrap-break-word">{photoCaption(photo)}</p>
+					<p className="min-w-0 flex-1 basis-16 text-sm text-muted-foreground wrap-break-word">{uploadsOff ? PHOTO_UPLOADS_OFF : photoCaption(photo)}</p>
 					<PhotoPicker label={`Replace photo for step ${position}`} onPick={pick} disabled={disabled} a11y={a11y} className="rounded-lg">
 						<span className="inline-flex h-11 items-center rounded-lg border border-border bg-background px-3 text-sm font-medium sm:px-4">Replace</span>
 					</PhotoPicker>
-					<Button type="button" variant="outline" className="h-11 px-3 sm:px-4" aria-label={`Remove photo from step ${position}`} disabled={disabled} onClick={remove}>Remove</Button>
+					<Button type="button" variant="outline" className="h-11 px-3 sm:px-4" aria-label={`Remove photo from step ${position}`} disabled={disabled || uploadsOff} onClick={remove}>Remove</Button>
 				</div>
 			) : (
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -137,7 +140,7 @@ function StepPhoto({ group, row, position, disabled }: { group: number; row: num
 							<ImagePlus aria-hidden="true" className="size-4" /> Add photo
 						</span>
 					</PhotoPicker>
-					<span className="text-xs text-muted-foreground">Optional · JPG, PNG or WebP · up to 5 MB</span>
+					<span className="text-xs text-muted-foreground">{uploadsOff ? PHOTO_UPLOADS_OFF : 'Optional · JPG, PNG or WebP · up to 5 MB'}</span>
 				</div>
 			)}
 			{error && <FieldError id={`${fieldId}-error`}>{error}</FieldError>}

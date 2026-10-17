@@ -15,6 +15,7 @@
   },
   "include": [
     "playwright.config.ts",
+    "playwright.demo.config.ts",
     "e2e/**/*.ts",
     "apps/api/vitest*.ts",
     "apps/api/test/**/*.ts",
