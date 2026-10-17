@@ -9,7 +9,7 @@ import * as schema from '../apps/api/src/database/schema.js';
 import type { DrizzleDb } from '../apps/api/src/database/database.service.js';
 import type { openDemoTemplate } from '../apps/api/test/demo-template-storage.js';
 import { getDevDatabaseUrl } from '../apps/api/test/neon-dev.js';
-import { field, recipeCards, waitHydrated } from './create-recipe-helpers.js';
+import { field, imagesLoaded, recipeCards, waitHydrated } from './create-recipe-helpers.js';
 import { WEB_URL } from './fixtures.js';
 import { loadAuthHarness, loadDemoTemplate } from './load-auth-harness.js';
 
@@ -52,10 +52,12 @@ const test = base.extend<Record<never, never>, { demo: Demo }>({
       });
     } finally {
       try {
-        const removed = await template.removeAccounts(db, [...started], [address]);
+        // The template goes whether or not the accounts' cleanup failed; that failure is rethrown afterwards, as it was.
+        const accounts = template.removeAccounts(db, [...started], [address]);
+        await accounts.catch(() => undefined);
         await template.remove(db, name);
-        console.log(`Demo E2E cleanup: accounts=${removed.accounts} objects=${removed.objects} failed=${removed.failed}`);
-        if (removed.failed) throw new Error('Copied demo photos were not all deleted.');
+        const removed = await accounts;
+        console.log(`Demo E2E cleanup: accounts=${removed.accounts} objects=${removed.objects}`);
       } finally {
         await template.close();
         await pool.end();
@@ -87,7 +89,7 @@ async function expectTemplateRecipes(page: Page) {
   await expect(recipeCards(page)).toHaveCount(2);
 }
 
-test('a visitor starts a demo, edits a sample recipe and resets into a fresh account', async ({ page, demo }) => {
+test('a visitor starts a demo, edits a sample recipe without losing its photos and resets into a fresh account', async ({ page, demo }) => {
   for (const path of AUTH_PAGES) {
     await page.goto(path);
     await expect(page, `${path} leads to the start page`).toHaveURL(`${WEB_URL}/`);
@@ -100,26 +102,31 @@ test('a visitor starts a demo, edits a sample recipe and resets into a fresh acc
   await expectTemplateRecipes(page);
   const first = await demo.accountId(page);
 
-  await card(page, 'Template salad').getByRole('link', { name: 'Template salad' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Template salad' })).toBeVisible();
-  await page.getByRole('button', { name: 'More options for Template salad' }).click();
+  // The pancakes carry the template's cover and step photo, which the demo cannot upload again.
+  await card(page, 'Template pancakes').getByRole('link', { name: 'Template pancakes' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Template pancakes' })).toBeVisible();
+  await page.getByRole('button', { name: 'More options for Template pancakes' }).click();
   await page.getByRole('menuitem', { name: 'Edit recipe' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Edit Recipe' })).toBeVisible();
   await waitHydrated(page.getByRole('form', { name: 'Edit Recipe' }));
-  await field.title(page).fill('My demo salad');
+  await expect(page.getByLabel('Replace cover photo')).toBeDisabled();
+  await field.title(page).fill('My demo pancakes');
   await page.getByRole('button', { name: 'Save Changes' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'My demo salad' })).toBeVisible({ timeout: DEMO_WRITE_MS });
+  await expect(page.getByRole('heading', { level: 1, name: 'My demo pancakes' })).toBeVisible({ timeout: DEMO_WRITE_MS });
+  await expect(page.getByRole('img', { name: 'My demo pancakes' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open step 1 photo' })).toBeVisible();
+  await expect.poll(() => imagesLoaded(page)).toBe(true);
 
   await page.getByRole('link', { name: 'Back to Recipes' }).click();
-  await expect(card(page, 'My demo salad')).toBeVisible();
+  await expect(card(page, 'My demo pancakes')).toBeVisible();
   const reset = banner(page).getByRole('button', { name: 'Reset demo' });
   await waitHydrated(reset);
   await reset.click();
   await page.getByRole('alertdialog', { name: 'Reset the demo?' }).getByRole('button', { name: 'Reset demo' }).click();
-  // The renamed salad exists only in the old account, so its original title marks the fresh one.
-  await expect(card(page, 'Template salad')).toBeVisible({ timeout: DEMO_WRITE_MS });
+  // The renamed pancakes exist only in the old account, so their original title marks the fresh one.
+  await expect(card(page, 'Template pancakes')).toBeVisible({ timeout: DEMO_WRITE_MS });
   await expectTemplateRecipes(page);
-  await expect(card(page, 'My demo salad')).toHaveCount(0);
+  await expect(card(page, 'My demo pancakes')).toHaveCount(0);
   const second = await demo.accountId(page);
   expect(second).not.toBe(first);
 

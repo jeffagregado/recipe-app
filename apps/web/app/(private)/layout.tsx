@@ -16,7 +16,7 @@ type PrivateLayoutProps = {
 
 export default function PrivateLayout({ children }: PrivateLayoutProps) {
 	return (
-		<AppToaster>
+		<AppToaster><DemoModeProvider enabled={isDemoMode()}>
 			<div data-private-content className="flex min-h-dvh bg-muted/30">
 				<Suspense fallback={<aside aria-label="Loading navigation" className="hidden h-dvh w-56 shrink-0 border-r border-sidebar-border bg-sidebar lg:sticky lg:top-0 lg:block" />}>
 					<Sidebar footer={<SessionErrorBoundary><Suspense fallback={<p role="status">Checking session...</p>}><ShellSession /></Suspense></SessionErrorBoundary>} />
@@ -26,7 +26,7 @@ export default function PrivateLayout({ children }: PrivateLayoutProps) {
 					{isDemoMode() && <DemoBanner />}
 					<MobileHeader session={<SessionErrorBoundary><Suspense fallback={<p role="status">Checking session...</p>}><ShellSession mobile /></Suspense></SessionErrorBoundary>} />
 					{/* The bottom padding keeps content clear of the fixed tab bar below lg. */}
-					<main className="min-w-0 pb-20 lg:pb-0"><DemoModeProvider enabled={isDemoMode()}>{children}</DemoModeProvider></main>
+					<main className="min-w-0 pb-20 lg:pb-0">{children}</main>
 				</div>
 			</div>
 			{/* Reads the pathname, so like the sidebar it streams in behind a same-size placeholder. */}
@@ -37,6 +37,6 @@ export default function PrivateLayout({ children }: PrivateLayoutProps) {
 			<Suspense fallback={null}>
 				<NoticeToast />
 			</Suspense>
-		</AppToaster>
+		</DemoModeProvider></AppToaster>
 	)
 }

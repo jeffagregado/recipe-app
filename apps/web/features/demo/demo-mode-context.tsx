@@ -11,6 +11,3 @@ export function DemoModeProvider({ enabled, children }: { enabled: boolean; chil
 
 /** Whether this page belongs to the demo site. The server reads the switch itself, with `isDemoMode`. */
 export const useDemoMode = () => use(DemoModeContext)
-
-/** Shown where a photo would be picked: the demo API refuses uploads and photo removal. */
-export const PHOTO_UPLOADS_OFF = 'Photo uploads are off in the demo'

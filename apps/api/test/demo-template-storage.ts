@@ -24,21 +24,28 @@ export async function openDemoTemplate(envFilePath: string) {
     await db.delete(ingredients).where(like(sql`lower(${ingredients.name})`, `${name.toLowerCase()}%`));
   }
 
-  /** Deletes the Demo accounts a run started, their copied photos and the start counters of the addresses it used. */
-  async function removeAccounts(db: DrizzleDb, userIds: string[], addresses: string[]): Promise<{ accounts: number; objects: number; failed: number }> {
-    const keys = userIds.length ? (await db.select({ key: recipeImages.objectKey }).from(recipeImages)
-      .innerJoin(recipes, eq(recipes.id, recipeImages.recipeId)).where(inArray(recipes.userId, userIds))).map(({ key }) => key) : [];
-    let failed = 0;
-    for (const key of keys) {
-      try { await storage.deleteObject(key); } catch { failed++; }
+  /**
+   * Deletes the Demo accounts a run started, as the sweep does: their copied photos first, then the rows of each account
+   * whose photos are all gone, then the start counters of the addresses it used. An account whose photo delete failed
+   * keeps its rows, so its keys stay on record, and the first storage error is rethrown once the rest is done.
+   */
+  async function removeAccounts(db: DrizzleDb, userIds: string[], addresses: string[]): Promise<{ accounts: number; objects: number }> {
+    const photos = userIds.length ? await db.select({ userId: recipes.userId, key: recipeImages.objectKey }).from(recipeImages)
+      .innerJoin(recipes, eq(recipes.id, recipeImages.recipeId)).where(inArray(recipes.userId, userIds)) : [];
+    const kept = new Set<string>();
+    let failure: { error: unknown } | undefined;
+    for (const { userId, key } of photos) {
+      try { await storage.deleteObject(key); } catch (error) { kept.add(userId); failure ??= { error }; }
     }
-    if (userIds.length) await db.delete(users).where(inArray(users.id, userIds));
+    const removed = userIds.filter((id) => !kept.has(id));
+    if (removed.length) await db.delete(users).where(inArray(users.id, removed));
     const counters = [
       ...(addresses.length ? [inArray(authRateLimits.key, addresses.map((address) => rateLimitKey('demo-start:address', address)))] : []),
-      ...userIds.map((id) => like(authRateLimits.key, `wrapper:%:user:${id}`)),
+      ...removed.map((id) => like(authRateLimits.key, `wrapper:%:user:${id}`)),
     ];
     if (counters.length) await db.delete(authRateLimits).where(or(...counters));
-    return { accounts: userIds.length, objects: keys.length, failed };
+    if (failure) throw failure.error;
+    return { accounts: removed.length, objects: photos.length };
   }
 
   return { seed, remove, removeAccounts, close: () => app.close() };
