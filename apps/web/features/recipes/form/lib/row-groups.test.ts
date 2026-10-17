@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addGroup, canMoveGroup, canMoveRow, flatRowPath, moveGroup, moveRow, removeHeading, removeRow, rowCount } from './row-groups'
+import { addGroup, canMoveGroup, canMoveRow, flatRowPath, moveGroup, moveRow, nameFirstGroup, removeHeading, removeRow, rowCount } from './row-groups'
 
 type Groups = Array<{ heading: string | null; rows: string[] }>
 const groups = (): Groups => [
@@ -31,7 +31,7 @@ describe('moving rows', () => {
 		expect(canMoveRow(groups(), 'rows', group, index, direction)).toBe(allowed)
 	})
 
-	it('never empties the untitled first group, so the first row never opens a named group', () => {
+	it('never empties the first group, so it always keeps the first row', () => {
 		const single: Groups = [{ heading: null, rows: ['a'] }, { heading: 'Sauce', rows: ['b', 'c'] }]
 		expect(canMoveRow(single, 'rows', 0, 0, 'down')).toBe(false)
 		expect(canMoveRow(single, 'rows', 1, 0, 'up')).toBe(true)
@@ -45,7 +45,7 @@ describe('moving groups', () => {
 	})
 
 	it.each([[1, 'up', false], [1, 'down', true], [2, 'up', true], [2, 'down', false]] as const)(
-		'allows moving group %i %s: %s, never above the untitled first group',
+		'allows moving group %i %s: %s, never above the first group',
 		(group, direction, allowed) => expect(canMoveGroup(groups(), group, direction)).toBe(allowed),
 	)
 })
@@ -60,12 +60,17 @@ describe('adding and removing', () => {
 		expect(removeHeading(groups(), 'rows', 1)).toEqual([{ heading: null, rows: ['a', 'b', 'c'] }, groups()[2]])
 	})
 
+	it('names the first group with a blank heading, and removing it leaves the rows in place with no heading', () => {
+		expect(nameFirstGroup(groups())).toEqual([{ heading: '', rows: ['a', 'b'] }, groups()[1], groups()[2]])
+		expect(removeHeading([{ heading: 'Dough', rows: ['a', 'b'] }, ...groups().slice(1)], 'rows', 0)).toEqual(groups())
+	})
+
 	it('removes a row, and a named group with its last row', () => {
 		expect(removeRow(groups(), 'rows', 2, 0, '')).toEqual([groups()[0], groups()[1], { heading: 'Topping', rows: ['e'] }])
 		expect(removeRow(groups(), 'rows', 1, 0, '')).toEqual([groups()[0], groups()[2]])
 	})
 
-	it('empties the last row of the untitled first group instead of removing it', () => {
+	it('empties the last row of the first group instead of removing it', () => {
 		const single: Groups = [{ heading: null, rows: ['a'] }, { heading: 'Sauce', rows: ['b'] }]
 		expect(removeRow(single, 'rows', 0, 0, '')).toEqual([{ heading: null, rows: [''] }, single[1]])
 	})

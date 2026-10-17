@@ -13,7 +13,7 @@ const ingredientsCard = (page: Page) => page.getByRole('region', { name: /^Ingre
 const instructionsCard = (page: Page) => page.getByRole('region', { name: /^Instructions/ });
 const groupRows = (page: Page, name: string) => page.getByRole('list', { name, exact: true }).locator(':scope > li').allInnerTexts();
 
-test('a recipe with an ingredient group, a step group and a fraction saves, shows its groups, and edits back in the same layout', async ({ page, workerData, creator }) => {
+test('a recipe with an ingredient group, a step group and a fraction saves, shows its groups, and edits back in the same layout with a titled first group', async ({ page, workerData, creator }) => {
   test.setTimeout(120_000);
   await openCreate(page);
   await field.title(page).fill('Grouped pasta');
@@ -54,11 +54,16 @@ test('a recipe with an ingredient group, a step group and a fraction saves, show
   await expect(page.getByLabel('Ingredient group 1 name')).toHaveValue('Sauce');
   await expect(page.getByLabel('Step group 1 name')).toHaveValue('Make the sauce');
   await page.getByLabel('Ingredient group 1 name').fill('Garlic butter');
+  await ingredientsCard(page).getByRole('button', { name: 'Add heading' }).click();
+  await page.getByLabel('First ingredient group name').fill('Pasta');
   await page.getByRole('button', { name: 'Remove heading from step group 1' }).click();
+  await instructionsCard(page).getByRole('button', { name: 'Add heading' }).click();
+  await page.getByLabel('First step group name').fill('Method');
   await page.getByRole('button', { name: /^(Save Changes|Saving…)$/ }).click();
 
   await expect(page).toHaveURL(`${WEB_URL}/recipes/${id}`, { timeout: 30_000 });
-  await expect(page.getByRole('heading', { level: 3 })).toHaveText(['Garlic butter'], { timeout: 20_000 });
+  await expect(page.getByRole('heading', { level: 3 })).toHaveText(['Pasta', 'Garlic butter', 'Method'], { timeout: 20_000 });
+  expect(await groupRows(page, 'Pasta')).toEqual([expect.stringMatching(/^Spaghetti\s+200 g$/)]);
   expect(await groupRows(page, 'Garlic butter')).toEqual([expect.stringMatching(/^Butter\s+1½ tbsp$/)]);
-  expect(await groupRows(page, 'Instructions')).toEqual([expect.stringMatching(/^1\s+Boil the pasta\.$/), expect.stringMatching(/^2\s+Melt the butter\.$/)]);
+  expect(await groupRows(page, 'Method')).toEqual([expect.stringMatching(/^1\s+Boil the pasta\.$/), expect.stringMatching(/^2\s+Melt the butter\.$/)]);
 });

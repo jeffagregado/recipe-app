@@ -85,8 +85,8 @@ const instructionRowSchema = z.object({
 type GroupLimits = { empty: string; limit: number; noun: string }
 
 /**
- * Rows are kept per group, the untitled first group (heading null) followed by named groups.
- * Every named group needs a name; the row limit counts rows across all groups.
+ * Rows are kept per group: the first group, untitled while its heading is null, followed by named groups.
+ * Every group with a heading needs a name; the row limit counts rows across all groups.
  */
 const groupRules = ({ empty, limit, noun }: GroupLimits) => (groups: Array<{ heading: string | null; size: number }>, ctx: z.RefinementCtx) => {
 	const total = groups.reduce((count, group) => count + group.size, 0)

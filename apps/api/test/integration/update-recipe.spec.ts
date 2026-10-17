@@ -73,16 +73,16 @@ describe('Update recipe HTTP', () => {
     expect((await s.list()).data.find((recipe) => recipe.id === id)).toMatchObject({ title: 'Updated recipe', isFavorite: true });
   }, 60_000);
 
-  it('stores group headings on create, returns them in order, and replaces them on update', async () => {
+  it('stores group headings on create, first rows included, returns them in order, and replaces them on update', async () => {
     const created: CreateRecipeMetadata = { ...base(),
-      ingredients: [{ name: `${s.name} flour`, quantity: 1.5, unit: 'cup' }, { name: `${s.name} butter`, quantity: 0.25, unit: 'cup', heading: '  Sauce ' }, { name: `${s.name} salt`, quantity: null, unit: null, heading: null }],
-      instructions: [{ description: 'Mix', hasImage: false }, { description: 'Melt', hasImage: true, heading: 'Make the sauce' }, { description: 'Pour', hasImage: false }] };
+      ingredients: [{ name: `${s.name} flour`, quantity: 1.5, unit: 'cup', heading: 'Dough' }, { name: `${s.name} butter`, quantity: 0.25, unit: 'cup', heading: '  Sauce ' }, { name: `${s.name} salt`, quantity: null, unit: null, heading: null }],
+      instructions: [{ description: 'Mix', hasImage: false, heading: 'Prep' }, { description: 'Melt', hasImage: true, heading: 'Make the sauce' }, { description: 'Pour', hasImage: false }] };
     const id = await s.savedId(await s.send('/recipes', created, [{ field: 'step-1', bytes: jpeg(30) }]), 201);
     const value = await s.detail(id);
     expect(value.ingredients.map(({ name, heading, sortOrder }) => ({ name, heading, sortOrder }))).toEqual([
-      { name: `${s.name} flour`, heading: null, sortOrder: 0 }, { name: `${s.name} butter`, heading: 'Sauce', sortOrder: 1 }, { name: `${s.name} salt`, heading: null, sortOrder: 2 }]);
+      { name: `${s.name} flour`, heading: 'Dough', sortOrder: 0 }, { name: `${s.name} butter`, heading: 'Sauce', sortOrder: 1 }, { name: `${s.name} salt`, heading: null, sortOrder: 2 }]);
     expect(value.instructions.map(({ stepNumber, heading }) => ({ stepNumber, heading }))).toEqual([
-      { stepNumber: 1, heading: null }, { stepNumber: 2, heading: 'Make the sauce' }, { stepNumber: 3, heading: null }]);
+      { stepNumber: 1, heading: 'Prep' }, { stepNumber: 2, heading: 'Make the sauce' }, { stepNumber: 3, heading: null }]);
     const [mix, melt, pour] = value.instructions;
     expect(await s.savedId(await patch(id, { ...unchanged(value),
       ingredients: [{ name: `${s.name} flour`, quantity: 1.5, unit: 'cup' }, { name: `${s.name} butter`, quantity: 0.25, unit: 'cup' }, { name: `${s.name} salt`, quantity: null, unit: null, heading: 'To finish' }],

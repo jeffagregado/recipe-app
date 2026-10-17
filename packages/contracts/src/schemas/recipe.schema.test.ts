@@ -258,16 +258,16 @@ describe("group headings on ingredient and instruction rows", () => {
     ["update instructions", updateRecipeMetadataSchema, update, "instructions", update.instructions[0], 50],
   ] as const;
 
-  it.each(cases)("trims a heading of 1–100 characters on %s and keeps the first row untitled", (_name, schema, base, field, row) => {
+  it.each(cases)("trims a heading of 1–100 characters on any row of %s, the first row included", (_name, schema, base, field, row) => {
     const parsed = schema.parse({ ...base, [field]: [{ ...row, heading: null }, { ...row, heading: "  Sauce  " }, row] }) as unknown as Record<string, Array<{ heading?: string | null }>>;
     expect(parsed[field].map((item) => item.heading)).toEqual([null, "Sauce", undefined]);
     expect(schema.safeParse({ ...base, [field]: [row, { ...row, heading: "x".repeat(100) }] }).success).toBe(true);
     for (const heading of ["", "   ", "x".repeat(101), "Sauce\u0000"]) {
       expect(schema.safeParse({ ...base, [field]: [row, { ...row, heading }] }).success, JSON.stringify(heading)).toBe(false);
+      expect(schema.safeParse({ ...base, [field]: [{ ...row, heading }, row] }).success, `first row ${JSON.stringify(heading)}`).toBe(false);
     }
-    const first = schema.safeParse({ ...base, [field]: [{ ...row, heading: "Sauce" }, row] });
-    expect(first.success).toBe(false);
-    if (!first.success) expect(first.error.issues.map((issue) => issue.path.join("."))).toEqual([`${field}.0.heading`]);
+    const first = schema.parse({ ...base, [field]: [{ ...row, heading: " Dough " }, row] }) as unknown as Record<string, Array<{ heading?: string | null }>>;
+    expect(first[field].map((item) => item.heading)).toEqual(["Dough", undefined]);
   });
 
   it.each(cases)("counts the row limit across all groups on %s", (_name, schema, base, field, row, limit) => {

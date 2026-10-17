@@ -34,7 +34,7 @@ export type CreateRecipeMetadataIngredient = {
   unit: MeasurementUnit | null;
   preparation?: null;
   note?: null;
-  /** Opens a named group at this row; null or absent continues the current group. Always null on the first row. */
+  /** Opens a named group at this row; null or absent continues the current group. The first row may open one too. */
   heading?: string | null;
 };
 
