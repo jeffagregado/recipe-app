@@ -25,14 +25,14 @@ pnpm --filter @recipe/api db:migrate
 pnpm --filter @recipe/api db:seed:demo
 ```
 
-The Neon `demo` branch is a root branch (see `DEPLOY.md`, "Live demo"), so it has its own bucket and its own storage credential, and the `dev` key does not work on it. Give the commands these values in the process environment, and do not write them to a file in the repository:
+The Neon `demo` branch is a root branch (see `DEPLOY.md`, "Live demo"), so it has its own bucket and its own storage access key pair, and the `dev` key does not work on it. Give the commands these values in the process environment, and do not write them to a file in the repository:
 
 | Variable | Value |
 | --- | --- |
 | `DATABASE_URL` | the `demo` branch's database URL, from the Neon console: Connect, branch `demo` |
 | `AWS_ENDPOINT_URL_S3` | `https://br-floral-sky-b3ub6ga4.storage.c-4.ap-southeast-1.aws.neon.tech` |
 | `S3_BUCKET` | `recipe-app-v2-demo` |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | the storage credential created on the `demo` branch |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | the storage access key pair created on the `demo` branch |
 
 The other values the API configuration needs, such as `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and `AWS_REGION`, come from `apps/api/.env`, or from the process environment in a checkout without one. Leave `DEMO_MODE` unset for the seed.
 
