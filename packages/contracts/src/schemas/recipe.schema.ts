@@ -199,7 +199,7 @@ const quantitySchema = z.number().positive().max(RECIPE_LIMITS.maxQuantity)
 const headingSchema = () => metadataText().min(1).max(RECIPE_LIMITS.groupHeading).nullable().optional();
 
 /** A row with a heading opens a named group, the first row included; the limit counts rows across all groups. */
-const groupedRows = <T extends { heading?: string | null }>(schema: z.ZodType<T>, limit: number) => z.array(schema).min(1).max(limit);
+const groupedRows = <T>(schema: z.ZodType<T>, limit: number) => z.array(schema).min(1).max(limit);
 
 const metadataIngredientSchema: z.ZodType<CreateRecipeMetadataIngredient> = z.strictObject({
   name: metadataText().min(1).max(RECIPE_LIMITS.ingredientName),

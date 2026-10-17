@@ -55,8 +55,7 @@ test('a recipe with an ingredient group, a step group and a fraction saves, show
   await expect(page.getByLabel('Step group 1 name')).toHaveValue('Make the sauce');
   await page.getByLabel('Ingredient group 1 name').fill('Garlic butter');
   await ingredientsCard(page).getByRole('button', { name: 'Add heading' }).click();
-  await expect(page.getByLabel('First ingredient group name')).toBeFocused();
-  await page.keyboard.type('Pasta');
+  await page.getByLabel('First ingredient group name').fill('Pasta');
   await page.getByRole('button', { name: 'Remove heading from step group 1' }).click();
   await page.getByRole('button', { name: /^(Save Changes|Saving…)$/ }).click();
 

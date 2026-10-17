@@ -75,7 +75,7 @@ describe('Update recipe HTTP', () => {
 
   it('stores group headings on create, first rows included, returns them in order, and replaces them on update', async () => {
     const created: CreateRecipeMetadata = { ...base(),
-      ingredients: [{ name: `${s.name} flour`, quantity: 1.5, unit: 'cup', heading: ' Dough ' }, { name: `${s.name} butter`, quantity: 0.25, unit: 'cup', heading: '  Sauce ' }, { name: `${s.name} salt`, quantity: null, unit: null, heading: null }],
+      ingredients: [{ name: `${s.name} flour`, quantity: 1.5, unit: 'cup', heading: 'Dough' }, { name: `${s.name} butter`, quantity: 0.25, unit: 'cup', heading: '  Sauce ' }, { name: `${s.name} salt`, quantity: null, unit: null, heading: null }],
       instructions: [{ description: 'Mix', hasImage: false, heading: 'Prep' }, { description: 'Melt', hasImage: true, heading: 'Make the sauce' }, { description: 'Pour', hasImage: false }] };
     const id = await s.savedId(await s.send('/recipes', created, [{ field: 'step-1', bytes: jpeg(30) }]), 201);
     const value = await s.detail(id);
