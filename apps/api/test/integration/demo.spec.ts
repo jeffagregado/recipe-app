@@ -380,19 +380,24 @@ describe('Live demo API (DEMO_MODE on)', () => {
     /** The recipe a copy target belongs to: keys are `recipes/<recipe id>/<file>`. */
     const recipeOf = (key: string) => key.split('/')[1];
 
-    /** Records each photo copy and the Account it is for; `failAt` makes that copy (1-based) fail. */
+    /**
+     * Records each photo copy, the ones that stored an object, and the Account they are for. `failAt` makes that call
+     * (1-based, in call order) fail; copies run concurrently, so each call takes its number before its first await.
+     */
     function recordCopies(failAt?: number) {
       const copy = storage.copyObject.bind(storage);
       const targets: string[] = [];
+      const copied: string[] = [];
       let owner: string | undefined;
       const spy = vi.spyOn(storage, 'copyObject').mockImplementation(async (source, target) => {
-        targets.push(target);
+        const call = targets.push(target);
         const [recipe] = await db.select({ userId: recipes.userId }).from(recipes).where(eq(recipes.id, recipeOf(target)));
         if (recipe) { owner = recipe.userId; started.add(owner); }
-        if (targets.length === failAt) throw new StorageError('Injected copy failure.');
-        return copy(source, target);
+        if (call === failAt) throw new StorageError('Injected copy failure.');
+        await copy(source, target);
+        copied.push(target);
       });
-      return { targets, owner: () => owner!, restore: () => spy.mockRestore() };
+      return { targets, copied, owner: () => owner!, restore: () => spy.mockRestore() };
     }
 
     /** Lets Better Auth store the session row, then fails, so the rollback has a session to remove. */
@@ -426,6 +431,8 @@ describe('Live demo API (DEMO_MODE on)', () => {
       let response: Response;
       try { response = await start(); } finally { copies.restore(); }
       await expectRefused(response);
+      // The first copy stored its object before the second failed; the rollback deletes it.
+      expect(copies.copied).toEqual([copies.targets[0]]);
       await expectNothingLeft(copies);
     }, 60_000);
 
