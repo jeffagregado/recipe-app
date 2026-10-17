@@ -20,7 +20,7 @@ To seed the Neon `demo` branch, from a checkout of `demo`:
 
 ```
 pnpm install
-pnpm --filter @recipe/api build
+pnpm exec turbo build --filter=@recipe/api
 pnpm --filter @recipe/api db:migrate
 pnpm --filter @recipe/api db:seed:demo
 ```
