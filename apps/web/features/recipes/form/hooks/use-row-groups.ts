@@ -88,9 +88,14 @@ export function useRowGroups<K extends string, T>({ name, key, empty, control }:
 			const target = direction === 'up' ? group - 1 : group + 1
 			apply(groupsLib.moveGroup(current(), group, direction), groupSelector(target, direction === 'up' ? ['group-up', 'group-down'] : ['group-down', 'group-up']))
 		},
+		nameFirstGroup() {
+			apply(groupsLib.nameFirstGroup(current()), ['[data-group-heading="0"]'])
+		},
 		removeHeading(group: number) {
 			const all = current()
-			apply(groupsLib.removeHeading(all, key, group), rowSelector(startOf(all, group), [control]))
+			// The first group's "Add heading" link comes back only while a later group exists; otherwise focus its first row.
+			const focus = group === 0 ? [...groupSelector(0, ['add-heading']), ...rowSelector(0, [control])] : rowSelector(startOf(all, group), [control])
+			apply(groupsLib.removeHeading(all, key, group), focus)
 		},
 	}
 }

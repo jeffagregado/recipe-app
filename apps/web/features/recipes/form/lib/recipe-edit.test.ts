@@ -45,7 +45,7 @@ describe('toRecipeFormValues', () => {
 			{ ...ingredient, id: 'i3', ingredientId: 'b3', name: 'Cream', quantity: 1.25, unit: 'cup', sortOrder: 2 },
 		],
 		instructions: [
-			{ id: 's1', stepNumber: 1, description: 'Boil.', imageUrl: null, heading: null },
+			{ id: 's1', stepNumber: 1, description: 'Boil.', imageUrl: null, heading: 'Prep' },
 			{ id: 's2', stepNumber: 2, description: 'Melt.', imageUrl: 'https://storage.example/s2.jpg', heading: 'Make the sauce' },
 		],
 	})
@@ -75,14 +75,14 @@ describe('toRecipeFormValues', () => {
 		expect(values.cover).toEqual({ kind: 'existing', url: 'https://storage.example/cover.jpg' })
 	})
 
-	it('splits rows back into their saved groups', () => {
+	it('splits rows back into their saved groups, a titled first group included', () => {
 		const values = toRecipeFormValues(grouped)
 		expect(values.ingredients).toEqual([
 			{ heading: null, rows: [{ name: 'Pasta', amount: '200', unit: 'g' }] },
 			{ heading: 'Sauce', rows: [{ name: 'Butter', amount: '⅓', unit: 'cup' }, { name: 'Cream', amount: '1¼', unit: 'cup' }] },
 		])
 		expect(values.instructions).toEqual([
-			{ heading: null, steps: [{ id: 's1', description: 'Boil.', photo: noPhoto() }] },
+			{ heading: 'Prep', steps: [{ id: 's1', description: 'Boil.', photo: noPhoto() }] },
 			{ heading: 'Make the sauce', steps: [{ id: 's2', description: 'Melt.', photo: existingPhoto('https://storage.example/s2.jpg') }] },
 		])
 	})
@@ -108,7 +108,7 @@ describe('toRecipeFormValues', () => {
 		expect(regrouped.ingredients.map(({ quantity, heading }) => ({ quantity, heading }))).toEqual([
 			{ quantity: 200, heading: null }, { quantity: 0.333, heading: 'Sauce' }, { quantity: 1.25, heading: null },
 		])
-		expect(regrouped.instructions.map(({ heading }) => heading)).toEqual([null, 'Make the sauce'])
+		expect(regrouped.instructions.map(({ heading }) => heading)).toEqual(['Prep', 'Make the sauce'])
 	})
 })
 

@@ -17,12 +17,21 @@ type GroupHeadingProps = {
 	onRemoveHeading: () => void
 }
 
-/** The heading line of a named group: its name, move up and down among named groups, and "Remove heading". */
+/** The quiet link that gives the first group a heading, shown while a later group is named. */
+export function AddHeadingLink({ onClick }: { onClick: () => void }) {
+	return (
+		<Button type="button" variant="link" className="h-11 px-0 text-muted-foreground" data-control="add-heading" onClick={onClick}>
+			<Plus aria-hidden="true" /> Add heading
+		</Button>
+	)
+}
+
+/** The heading line of a named group: its name, move up and down among later groups (the first group stays first), and "Remove heading". */
 export function GroupHeading({ list, group, placeholder, canMove, onMove, onRemoveHeading }: GroupHeadingProps) {
 	const { register, control } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
 	const noun = list === 'ingredients' ? 'ingredient group' : 'step group'
-	const label = `${noun} ${group}`
+	const label = group === 0 ? `first ${noun}` : `${noun} ${group}`
 	const id = `recipe-${list}-group-${group}`
 	const error = errors[list]?.[group]?.heading?.message
 
@@ -39,7 +48,7 @@ export function GroupHeading({ list, group, placeholder, canMove, onMove, onRemo
 					autoComplete="off"
 				/>
 				<div className="ml-auto flex shrink-0 items-center">
-					{(['up', 'down'] as const).map((direction) => (
+					{group > 0 && (['up', 'down'] as const).map((direction) => (
 						<Button
 							key={direction}
 							type="button"

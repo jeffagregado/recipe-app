@@ -146,3 +146,13 @@ it('renders named groups under their own headings with step numbers that run on 
 	expect(within(sauce).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['3Melt.', '4Stir.'])
 	expect(within(screen.getByRole('list', { name: 'Instructions' })).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['1Boil.', '2Drain.'])
 })
+
+it('puts a titled first group’s heading right under the card title, with step numbers still running on', async () => {
+	const step = (id: string, stepNumber: number, description: string, heading: string | null = null) => ({ id, stepNumber, description, imageUrl: null, heading })
+	await renderRecipe(recipeDetailFixture({ instructions: [step('s1', 1, 'Boil.', 'Prep'), step('s2', 2, 'Melt.', 'Make the sauce')] }))
+	const card = screen.getByRole('heading', { level: 2, name: 'Instructions' }).closest('section')!
+	expect(within(card).getAllByRole('heading').map((heading) => heading.textContent)).toEqual(['Instructions', 'Prep', 'Make the sauce'])
+	expect(within(card).queryByRole('list', { name: 'Instructions' })).not.toBeInTheDocument()
+	expect(within(screen.getByRole('list', { name: 'Prep' })).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['1Boil.'])
+	expect(screen.getByRole('list', { name: 'Make the sauce' })).toHaveAttribute('start', '2')
+})

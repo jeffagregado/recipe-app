@@ -10,7 +10,7 @@ import { FieldError } from './form-field'
 import { RowControls } from './row-controls'
 import { SectionCard } from './section-card'
 import { useRowGroups } from '../hooks/use-row-groups'
-import { AddRowControls, GroupHeading } from './row-group'
+import { AddHeadingLink, AddRowControls, GroupHeading } from './row-group'
 
 type RowPlace = { group: number; row: number; position: number }
 type IngredientRowProps = RowPlace & { canMove: (direction: 'up' | 'down') => boolean; onMove: (direction: 'up' | 'down') => void; onRemove: () => void }
@@ -35,7 +35,10 @@ export function IngredientsSection() {
 			<div ref={containerRef} className="space-y-5">
 				{rows.groups.map((field, group) => (
 					<div key={field.id} data-group={group} className={cn('space-y-4 sm:space-y-3', group > 0 && 'border-t border-border pt-5')}>
-						{group > 0 && (
+						{/* Only the first group can be untitled; it offers "Add heading" once a later group is named. */}
+						{field.heading === null ? (
+							rows.groups.length > 1 && <AddHeadingLink onClick={rows.nameFirstGroup} />
+						) : (
 							<GroupHeading
 								list="ingredients"
 								group={group}

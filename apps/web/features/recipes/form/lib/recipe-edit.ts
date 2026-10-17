@@ -18,16 +18,16 @@ export function toRecipeFormValues(recipe: RecipeDetail): RecipeFormValues {
 		videoUrl: recipe.videoUrl ?? '',
 		notes: recipe.notes ?? '',
 		cover: existingPhoto(recipe.imageUrl),
-		ingredients: groupRows(recipe.ingredients.toSorted((a, b) => a.sortOrder - b.sortOrder)).map((group, index) => ({
-			heading: index === 0 ? null : group.heading,
+		ingredients: groupRows(recipe.ingredients.toSorted((a, b) => a.sortOrder - b.sortOrder)).map((group) => ({
+			heading: group.heading,
 			rows: group.rows.map((row) => (
 				row.quantity === null || row.unit === null
 					? { name: row.name, amount: '', unit: TO_TASTE }
 					: { name: row.name, amount: kitchenAmount(row.quantity, 'stored'), unit: row.unit }
 			)),
 		})),
-		instructions: groupRows(recipe.instructions.toSorted((a, b) => a.stepNumber - b.stepNumber)).map((group, index) => ({
-			heading: index === 0 ? null : group.heading,
+		instructions: groupRows(recipe.instructions.toSorted((a, b) => a.stepNumber - b.stepNumber)).map((group) => ({
+			heading: group.heading,
 			steps: group.rows.map((step) => ({ id: step.id, description: step.description, photo: existingPhoto(step.imageUrl) })),
 		})),
 	}

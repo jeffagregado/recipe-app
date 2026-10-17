@@ -12,7 +12,7 @@ import { RowControls } from './row-controls'
 import { SectionCard } from './section-card'
 import { usePhotoPick } from '../hooks/use-photo-pick'
 import { useRowGroups } from '../hooks/use-row-groups'
-import { AddRowControls, GroupHeading } from './row-group'
+import { AddHeadingLink, AddRowControls, GroupHeading } from './row-group'
 
 type InstructionRowProps = {
 	group: number
@@ -37,7 +37,10 @@ export function InstructionsSection({ disabled }: { disabled: boolean }) {
 			<div ref={containerRef} className="space-y-5">
 				{steps.groups.map((field, group) => (
 					<div key={field.id} data-group={group} className={cn('space-y-5', group > 0 && 'border-t border-border pt-5')}>
-						{group > 0 && (
+						{/* Only the first group can be untitled; it offers "Add heading" once a later group is named. */}
+						{field.heading === null ? (
+							steps.groups.length > 1 && <AddHeadingLink onClick={steps.nameFirstGroup} />
+						) : (
 							<GroupHeading
 								list="instructions"
 								group={group}
