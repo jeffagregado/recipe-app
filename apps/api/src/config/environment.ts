@@ -55,6 +55,11 @@ const googleRedirectUriSchema = z.url({ protocol: /^https?$/, hostname: /\S+/ })
   return url.pathname === GOOGLE_CALLBACK_PATH && [url.username, url.password, url.search, url.hash].every((part) => !part);
 }, 'must be the web origin followed by the Google callback path'));
 
+/** The demo can send no mail: without a key the transport only logs. */
+function demoMailSettings(config: { DEMO_MODE: boolean; RESEND_API_KEY?: string }): [key: 'RESEND_API_KEY', message: string][] {
+  return config.DEMO_MODE && config.RESEND_API_KEY ? [['RESEND_API_KEY', 'must be empty when DEMO_MODE is on']] : [];
+}
+
 type GoogleSettings = { GOOGLE_CLIENT_ID?: string; GOOGLE_CLIENT_SECRET?: string; GOOGLE_REDIRECT_URI?: string };
 
 /** The keys a half-configured Google client is missing, each with the reason. */
@@ -94,9 +99,11 @@ const environmentSchema = z.object({
   TRUST_PROXY_HOPS: z.preprocess(blankAsUnset, z.coerce.number().int().min(0).default(0)),
   /** Shared with the web server, which sends it on every API call; only a request carrying it is given the web server's forwarded hop. */
   RECIPE_WEB_PROXY_SECRET: z.preprocess(blankAsUnset, z.string().trim().regex(/^\S{32,}$/).optional()),
+  /** The live demo (issue #112): Start demo, and refusals of every sign-in, mail and photo-changing endpoint. Off means master's behaviour. */
+  DEMO_MODE: z.preprocess(blankAsUnset, z.enum(['true', 'false']).default('false')).transform((value) => value === 'true'),
 }).transform(({ NODE_ENV, AUTH_TRUSTED_ORIGINS, ...config }, context) => {
   const production = NODE_ENV === 'production';
-  const missing: [string, string][] = missingGoogleSettings(config, production);
+  const missing: [string, string][] = [...missingGoogleSettings(config, production), ...demoMailSettings(config)];
   if (production && AUTH_TRUSTED_ORIGINS.length === 0) missing.push(['AUTH_TRUSTED_ORIGINS', 'is required in production']);
   for (const [key, message] of missing) context.issues.push({ code: 'custom', message, input: undefined, path: [key] });
   if (missing.length > 0) return z.NEVER;

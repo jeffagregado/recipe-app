@@ -5,3 +5,4 @@ export * from "./user.schema.js";
 export * from "./auth.schema.js";
 export * from "./category.schema.js";
 export * from "./account.schema.js";
+export * from "./demo.schema.js";
