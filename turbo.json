@@ -17,7 +17,7 @@
         "!.next/cache/**",
         "!.next/dev/**"
       ],
-      "env": ["RECIPE_STORAGE_HOST", "CONTACT_EMAIL"]
+      "env": ["RECIPE_STORAGE_HOST", "CONTACT_EMAIL", "DEMO_MODE"]
     },
     "dev": {
       "dependsOn": ["^build"],
@@ -34,7 +34,7 @@
       "dependsOn": ["^build"],
       "cache": false,
       "persistent": true,
-      "passThroughEnv": ["RECIPE_API_URL", "RECIPE_WEB_PROXY_SECRET", "RECIPE_STORAGE_HOST", "CONTACT_EMAIL"]
+      "passThroughEnv": ["RECIPE_API_URL", "RECIPE_WEB_PROXY_SECRET", "RECIPE_STORAGE_HOST", "CONTACT_EMAIL", "DEMO_MODE"]
     },
     "lint": {
       "dependsOn": ["^lint"]
