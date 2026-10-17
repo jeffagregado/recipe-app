@@ -127,15 +127,9 @@ const lists = [
 	{ list: 'instructions', region: instructions, noun: 'step', placeholder: 'Group name, such as Make the sauce' },
 ] as const
 
-it.each(lists)('offers a heading for the first $noun group only while a named group exists, and saves it', async ({ list, region, noun, placeholder }) => {
+it.each(lists)('offers a heading for the first $noun group of a recipe with no groups, and saves the titled group', async ({ list, region, noun, placeholder }) => {
 	const user = userEvent.setup()
-	renderForm(filled({ ingredients: [{ heading: null, rows: [toTaste('Salt')] }, { heading: 'Sauce', rows: [toTaste('Butter')] }] }))
-	expect(within(instructions()).queryByRole('button', { name: 'Add heading' })).not.toBeInTheDocument()
-	if (list === 'instructions') {
-		await user.click(within(instructions()).getByRole('button', { name: 'Add group' }))
-		await user.keyboard('Serve')
-		await user.type(screen.getByLabelText('Step 2 instructions'), 'Plate')
-	}
+	renderForm(filled({}))
 	await user.click(within(region()).getByRole('button', { name: 'Add heading' }))
 	const first = screen.getByLabelText(`First ${noun} group name`)
 	await waitFor(() => expect(first).toHaveFocus())
@@ -145,7 +139,7 @@ it.each(lists)('offers a heading for the first $noun group only while a named gr
 	await user.keyboard('Prep')
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
-	expect(sent()[list].map(({ heading }: { heading: string | null }) => heading)).toEqual(list === 'ingredients' ? ['Prep', 'Sauce'] : ['Prep', 'Serve'])
+	expect(sent()[list].map(({ heading }: { heading: string | null }) => heading)).toEqual(['Prep'])
 })
 
 it('shows a saved first-group heading in its input, and removing it brings the link back with focus', async () => {
@@ -158,14 +152,13 @@ it('shows a saved first-group heading in its input, and removing it brings the l
 	await waitFor(() => expect(within(ingredients()).getByRole('button', { name: 'Add heading' })).toHaveFocus())
 })
 
-it('keeps the first group’s heading once the named groups below are gone, and then removing it focuses the first row', async () => {
+it('keeps the first group’s heading once the named groups below are gone, and removing it then brings the link back with focus', async () => {
 	const user = userEvent.setup()
 	renderForm(filled({ instructions: [{ heading: 'Prep', steps: [step('Boil')] }, { heading: 'Serve', steps: [step('Plate')] }] }))
 	await user.click(screen.getByRole('button', { name: 'Remove heading from step group 1' }))
 	expect(screen.getByLabelText('First step group name')).toHaveValue('Prep')
 	await user.click(screen.getByRole('button', { name: 'Remove heading from first step group' }))
-	expect(within(instructions()).queryByRole('button', { name: 'Add heading' })).not.toBeInTheDocument()
-	await waitFor(() => expect(screen.getByLabelText('Step 1 instructions')).toHaveFocus())
+	await waitFor(() => expect(within(instructions()).getByRole('button', { name: 'Add heading' })).toHaveFocus())
 })
 
 it('removes a named group with its last row', async () => {

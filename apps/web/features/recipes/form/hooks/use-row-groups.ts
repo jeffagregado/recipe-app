@@ -93,8 +93,7 @@ export function useRowGroups<K extends string, T>({ name, key, empty, control }:
 		},
 		removeHeading(group: number) {
 			const all = current()
-			// The first group's "Add heading" link comes back only while a later group exists; otherwise focus its first row.
-			const focus = group === 0 ? [...groupSelector(0, ['add-heading']), ...rowSelector(0, [control])] : rowSelector(startOf(all, group), [control])
+			const focus = group === 0 ? groupSelector(0, ['add-heading']) : rowSelector(startOf(all, group), [control])
 			apply(groupsLib.removeHeading(all, key, group), focus)
 		},
 	}

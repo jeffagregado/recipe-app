@@ -17,7 +17,7 @@ type GroupHeadingProps = {
 	onRemoveHeading: () => void
 }
 
-/** The quiet link that gives the first group a heading, shown while a later group is named. */
+/** The quiet link that gives the untitled first group a heading. */
 export function AddHeadingLink({ onClick }: { onClick: () => void }) {
 	return (
 		<Button type="button" variant="link" className="h-11 px-0 text-muted-foreground" data-control="add-heading" onClick={onClick}>

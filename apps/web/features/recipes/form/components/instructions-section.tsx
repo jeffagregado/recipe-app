@@ -37,9 +37,9 @@ export function InstructionsSection({ disabled }: { disabled: boolean }) {
 			<div ref={containerRef} className="space-y-5">
 				{steps.groups.map((field, group) => (
 					<div key={field.id} data-group={group} className={cn('space-y-5', group > 0 && 'border-t border-border pt-5')}>
-						{/* Only the first group can be untitled; it offers "Add heading" once a later group is named. */}
+						{/* Only the first group can be untitled; then it offers "Add heading". */}
 						{field.heading === null ? (
-							steps.groups.length > 1 && <AddHeadingLink onClick={steps.nameFirstGroup} />
+							<AddHeadingLink onClick={steps.nameFirstGroup} />
 						) : (
 							<GroupHeading
 								list="instructions"

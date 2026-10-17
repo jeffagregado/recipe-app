@@ -35,9 +35,9 @@ export function IngredientsSection() {
 			<div ref={containerRef} className="space-y-5">
 				{rows.groups.map((field, group) => (
 					<div key={field.id} data-group={group} className={cn('space-y-4 sm:space-y-3', group > 0 && 'border-t border-border pt-5')}>
-						{/* Only the first group can be untitled; it offers "Add heading" once a later group is named. */}
+						{/* Only the first group can be untitled; then it offers "Add heading". */}
 						{field.heading === null ? (
-							rows.groups.length > 1 && <AddHeadingLink onClick={rows.nameFirstGroup} />
+							<AddHeadingLink onClick={rows.nameFirstGroup} />
 						) : (
 							<GroupHeading
 								list="ingredients"
