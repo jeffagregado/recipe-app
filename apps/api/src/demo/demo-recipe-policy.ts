@@ -5,7 +5,7 @@ import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { recipes } from '../database/schema.js';
 import { RecipeError } from '../recipes/recipe-errors.js';
-import type { loadRecipeState } from '../recipes/recipe-update.js';
+import type { RecipeState } from '../recipes/recipe-update.js';
 
 /** The recipe services' optional dependency: provided only by the demo module, so it is absent with `DEMO_MODE` off. */
 export const DEMO_RECIPE_POLICY = Symbol('DEMO_RECIPE_POLICY');
@@ -26,7 +26,7 @@ export class DemoRecipePolicy {
    * Refuses an update that takes away the cover or the photo of a step it keeps. A step dropped from the recipe takes its
    * photo with it, as deleting the recipe does.
    */
-  refusePhotoRemoval(state: Awaited<ReturnType<typeof loadRecipeState>>, metadata: UpdateRecipeMetadata): void {
+  refusePhotoRemoval(state: RecipeState, metadata: UpdateRecipeMetadata): void {
     const hasCover = state.images.some((image) => image.sortOrder === 0);
     const photos = new Map(state.instructions.map((step) => [step.id, step.imageId]));
     const removesStepPhoto = metadata.instructions.some((step) => step.id !== null && photos.get(step.id) && step.image !== 'keep');
@@ -35,6 +35,7 @@ export class DemoRecipePolicy {
     }
   }
 
+  /** Two creates cannot both pass at the limit: an account has one recipe upload in flight at a time (`RecipeUploadSlots`). */
   async assertRoomForRecipe(userId: string): Promise<void> {
     if (await this.db.$count(recipes, eq(recipes.userId, userId)) >= DEMO_RECIPE_LIMIT) {
       throw new RecipeError(403, 'DEMO_RECIPE_LIMIT', `A demo account holds at most ${DEMO_RECIPE_LIMIT} recipes. Delete one to add another.`);

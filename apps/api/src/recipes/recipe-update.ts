@@ -11,7 +11,7 @@ import type { RecipeTransaction } from './recipe-write-hook.js';
 /** A stored upload awaiting its place; an update decides sort orders only once it holds the recipe lock. */
 export type UploadedImage = Omit<PlannedImage, 'sortOrder'>;
 type StoredImage = Pick<typeof recipeImages.$inferSelect, 'id' | 'objectKey' | 'sortOrder'>;
-type RecipeState = { instructions: Pick<typeof recipeInstructions.$inferSelect, 'id' | 'imageId'>[]; images: StoredImage[] };
+export type RecipeState = { instructions: Pick<typeof recipeInstructions.$inferSelect, 'id' | 'imageId'>[]; images: StoredImage[] };
 export type RecipeUpdate = { id: string; userId: string; metadata: UpdateRecipeMetadata; images: UploadedImage[] };
 
 /** The owner's instructions and images; 404 when the recipe is not theirs. `lock` holds the recipe row until commit. */

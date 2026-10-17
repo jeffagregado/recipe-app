@@ -23,5 +23,8 @@ export class DemoModule implements NestModule {
   }
 }
 
-/** Registered only when the validated configuration has `DEMO_MODE` on; off, the API is the one on master. */
+/**
+ * Registered only when `DEMO_MODE` is on; off, the API is the one on master. The condition reads `process.env`, where the
+ * configuration module has copied the validated value (`true` or `false`) unless the process already set it.
+ */
 export const demoModeModule = () => ConditionalModule.registerWhen(DemoModule, (env) => env.DEMO_MODE === 'true', { debug: false });

@@ -39,13 +39,20 @@ export class DemoStartService {
   async start(request: AuthRequest): Promise<DemoStartResponse & { cookie: string }> {
     await this.sweep();
     const { user, copies } = await this.createAccount();
-    await this.copyPhotos(user.id, copies);
-    const expiresAt = new Date(user.createdAt.getTime() + DEMO_LIFETIME_MS);
-    const userAgent = request.headers['user-agent'];
-    const cookie = await createDemoSession(this.auth, user.id, expiresAt, { ipAddress: clientAddress(request), userAgent: typeof userAgent === 'string' ? userAgent : '' });
-    const account = await readPublicUser(this.db, user.id);
-    if (!account) throw new Error('Demo account missing after start.');
-    return { user: account, expiresAt: expiresAt.toISOString(), cookie };
+    try {
+      await this.copyPhotos(copies);
+      const expiresAt = new Date(user.createdAt.getTime() + DEMO_LIFETIME_MS);
+      const userAgent = request.headers['user-agent'];
+      const cookie = await createDemoSession(this.auth, user.id, expiresAt, { ipAddress: clientAddress(request), userAgent: typeof userAgent === 'string' ? userAgent : '' });
+      const account = await readPublicUser(this.db, user.id);
+      if (!account) throw new Error('Demo account missing after start.');
+      return { user: account, expiresAt: expiresAt.toISOString(), cookie };
+    } catch (cause) {
+      // Nothing the visitor could reach is left: the Account, its rows and session cascade, then every copy is deleted.
+      try { await this.db.delete(users).where(eq(users.id, user.id)); } catch (rollbackCause) { logAuthFailure('demo-rollback', rollbackCause); }
+      await this.deleteObjects(copies.map(({ target }) => target), 'demo-rollback');
+      throw demoUnavailable('demo-start', cause);
+    }
   }
 
   /** Deletes a bounded batch of expired Demo accounts, their rows cascading, and then their stored photos. */
@@ -78,17 +85,13 @@ export class DemoStartService {
     });
   }
 
-  /** Copies the template's photos to the new keys. A failure deletes the Account and every object it may have copied. */
-  private async copyPhotos(userId: string, copies: PhotoCopy[]): Promise<void> {
+  /** Copies the template's photos to their new keys, a few at a time. */
+  private async copyPhotos(copies: PhotoCopy[]): Promise<void> {
     for (let index = 0; index < copies.length; index += PHOTO_COPY_CONCURRENCY) {
       const batch = copies.slice(index, index + PHOTO_COPY_CONCURRENCY);
-      // Every copy in the batch settles first, so none is still writing when the rollback deletes it.
+      // Every copy in the batch settles first, so none is still writing when a rollback deletes it.
       const failed = (await Promise.allSettled(batch.map(({ source, target }) => this.storage.copyObject(source, target)))).find((result) => result.status === 'rejected');
-      if (!failed) continue;
-      try { await this.db.delete(users).where(eq(users.id, userId)); }
-      catch (cause) { logAuthFailure('demo-rollback', cause); }
-      await this.deleteObjects(copies.slice(0, index + batch.length).map(({ target }) => target), 'demo-rollback');
-      throw demoUnavailable('demo-photo-copy', failed.reason);
+      if (failed) throw failed.reason;
     }
   }
 

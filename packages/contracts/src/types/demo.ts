@@ -21,7 +21,7 @@ export type DemoErrorCode = (typeof DEMO_ERROR_CODES)[number];
 
 /**
  * The error codes `POST /api/demo/start` answers: too many starts from this address (429, with `Retry-After`), the demo
- * full (503), a disallowed origin (403) and a failure that created nothing (503).
+ * full (503), a disallowed origin (403) and a failure that left no account behind (503).
  */
 export const DEMO_START_ERROR_CODES = ["RATE_LIMITED", "DEMO_BUSY", "ORIGIN_REJECTED", "SERVICE_UNAVAILABLE"] as const;
 

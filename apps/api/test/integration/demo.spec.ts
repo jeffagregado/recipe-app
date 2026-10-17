@@ -1,15 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { asc, eq, inArray, like, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, like, or, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { authSessionResponseSchema, authUserResponseSchema, categoryListSchema, demoStartResponseSchema, recipeDetailSchema, recipeListResponseSchema } from '@recipe-app/contracts/schemas';
 import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
+import { AUTH } from '../../src/auth/auth.tokens.js';
 import type { RecipeDetail } from '@recipe-app/contracts/types';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authRateLimits, ingredients, recipeImages, recipes, users } from '../../src/database/schema.js';
 import { DEMO_STARTS_PER_HOUR } from '../../src/demo/demo.controller.js';
 import { DEMO_RECIPE_LIMIT } from '../../src/demo/demo-recipe-policy.js';
-import { DEMO_LIFETIME_MS, DEMO_LIVE_LIMIT, DEMO_SWEEP_BATCH } from '../../src/demo/demo-start.service.js';
+import { DEMO_EMAIL_DOMAIN, DEMO_LIFETIME_MS, DEMO_LIVE_LIMIT, DEMO_SWEEP_BATCH } from '../../src/demo/demo-start.service.js';
 import { DEMO_TEMPLATE_ID } from '../../src/demo/demo-template.js';
 import { StorageError, StorageService } from '../../src/storage/storage.service.js';
 import { cookiePair, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
@@ -17,8 +18,6 @@ import type { RecordingMailTransport } from '../recording-mail.js';
 import { removeDemoTemplate, seedDemoTemplate } from '../demo-template.js';
 import type { DemoTemplate } from '../demo-template.js';
 import { describePhoto, jpeg } from '../recipe-photos.js';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 describe('Live demo API (DEMO_MODE on)', () => {
   let app: NestExpressApplication;
@@ -84,11 +83,8 @@ describe('Live demo API (DEMO_MODE on)', () => {
     return { ...demoStartResponseSchema.parse(await response.json()), cookie: cookiePair(response) };
   }
 
-  /** Demo accounts in the database: every one, or the live ones only. */
-  const demoAccounts = (liveOnly = false) => db.$count(users, liveOnly
-    ? sql`${users.email} like '%@demo.invalid' and ${users.createdAt} > now() - interval '24 hours'`
-    : like(users.email, '%@demo.invalid'));
-  const live = () => demoAccounts(true);
+  /** A fresh address on the reserved domain, the way Start demo names a Demo account. */
+  const demoEmail = () => `${randomUUID().replaceAll('-', '')}@${DEMO_EMAIL_DOMAIN}`;
   const get = (path: string, cookie: string) => fetch(`${baseUrl}${path}`, { headers: { Cookie: cookie } });
   async function list(cookie: string) {
     const response = await get('/recipes', cookie);
@@ -143,7 +139,7 @@ describe('Live demo API (DEMO_MODE on)', () => {
     expect(body.user.email).toMatch(/^[0-9a-f]{32}@demo\.invalid$/);
     const [account] = await db.select({ createdAt: users.createdAt, emailVerified: users.emailVerified }).from(users).where(eq(users.id, body.user.id));
     expect(account.emailVerified).toBe(true);
-    expect(new Date(body.expiresAt).getTime()).toBe(account.createdAt.getTime() + DAY_MS);
+    expect(new Date(body.expiresAt).getTime()).toBe(account.createdAt.getTime() + DEMO_LIFETIME_MS);
 
     const [cookie] = response.headers.getSetCookie();
     expect(response.headers.getSetCookie()).toHaveLength(1);
@@ -151,8 +147,8 @@ describe('Live demo API (DEMO_MODE on)', () => {
     expect(cookie).toMatch(/; SameSite=Lax/);
     expect(cookie).toMatch(/; Path=\//);
     const maxAge = Number(/; Max-Age=(\d+)/.exec(cookie)?.[1]);
-    expect(maxAge).toBeGreaterThan(DAY_MS / 1000 - 120);
-    expect(maxAge).toBeLessThanOrEqual(DAY_MS / 1000);
+    expect(maxAge).toBeGreaterThan(DEMO_LIFETIME_MS / 1000 - 120);
+    expect(maxAge).toBeLessThanOrEqual(DEMO_LIFETIME_MS / 1000);
 
     const session = await get('/auth/session', cookiePair(response));
     expect(session.status).toBe(200);
@@ -287,20 +283,23 @@ describe('Live demo API (DEMO_MODE on)', () => {
     it(`allows ${DEMO_STARTS_PER_HOUR} starts an hour from one address`, async () => {
       const address = testAddress();
       for (let index = 0; index < DEMO_STARTS_PER_HOUR; index++) expect((await start(address)).status).toBe(201);
-      const before = await live();
       const limited = await start(address);
       expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
+      expect(limited.headers.getSetCookie()).toEqual([]);
       await expectCode(limited, 429, 'RATE_LIMITED');
-      expect(await live()).toBe(before);
       expect((await start()).status).toBe(201);
     }, 120_000);
 
+    // The ceiling counts every live Demo account on the branch, so this test fills it up to the limit. Any other demo start on
+    // the same branch is answered busy until the fillers are deleted.
     it(`answers busy while ${DEMO_LIVE_LIMIT} Demo accounts are live`, async () => {
-      const fillers = Array.from({ length: DEMO_LIVE_LIMIT - await live() }, () => ({ name: 'Demo filler', email: `${randomUUID().replaceAll('-', '')}@demo.invalid`, emailVerified: true }));
+      const live = await db.$count(users, and(like(users.email, `%@${DEMO_EMAIL_DOMAIN}`), gt(users.createdAt, new Date(Date.now() - DEMO_LIFETIME_MS))));
+      const fillers = Array.from({ length: Math.max(0, DEMO_LIVE_LIMIT - live) }, () => ({ name: 'Demo filler', email: demoEmail(), emailVerified: true }));
       const ids = (await db.insert(users).values(fillers).returning({ id: users.id })).map(({ id }) => id);
       try {
-        await expectCode(await start(), 503, 'DEMO_BUSY');
-        expect(await live()).toBe(DEMO_LIVE_LIMIT);
+        const busy = await start();
+        expect(busy.headers.getSetCookie()).toEqual([]);
+        await expectCode(busy, 503, 'DEMO_BUSY');
       } finally {
         await db.delete(users).where(inArray(users.id, ids));
       }
@@ -310,7 +309,6 @@ describe('Live demo API (DEMO_MODE on)', () => {
 
   describe('sweep', () => {
     const expiredAt = () => new Date(Date.now() - DEMO_LIFETIME_MS - 60_000);
-    const demoEmail = () => `${randomUUID().replaceAll('-', '')}@demo.invalid`;
     const exists = async (id: string) => (await db.$count(users, eq(users.id, id))) === 1;
 
     it('deletes an expired Demo account with its rows and stored photos, and leaves live and ordinary accounts', async () => {
@@ -350,26 +348,46 @@ describe('Live demo API (DEMO_MODE on)', () => {
     }, 60_000);
   });
 
-  it('deletes the new account and the photos it copied when a photo copy fails', async () => {
-    const copy = storage.copyObject.bind(storage);
-    const targets: string[] = [];
-    const failing = vi.spyOn(storage, 'copyObject').mockImplementation(async (source, target) => {
-      targets.push(target);
-      if (targets.length === 2) throw new StorageError('Injected copy failure.');
-      return copy(source, target);
-    });
-    const before = await demoAccounts();
-    try {
-      const response = await start();
+  describe('a start that fails after the account is written', () => {
+    /** Records each photo copy; `failAt` makes that copy (1-based) fail. */
+    function recordCopies(failAt?: number) {
+      const copy = storage.copyObject.bind(storage);
+      const targets: string[] = [];
+      const spy = vi.spyOn(storage, 'copyObject').mockImplementation(async (source, target) => {
+        targets.push(target);
+        if (targets.length === failAt) throw new StorageError('Injected copy failure.');
+        return copy(source, target);
+      });
+      return { targets, restore: () => spy.mockRestore() };
+    }
+    /** The recipe a copy target belongs to: keys are `recipes/<recipe id>/<file>`. */
+    const recipeOf = (key: string) => key.split('/')[1];
+
+    async function expectNothingLeft(response: Response, targets: string[]) {
       expect(response.headers.getSetCookie()).toEqual([]);
       await expectCode(response, 503, 'SERVICE_UNAVAILABLE');
-    } finally {
-      failing.mockRestore();
+      expect(targets).toHaveLength(2);
+      expect(await Promise.all(targets.map(stored))).toEqual([false, false]);
+      expect(await db.$count(recipes, inArray(recipes.id, targets.map(recipeOf)))).toBe(0);
     }
-    expect(targets).toHaveLength(2);
-    expect(await Promise.all(targets.map(stored))).toEqual([false, false]);
-    expect(await demoAccounts()).toBe(before);
-  }, 60_000);
+
+    it('deletes the new account and the photos it copied when a photo copy fails', async () => {
+      const copies = recordCopies(2);
+      let response: Response;
+      try { response = await start(); } finally { copies.restore(); }
+      await expectNothingLeft(response, copies.targets);
+    }, 60_000);
+
+    it('deletes the new account and its copied photos when the session cannot be created', async () => {
+      const auth = app.get<{ $context: Promise<unknown> }>(AUTH);
+      const context = Object.getOwnPropertyDescriptor(auth, '$context')!;
+      Object.defineProperty(auth, '$context', { configurable: true, get: () => Promise.reject(new Error('Injected session failure.')) });
+      const copies = recordCopies();
+      let response: Response;
+      try { response = await start(); } finally { copies.restore(); Object.defineProperty(auth, '$context', context); }
+      await expectNothingLeft(response, copies.targets);
+    }, 60_000);
+  });
 
   describe('accounts', () => {
     let account: Awaited<ReturnType<typeof startedAccount>>;
