@@ -90,7 +90,7 @@ Rotate a secret by setting the new value on the host, redeploying, and then revo
 
 | Secret | Host | How |
 | --- | --- | --- |
-| `RECIPE_WEB_PROXY_SECRET` | Vercel and Render | Set it on Vercel first, then Render, and redeploy the API right after the web app. [Proxy secret](#proxy-secret) gives the order and the reason |
+| `RECIPE_WEB_PROXY_SECRET` | Vercel and Render | Set it on Vercel first, then Render, as in [Proxy secret](#proxy-secret). Redeploy the API right after the web app. Until then the API expects the old value, so users share Vercel's address for rate limits |
 | `DATABASE_URL` | Render | Reset the role's password on the Neon `production` branch, set the new URL, and redeploy |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Render | Create a new Neon storage access key, set both values, redeploy, then revoke the old key |
 | `BETTER_AUTH_SECRET` | Render | Set a new value and redeploy. Every user is signed out |
