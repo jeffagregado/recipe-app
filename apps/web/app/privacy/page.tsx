@@ -4,18 +4,19 @@ import { ContactEmailLink } from '@/components/layout/contact-email-link'
 
 export const metadata: Metadata = { title: 'Privacy Policy' }
 
-/** The services that handle personal data, matching the deployment and apps/api/src/mail/mail.transport.ts. */
+/** The categories of service that handle personal data, matching the deployment and apps/api/src/mail/mail.transport.ts. */
 const PROCESSORS = [
-	['Vercel', 'hosts the web app'],
-	['Render', 'hosts the API'],
-	['Neon', 'hosts the database and the photo storage'],
-	['Google', 'provides Sign in with Google and Google Analytics'],
-	['Resend', 'delivers account emails'],
-] as const
+	'A hosting provider hosts the web app.',
+	'A hosting provider hosts the API.',
+	'A database provider hosts the database and the photo storage.',
+	'A sign-in provider runs Continue with Google.',
+	'An analytics provider measures how the site is used.',
+	'An email delivery provider delivers account emails.',
+]
 
 export default function PrivacyPage() {
 	return (
-		<LegalPage title="Privacy Policy" updated="15 October 2026">
+		<LegalPage title="Privacy Policy" updated="29 October 2026">
 			<section>
 				<p>
 					Recapp is a private recipe collection at recapp.site, run by one person as a personal,
@@ -59,7 +60,7 @@ export default function PrivacyPage() {
 			<section>
 				<h2>Who handles your data</h2>
 				<ul>
-					{PROCESSORS.map(([name, role]) => <li key={name}>{name} {role}.</li>)}
+					{PROCESSORS.map((processor) => <li key={processor}>{processor}</li>)}
 				</ul>
 			</section>
 
