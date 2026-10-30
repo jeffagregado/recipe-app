@@ -7,6 +7,7 @@ import { recipeDetailFixture } from '@/features/recipes/queries/recipe-detail.fi
 import { installFakeCanvas } from '@/test/fake-canvas'
 import { toRecipeFormValues } from '../lib/recipe-edit'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
+import type { PhotoUploader } from '../lib/upload-pending-photo'
 import { RecipeForm } from './recipe-form'
 
 const router = vi.hoisted(() => ({ push: vi.fn() }))
@@ -28,9 +29,12 @@ const categories = [
 ]
 
 const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
+const uploadPhoto = vi.fn<PhotoUploader>()
+const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
 
 beforeEach(() => {
 	vi.resetAllMocks()
+	uploadPhoto.mockResolvedValue({ status: 'uploaded', id: PHOTO_ID })
 	installFakeCanvas()
 	let counter = 0
 	URL.createObjectURL = vi.fn(() => `blob:preview-${++counter}`)
@@ -63,7 +67,7 @@ const recipe = recipeDetailFixture({
 	],
 })
 
-const editForm = () => <RecipeForm categories={categories} mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={onSave} initialValues={toRecipeFormValues(recipe)} />
+const editForm = () => <RecipeForm categories={categories} mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={onSave} onUploadPhoto={uploadPhoto} initialValues={toRecipeFormValues(recipe)} />
 const renderEdit = () => render(<AppToaster>{editForm()}</AppToaster>)
 const formElement = () => screen.getByRole('form', { name: 'Edit Recipe' })
 const save = () => screen.getByRole('button', { name: /^Save Changes$|^Saving/ })
@@ -114,7 +118,7 @@ it('pre-fills every field and shows the stored photos as current photos', () => 
 })
 
 it('shows saved groups in the same layout, with fraction amounts', () => {
-	render(<AppToaster><RecipeForm categories={categories} mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={onSave} initialValues={toRecipeFormValues({
+	render(<AppToaster><RecipeForm categories={categories} mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={onSave} onUploadPhoto={uploadPhoto} initialValues={toRecipeFormValues({
 		...recipe,
 		ingredients: [{ ...recipe.ingredients[0], quantity: 1.5, unit: 'cup' }, { ...recipe.ingredients[1], heading: 'To finish' }],
 		instructions: [recipe.instructions[0], { ...recipe.instructions[1], heading: 'Bake' }, recipe.instructions[2]],
@@ -190,8 +194,8 @@ it('replaces the stored cover and keeps the rest', async () => {
 	await screen.findByText('new-cover.webp · 1 KB')
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
-	expect(metadataOf(onSave.mock.calls[0][0]).cover).toBe('replace')
-	expect([...onSave.mock.calls[0][0].keys()].sort()).toEqual(['cover', 'idempotencyKey', 'recipe'])
+	expect(metadataOf(onSave.mock.calls[0][0]).cover).toEqual({ pendingPhotoId: PHOTO_ID })
+	expect([...onSave.mock.calls[0][0].keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
 })
 
 it('notices an image-only change: Cancel asks first and unloading warns', async () => {
@@ -352,7 +356,7 @@ it('maps update field errors for steps and photos onto their rows', async () => 
 function hiddenAndBack(mode: 'create' | 'edit') {
 	const form = mode === 'edit'
 		? editForm()
-		: <RecipeForm categories={categories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} />
+		: <RecipeForm categories={categories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} />
 	const view = render(<AppToaster><Activity mode="visible">{form}</Activity></AppToaster>)
 	const toggle = (visible: boolean) => view.rerender(<AppToaster><Activity mode={visible ? 'visible' : 'hidden'}>{form}</Activity></AppToaster>)
 	return { leave: () => toggle(false), returnTo: () => toggle(true) }

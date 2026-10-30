@@ -17,13 +17,15 @@ import { RecipeFavoriteService } from './recipe-favorite.service.js';
 import { RecipeDeleteGuard, RecipeFavoriteGuard, RecipeOwnerGuard } from './recipe-guards.js';
 import { RecipeMutationController } from './recipe-mutation.controller.js';
 import { RecipeUpdateService } from './recipe-update.service.js';
+import { PendingPhotoController } from './pending-photo.controller.js';
+import { PendingPhotoService, PendingPhotoUploadGuard, PendingPhotoUploadInterceptor } from './pending-photos.js';
 
 @Module({
   imports: [DatabaseModule, StorageModule, AuthModule],
-  controllers: [RecipesController, RecipeCreateController, RecipeDetailController, RecipeMutationController],
+  controllers: [RecipesController, RecipeCreateController, RecipeDetailController, RecipeMutationController, PendingPhotoController],
   providers: [RecipesService, RecipesResilienceLogger, RecipeCreateService, RecipeDetailService,
     RecipeUploadInterceptor, RecipeUploadSlots, RecipeWriteGuard, RecipeWriteHook,
     RecipeAttempts, RecipeUpdateService, RecipeDeleteService, RecipeFavoriteService,
-    RecipeOwnerGuard, RecipeDeleteGuard, RecipeFavoriteGuard],
+    RecipeOwnerGuard, RecipeDeleteGuard, RecipeFavoriteGuard, PendingPhotoService, PendingPhotoUploadGuard, PendingPhotoUploadInterceptor],
 })
 export class RecipesModule {}

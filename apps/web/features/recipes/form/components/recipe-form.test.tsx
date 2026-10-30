@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { Component, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
+import type { PhotoUploadResult } from '../lib/photo-upload-result'
+import type { PhotoUploader } from '../lib/upload-pending-photo'
 import { AppToaster } from '@/components/layout/app-toaster'
 import { installFakeCanvas } from '@/test/fake-canvas'
 import { RecipeForm } from './recipe-form'
@@ -19,12 +21,24 @@ const categories = [
 ]
 
 const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
+const uploadPhoto = vi.fn<PhotoUploader>()
+const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
+/** An upload the test finishes by hand, reporting progress meanwhile. */
+function holdUpload() {
+	const held: { progress: (percent: number) => void; finish: (result: PhotoUploadResult) => void } = { progress: () => {}, finish: () => {} }
+	uploadPhoto.mockImplementationOnce((_file, { onProgress }) => new Promise((resolve) => {
+		held.progress = onProgress
+		held.finish = resolve
+	}))
+	return held
+}
 const revoked: string[] = []
 let canvas: ReturnType<typeof installFakeCanvas>
 
 beforeEach(() => {
 	vi.resetAllMocks()
 	canvas = installFakeCanvas({ unreadable: ['broken.jpg'] })
+	uploadPhoto.mockResolvedValue({ status: 'uploaded', id: PHOTO_ID })
 	revoked.length = 0
 	let counter = 0
 	URL.createObjectURL = vi.fn(() => `blob:preview-${++counter}`)
@@ -36,7 +50,7 @@ afterEach(() => {
 })
 
 function renderForm(availableCategories = categories) {
-	return render(<AppToaster><RecipeForm categories={availableCategories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></AppToaster>)
+	return render(<AppToaster><RecipeForm categories={availableCategories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} /></AppToaster>)
 }
 // The toast region also exposes alerts, so the form's own alert is looked up inside the form.
 const formElement = () => screen.getByRole('form', { name: 'Create Recipe' })
@@ -220,6 +234,97 @@ it('waits behind its saving state for a photo still being prepared, so the save 
 	release()
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	expect((onSave.mock.calls[0][0].get('step-0') as File).name).toBe('boil.webp')
+})
+
+it('uploads a picked cover once it is prepared and shows its progress on the slot', async () => {
+	const user = userEvent.setup()
+	const upload = holdUpload()
+	renderForm()
+	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	expect(await screen.findByText('Uploading photo…')).toBeInTheDocument()
+	expect(uploadPhoto.mock.calls[0][0].name).toBe('cover.webp')
+	upload.progress(40)
+	await waitFor(() => expect(screen.getByRole('progressbar', { name: 'Cover photo upload' })).toHaveAttribute('aria-valuenow', '40'))
+	upload.finish({ status: 'uploaded', id: PHOTO_ID })
+	await waitFor(() => expect(screen.queryByRole('progressbar')).not.toBeInTheDocument())
+	expect(screen.getByText('cover.webp · 1 KB')).toBeInTheDocument()
+	expect(screen.queryByText('Uploading photo…')).not.toBeInTheDocument()
+})
+
+it('shows a failed cover upload inline with Retry, which uploads the same photo again, and Remove', async () => {
+	const user = userEvent.setup()
+	uploadPhoto.mockResolvedValueOnce({ status: 'failed', message: 'Couldn’t upload this photo. Try again.' })
+	renderForm()
+	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	expect(await screen.findByText('Couldn’t upload this photo. Try again.')).toBeInTheDocument()
+	expect(screen.getByRole('button', { name: 'Remove cover photo' })).toBeEnabled()
+	await user.click(screen.getByRole('button', { name: 'Retry cover photo upload' }))
+	// Retry leaves once it is pressed; focus stays on the slot instead of falling back to the page.
+	expect(screen.getByRole('button', { name: 'Remove cover photo' })).toHaveFocus()
+	await waitFor(() => expect(uploadPhoto).toHaveBeenCalledTimes(2))
+	expect(uploadPhoto.mock.calls[1][0]).toBe(uploadPhoto.mock.calls[0][0])
+	await waitFor(() => expect(screen.queryByText('Couldn’t upload this photo. Try again.')).not.toBeInTheDocument())
+	expect(screen.queryByRole('button', { name: 'Retry cover photo upload' })).not.toBeInTheDocument()
+
+	uploadPhoto.mockResolvedValueOnce({ status: 'failed', message: 'Couldn’t upload this photo. Try again.' })
+	await user.upload(screen.getByLabelText('Replace cover photo'), image('second.jpg'))
+	await screen.findByText('Couldn’t upload this photo. Try again.')
+	await user.click(screen.getByRole('button', { name: 'Remove cover photo' }))
+	expect(screen.getByLabelText('Add cover photo')).toBeInTheDocument()
+	expect(screen.queryByText('Couldn’t upload this photo. Try again.')).not.toBeInTheDocument()
+})
+
+it('waits behind its saving state for a cover still uploading, with no other message, then names the Pending photo', async () => {
+	const user = userEvent.setup()
+	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
+	const upload = holdUpload()
+	renderForm()
+	await fillMinimum(user)
+	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	await screen.findByText('Uploading photo…')
+	await user.click(save())
+	await waitFor(() => expect(save()).toBeDisabled())
+	expect(screen.getAllByRole('status').map((status) => status.textContent)).toEqual(['Saving recipe…', 'Uploading photo…'])
+	expect(onSave).not.toHaveBeenCalled()
+	upload.finish({ status: 'uploaded', id: PHOTO_ID })
+	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+	const data = onSave.mock.calls[0][0]
+	expect(JSON.parse(data.get('recipe') as string).cover).toEqual({ pendingPhotoId: PHOTO_ID })
+	expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+})
+
+it('blocks Save while the cover upload has failed, until it is removed', async () => {
+	const user = userEvent.setup()
+	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
+	uploadPhoto.mockResolvedValueOnce({ status: 'failed', message: 'Couldn’t upload this photo. Try again.' })
+	renderForm()
+	await fillMinimum(user)
+	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	await screen.findByText('Couldn’t upload this photo. Try again.')
+	await user.click(save())
+	await waitFor(() => expect(screen.getByLabelText('Replace cover photo')).toHaveFocus())
+	expect(screen.getByLabelText('Replace cover photo')).toHaveAttribute('aria-invalid', 'true')
+	expect(onSave).not.toHaveBeenCalled()
+	await user.click(screen.getByRole('button', { name: 'Remove cover photo' }))
+	await user.click(save())
+	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+	expect(JSON.parse(onSave.mock.calls[0][0].get('recipe') as string)).not.toHaveProperty('cover')
+})
+
+it('keeps the uploaded cover after a failed save, so the next attempt names it without uploading again', async () => {
+	const user = userEvent.setup()
+	onSave.mockResolvedValue({ status: 'failed', message: 'Couldn’t save recipe. Try again.' })
+	renderForm()
+	await fillMinimum(user)
+	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	await screen.findByText('cover.webp · 1 KB')
+	await user.click(save())
+	await findFormAlert()
+	await waitFor(() => expect(save()).toBeEnabled())
+	await user.click(save())
+	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
+	expect(onSave.mock.calls.map(([data]) => JSON.parse(data.get('recipe') as string).cover)).toEqual([{ pendingPhotoId: PHOTO_ID }, { pendingPhotoId: PHOTO_ID }])
+	expect(uploadPhoto).toHaveBeenCalledOnce()
 })
 
 it('sends the normalized recipe, announces saving and ignores a second submit while saving', async () => {
@@ -449,7 +554,7 @@ it('hands a successful save’s redirect to Next instead of reporting a failure,
 		render() { return this.state.error ? <p>navigating: {this.state.error.digest}</p> : this.props.children }
 	}
 	vi.spyOn(console, 'error').mockImplementation(() => undefined)
-	render(<AppToaster><Boundary><RecipeForm categories={categories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></Boundary></AppToaster>)
+	render(<AppToaster><Boundary><RecipeForm categories={categories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} /></Boundary></AppToaster>)
 	await fillMinimum(user)
 	await user.click(save())
 	expect(await screen.findByText(/navigating: NEXT_REDIRECT/)).toBeInTheDocument()

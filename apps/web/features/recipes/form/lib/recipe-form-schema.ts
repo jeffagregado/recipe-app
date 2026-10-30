@@ -68,7 +68,9 @@ const ingredientRowSchema = z.object({
 })
 
 // Stored photos were checked when they were uploaded; only a file picked in this session needs checking.
+// A photo that is not yet a Pending photo blocks the save; Save waits for uploads first, so this is a failed one.
 const photoSchema = z.custom<PhotoValue>(isPhotoValue, 'Choose an image file.').superRefine((photo, ctx) => {
+	if (photo.kind === 'picked') return ctx.addIssue({ code: 'custom', message: 'Retry or remove this photo.' })
 	const problem = photo.kind === 'new' ? checkRecipeImage(photo.file) : null
 	if (problem) ctx.addIssue({ code: 'custom', message: problem })
 })
@@ -181,6 +183,7 @@ export function toSharedMetadata(values: RecipeFormValues): Omit<CreateRecipeMet
 export function toCreateRecipeMetadata(values: RecipeFormValues): CreateRecipeMetadata {
 	return {
 		...toSharedMetadata(values),
+		...(values.cover.kind === 'pending' ? { cover: { pendingPhotoId: values.cover.id } } : {}),
 		instructions: flattenGroups(values.instructions, 'steps', (step) => ({ description: step.description.trim(), hasImage: step.photo.kind === 'new' })),
 	}
 }

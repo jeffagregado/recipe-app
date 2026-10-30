@@ -25,7 +25,7 @@ afterEach(() => {
 })
 
 function renderForm(initialValues?: RecipeFormValues) {
-	return render(<AppToaster><RecipeForm categories={[]} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} initialValues={initialValues} /></AppToaster>)
+	return render(<AppToaster><RecipeForm categories={[]} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={vi.fn()} initialValues={initialValues} /></AppToaster>)
 }
 const ingredients = () => screen.getByRole('region', { name: /^Ingredients/ })
 const instructions = () => screen.getByRole('region', { name: /^Instructions/ })

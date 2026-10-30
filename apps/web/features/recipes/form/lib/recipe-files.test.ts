@@ -22,8 +22,8 @@ it.each([
 it.each([
 	[checkPickedPhoto, 'IMG_4032.jpg', 30 * MIB, 'IMG_4032.jpg is 30.0 MB. The limit is 25 MB.'],
 	[checkPickedPhoto, 'edge.png', 25 * MIB + 1, 'edge.png is 25.1 MB. The limit is 25 MB.'],
-	[checkRecipeImage, 'bacon-closeup.webp', 7.8 * MIB, 'bacon-closeup.webp is 7.8 MB. The limit is 5 MB.'],
-	[checkRecipeImage, 'edge.webp', RECIPE_LIMITS.imageBytes + 1, 'edge.webp is 5.1 MB. The limit is 5 MB.'],
+	[checkRecipeImage, 'bacon-closeup.webp', 7.8 * MIB, 'bacon-closeup.webp is 7.8 MB. The limit is 4 MB.'],
+	[checkRecipeImage, 'edge.webp', RECIPE_LIMITS.imageBytes + 1, 'edge.webp is 4.1 MB. The limit is 4 MB.'],
 ])('names the file and the limit when it is too large (%#)', (check, name, size, message) => {
 	expect(check(fileOf(name, 'image/jpeg', size))).toBe(message)
 })

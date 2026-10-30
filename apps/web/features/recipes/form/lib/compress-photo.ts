@@ -1,8 +1,8 @@
+import { RECIPE_LIMITS } from '@recipe-app/contracts/types'
+
 const MAX_EDGE = 2048
 const WEBP = 'image/webp'
 const JPEG = 'image/jpeg'
-/** Each upload must stay well under Vercel's 4.5 MB request limit (ADR 0005). */
-const MAX_OUTPUT_BYTES = 4 * 1024 * 1024
 const QUALITY_STEPS = [0.85, 0.75, 0.65, 0.55, 0.45]
 
 type Size = { width: number; height: number }
@@ -53,7 +53,7 @@ async function encodeWithinLimit(decoded: DecodedPhoto): Promise<Blob | null> {
 				type = JPEG
 				blob = await decoded.encode(size, type, quality)
 			}
-			if (blob.size <= MAX_OUTPUT_BYTES) return blob
+			if (blob.size <= RECIPE_LIMITS.imageBytes) return blob
 		}
 		return null
 	} finally {

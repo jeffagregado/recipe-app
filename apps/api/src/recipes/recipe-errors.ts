@@ -32,7 +32,7 @@ export function fieldError(field: string, message: string, status = 400, code: R
   return new RecipeError(status, code, message, { fieldErrors });
 }
 
-type RecipeOperation = 'create' | 'update' | 'delete' | 'favorite' | 'cleanup' | 'detail' | 'reconcile' | 'categories';
+type RecipeOperation = 'create' | 'update' | 'delete' | 'favorite' | 'cleanup' | 'detail' | 'reconcile' | 'categories' | 'photo';
 const METHOD_OPERATIONS: Record<string, RecipeOperation> = { GET: 'detail', PATCH: 'update', DELETE: 'delete', PUT: 'favorite' };
 
 const logger = new Logger('RecipeOperations');

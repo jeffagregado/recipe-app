@@ -139,9 +139,9 @@ it('rejects invalid metadata, keys and files locally with dotted field errors an
 	expect(fetchMock).not.toHaveBeenCalled()
 })
 
-it('rejects a photo over 5 MB without contacting the API', async () => {
-	const big = new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'huge.png', { type: 'image/png' })
-	expect(await saveRecipe(payload({ files: { 'step-0': big } }))).toMatchObject({ status: 'invalid', fieldErrors: { 'step-0': ['huge.png is 5.1 MB. The limit is 5 MB.'] } })
+it('rejects a photo over 4 MB without contacting the API', async () => {
+	const big = new File([new Uint8Array(4 * 1024 * 1024 + 1)], 'huge.png', { type: 'image/png' })
+	expect(await saveRecipe(payload({ files: { 'step-0': big } }))).toMatchObject({ status: 'invalid', fieldErrors: { 'step-0': ['huge.png is 4.1 MB. The limit is 4 MB.'] } })
 	expect(fetchMock).not.toHaveBeenCalled()
 })
 

@@ -316,9 +316,11 @@ test.describe('edit: changing everything', () => {
     await field.step(page, 4).fill('Serve hot.');
     const added = photo('serve-hot.png', [200, 80, 60]);
     await page.getByLabel('Add photo to step 4').setInputFiles(added);
-    // The cover is replaced.
+    // The cover is replaced: the new photo uploads at once as a Pending photo and the save names it.
+    const coverUpload = page.waitForResponse((answer) => new URL(answer.url()).pathname === '/api/pending-photos' && answer.request().method() === 'POST');
     await page.getByLabel('Replace cover photo').setInputFiles(photo('new-cover.png', [70, 120, 200]));
     await expect(page.getByText(/^new-cover\.(webp|jpg) · \d+ KB$/)).toBeVisible();
+    expect(await (await coverUpload).json()).toMatchObject({ status: 'uploaded' });
 
     await save(page).click();
     await expect(page).toHaveURL(`${WEB_URL}/recipes/${id}`, { timeout: 40_000 });

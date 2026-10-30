@@ -8,7 +8,7 @@ import { insertRecipeCategories, insertRecipeIngredients } from './recipe-persis
 import type { PlannedImage } from './recipe-persist.js';
 import type { RecipeTransaction } from './recipe-write-hook.js';
 
-/** A stored upload awaiting its place; an update decides sort orders only once it holds the recipe lock. */
+/** A stored photo awaiting its slot (an upload or a Pending photo); an update decides sort orders only once it holds the recipe lock. */
 export type UploadedImage = Omit<PlannedImage, 'sortOrder'>;
 type StoredImage = Pick<typeof recipeImages.$inferSelect, 'id' | 'objectKey' | 'sortOrder'>;
 type RecipeState = { instructions: Pick<typeof recipeInstructions.$inferSelect, 'id' | 'imageId'>[]; images: StoredImage[] };
@@ -32,7 +32,7 @@ export function planRecipeUpdate(state: RecipeState, metadata: UpdateRecipeMetad
   metadata.instructions.forEach((step, index) => {
     if (step.id !== null && !photos.has(step.id)) throw fieldError(`instructions.${index}.id`, 'Step does not belong to this recipe.');
   });
-  const uploaded = (field: string) => uploads.find((image) => image.photo.fieldname === field);
+  const uploaded = (field: string) => uploads.find((image) => image.field === field);
   const stepImageIds = metadata.instructions.map((step, index) => {
     if (step.image === 'replace') return uploaded(`step-${index}`)?.id ?? null;
     return step.image === 'keep' && step.id !== null ? photos.get(step.id) ?? null : null;
@@ -41,7 +41,7 @@ export function planRecipeUpdate(state: RecipeState, metadata: UpdateRecipeMetad
   // The cover is the image at position 0; images that neither slot kind owns are left alone.
   const stale = state.images.filter((image) => image.sortOrder === 0 ? metadata.cover !== 'keep' : linked.has(image.id) && !kept.has(image.id));
   let sortOrder = Math.max(0, ...state.images.filter((image) => !stale.includes(image)).map((image) => image.sortOrder));
-  const added = uploads.map((image) => ({ id: image.id, objectKey: image.key, sortOrder: image.photo.fieldname === 'cover' ? 0 : ++sortOrder }));
+  const added = uploads.map((image) => ({ id: image.id, objectKey: image.key, sortOrder: image.field === 'cover' ? 0 : ++sortOrder }));
   return { stepImageIds, stale, added };
 }
 
