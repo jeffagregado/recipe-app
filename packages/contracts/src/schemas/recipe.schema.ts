@@ -240,15 +240,30 @@ const metadataFields = {
 };
 const instructionDescription = () => metadataText().min(1).max(RECIPE_LIMITS.instructionDescription);
 
+/** A Pending photo stops being pending once a recipe takes it, so it can fill only one of a save's photo slots. */
+function oneSlotPerPendingPhoto(metadata: { cover?: unknown; instructions: { image?: unknown }[] }, ctx: z.RefinementCtx): void {
+  const slots: [PropertyKey[], unknown][] = [[["cover"], metadata.cover], ...metadata.instructions.map((step, index): [PropertyKey[], unknown] => [["instructions", index, "image"], step.image])];
+  const named = new Set<string>();
+  for (const [path, slot] of slots) {
+    if (typeof slot !== "object" || slot === null) continue;
+    const { pendingPhotoId } = slot as PendingPhotoSlot;
+    if (named.has(pendingPhotoId)) ctx.addIssue({ code: "custom", path, message: "Each Pending photo can fill one photo slot." });
+    named.add(pendingPhotoId);
+  }
+}
+
 export const createRecipeMetadataSchema: z.ZodType<CreateRecipeMetadata> = z.strictObject({
   ...metadataFields,
   cover: pendingPhotoSlotSchema.optional(),
   instructions: groupedRows(z.strictObject({
     description: instructionDescription(),
     hasImage: z.boolean(),
+    image: pendingPhotoSlotSchema.optional(),
     heading: headingSchema(),
+  }).refine((step) => !(step.hasImage && step.image), {
+    message: "Send the step photo as a file or name a Pending photo, not both.", path: ["image"],
   }), RECIPE_LIMITS.instructions),
-});
+}).superRefine(oneSlotPerPendingPhoto);
 
 const imageSlotSchema = z.enum(RECIPE_IMAGE_SLOTS);
 
@@ -258,7 +273,7 @@ export const updateRecipeMetadataSchema: z.ZodType<UpdateRecipeMetadata> = z.str
   instructions: groupedRows(z.strictObject({
     id: entityIdSchema.max(200).nullable(),
     description: instructionDescription(),
-    image: imageSlotSchema,
+    image: z.union([imageSlotSchema, pendingPhotoSlotSchema]),
     heading: headingSchema(),
   }).refine((step) => step.id !== null || step.image !== "keep", {
     message: "A new step has no photo to keep.", path: ["image"],
@@ -267,7 +282,7 @@ export const updateRecipeMetadataSchema: z.ZodType<UpdateRecipeMetadata> = z.str
       const ids = steps.flatMap((step) => step.id === null ? [] : [step.id]);
       return new Set(ids).size === ids.length;
     }, "Each existing step can be used once."),
-});
+}).superRefine(oneSlotPerPendingPhoto);
 
 export const createRecipeResultSchema: z.ZodType<CreateRecipeResult> = z.object({ id: entityIdSchema });
 
@@ -282,7 +297,7 @@ export const recipeDetailSchema: z.ZodType<RecipeDetail> = recipeSchema.and(z.ob
   instructions: z.array(recipeDetailInstructionSchema),
 }));
 
-/** Multipart image fields in cover-first order, using original instruction indexes. A cover named as a Pending photo sends no file. */
+/** Multipart image fields in cover-first order, using original instruction indexes. A slot named as a Pending photo sends no file. */
 export function expectedRecipeFileFields(metadata: CreateRecipeMetadata, hasCover: boolean): string[] {
   return [
     ...(hasCover && !metadata.cover ? ["cover"] : []),
@@ -290,7 +305,7 @@ export function expectedRecipeFileFields(metadata: CreateRecipeMetadata, hasCove
   ];
 }
 
-/** Multipart image fields an update must carry: one per slot marked `replace`. */
+/** Multipart image fields an update must carry: one per slot marked `replace`. A slot named as a Pending photo sends no file. */
 export function expectedRecipeUpdateFileFields(metadata: UpdateRecipeMetadata): string[] {
   return [
     ...(metadata.cover === "replace" ? ["cover"] : []),

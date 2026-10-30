@@ -79,9 +79,10 @@ export type PendingPhotoUse = { field: string; id: string };
 
 const isPendingSlot = (slot: unknown): slot is PendingPhotoSlot => typeof slot === 'object' && slot !== null && 'pendingPhotoId' in slot;
 
-/** The slots of a save that name Pending photos. Only the cover can, until step photos move off the multipart save. */
-export function pendingPhotoUses(metadata: { cover?: unknown }): PendingPhotoUse[] {
-  return isPendingSlot(metadata.cover) ? [{ field: 'cover', id: metadata.cover.pendingPhotoId }] : [];
+/** The slots of a save that name Pending photos, by their multipart field names: `cover` and `step-<index>`. */
+export function pendingPhotoUses(metadata: { cover?: unknown; instructions: { image?: unknown }[] }): PendingPhotoUse[] {
+  const slots: [string, unknown][] = [['cover', metadata.cover], ...metadata.instructions.map((step, index): [string, unknown] => [`step-${index}`, step.image])];
+  return slots.flatMap(([field, slot]) => (isPendingSlot(slot) ? [{ field, id: slot.pendingPhotoId }] : []));
 }
 
 /** Pending photos expire 24 hours after upload; database time decides. */

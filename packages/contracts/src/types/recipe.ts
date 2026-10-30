@@ -45,7 +45,10 @@ export type CreateRecipeMetadataIngredient = {
 
 export type CreateRecipeMetadataInstruction = {
   description: string;
+  /** A photo sent as the multipart `step-<index>` file. */
   hasImage: boolean;
+  /** A photo uploaded as a Pending photo; a step names this or `hasImage`, never both. */
+  image?: PendingPhotoSlot;
   /** Opens a named group at this step; null or absent continues the current group. Always null on the first step. */
   heading?: string | null;
 };
@@ -83,7 +86,8 @@ export type UpdateRecipeMetadataInstruction = {
   /** Existing instruction this row continues, or null for a new row. `keep` keeps that instruction's photo. */
   id: EntityId | null;
   description: string;
-  image: RecipeImageSlot;
+  /** `replace` sends the new photo as a multipart file; a Pending photo replaces it without one. */
+  image: RecipeImageSlot | PendingPhotoSlot;
   heading?: string | null;
 };
 

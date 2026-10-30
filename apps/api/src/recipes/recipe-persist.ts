@@ -9,6 +9,17 @@ import { fieldError } from './recipe-errors.js';
 /** An image row to insert: `field` is its slot, `cover` or `step-<index>`. */
 export type PlannedImage = { field: string; id: string; key: string; sortOrder: number };
 
+const slotPosition = (field: string) => (field === 'cover' ? -1 : Number(field.slice('step-'.length)));
+/** Cover first, then step photos in step order, whether they arrived as files or as Pending photos. */
+export const bySlot = (a: { field: string }, b: { field: string }) => slotPosition(a.field) - slotPosition(b.field);
+
+/** A new recipe's images in slot order: the cover at 0, then step photos from 1. */
+export function orderImages<T extends Omit<PlannedImage, 'sortOrder'>>(images: T[]): (T & { sortOrder: number })[] {
+  const sorted = images.toSorted(bySlot);
+  const first = sorted[0]?.field === 'cover' ? 0 : 1;
+  return sorted.map((image, index) => ({ ...image, sortOrder: first + index }));
+}
+
 export async function persistRecipe(tx: RecipeTransaction, metadata: CreateRecipeMetadata, userId: string, recipeId: string, images: PlannedImage[]): Promise<void> {
   await tx.insert(recipes).values({ id: recipeId, userId, title: metadata.title, description: metadata.description,
     notes: metadata.notes, videoUrl: metadata.videoUrl, servings: metadata.servings,
