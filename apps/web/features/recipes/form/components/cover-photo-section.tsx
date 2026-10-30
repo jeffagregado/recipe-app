@@ -1,24 +1,34 @@
 import { ImageIcon } from 'lucide-react'
 import { useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
+import { Progress } from '@/components/ui/progress'
 import { IMAGE_HINT } from '../lib/recipe-files'
 import type { RecipeFormValues } from '../lib/recipe-form-schema'
 import { fieldA11y } from '../lib/field-props'
+import type { PhotoUploader } from '../lib/upload-pending-photo'
 import { FieldError, FieldStatus } from './form-field'
 import { PhotoPicker } from './photo-picker'
-import { newPhoto, noPhoto, photoCaption } from '../lib/recipe-photo'
+import { photoCaption, type PhotoValue } from '../lib/recipe-photo'
 import { PhotoPreview } from './photo-preview'
 import { SectionCard } from './section-card'
-import { usePhotoPick } from '../hooks/use-photo-pick'
+import { useCoverUpload } from '../hooks/use-cover-upload'
 
 const FIELD_ID = 'recipe-cover'
 
-export function CoverPhotoSection({ disabled }: { disabled: boolean }) {
-	const { control, setValue } = useFormContext<RecipeFormValues>()
+export function CoverPhotoSection({ disabled, onUploadPhoto }: { disabled: boolean; onUploadPhoto: PhotoUploader }) {
+	const { control, setValue, getValues, clearErrors } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
 	const cover = useWatch({ control, name: 'cover' })
-	const { pickError, preparing, pick, remove } = usePhotoPick((file) => setValue('cover', file ? newPhoto(file) : noPhoto(), { shouldDirty: true, shouldTouch: true }))
-	const error = pickError ?? errors.cover?.message
+	const { pickError, preparing, uploading, progress, uploadError, pick, remove, retry } = useCoverUpload({
+		cover: () => getValues('cover'),
+		setCover: (photo: PhotoValue) => {
+			// A new photo answers any earlier problem with the slot, including one the server reported.
+			clearErrors('cover')
+			setValue('cover', photo, { shouldDirty: true, shouldTouch: true })
+		},
+		upload: onUploadPhoto,
+	})
+	const error = pickError ?? uploadError ?? errors.cover?.message
 	const a11y = fieldA11y(FIELD_ID, error)
 
 	return (
@@ -49,7 +59,20 @@ export function CoverPhotoSection({ disabled }: { disabled: boolean }) {
 				</PhotoPicker>
 			)}
 			{preparing && <FieldStatus>Preparing photo…</FieldStatus>}
-			{error && <FieldError id={`${FIELD_ID}-error`}>{error}</FieldError>}
+			{uploading && !preparing && (
+				<div className="space-y-2">
+					<FieldStatus>Uploading photo…</FieldStatus>
+					<Progress value={progress} aria-label="Cover photo upload" />
+				</div>
+			)}
+			{error && (
+				<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+					<FieldError id={`${FIELD_ID}-error`} className="min-w-0 flex-1">{error}</FieldError>
+					{uploadError && !pickError && (
+						<Button type="button" variant="outline" className="h-11 px-4" aria-label="Retry cover photo upload" disabled={disabled} onClick={retry}>Retry</Button>
+					)}
+				</div>
+			)}
 		</SectionCard>
 	)
 }

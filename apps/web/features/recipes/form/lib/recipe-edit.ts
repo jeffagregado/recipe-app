@@ -39,11 +39,14 @@ const slot = (photo: PhotoValue): RecipeImageSlot => {
 	return photo.kind === 'new' ? 'replace' : 'remove'
 }
 
+/** The cover is replaced by naming its uploaded Pending photo; step photos still travel in the multipart save. */
+const coverSlot = (photo: PhotoValue): UpdateRecipeMetadata['cover'] => (photo.kind === 'pending' ? { pendingPhotoId: photo.id } : slot(photo))
+
 /** Maps form values to the update metadata: stored steps keep their id so their photo can follow them, new steps carry none. */
 export function toUpdateRecipeMetadata(values: RecipeFormValues): UpdateRecipeMetadata {
 	return {
 		...toSharedMetadata(values),
-		cover: slot(values.cover),
+		cover: coverSlot(values.cover),
 		instructions: flattenGroups(values.instructions, 'steps', (step) => ({ id: step.id, description: step.description.trim(), image: slot(step.photo) })),
 	}
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { count, eq } from '../apps/api/node_modules/drizzle-orm/index.js';
-import { authRateLimits, recipes, recipeWriteAttempts } from '../apps/api/src/database/schema.js';
+import { authRateLimits, pendingPhotos, recipes, recipeWriteAttempts } from '../apps/api/src/database/schema.js';
 import { seedRecipes } from '../apps/api/src/recipes/seed-recipes.js';
 import { creatorTest as test, expect, WEB_URL } from './fixtures.js';
 import {
@@ -141,17 +141,25 @@ test.describe('photos', () => {
     await expect(page.getByRole('img', { name: /^Preview of/ })).toHaveCount(0);
   });
 
-  test('a phone-sized photo over 4.5 MB is shrunk in the browser, saves and shows on the recipe', async ({ page, workerData, creator }) => {
+  test('a phone-sized cover over 4.5 MB is shrunk in the browser, uploads as a Pending photo, saves and shows on the recipe', async ({ page, workerData, creator }) => {
     const original = photo('phone-photo.png', [200, 110, 60], 2400, 1800, 4);
-    // Over Vercel's 4.5 MB request limit, which a save of the original would hit.
+    // Over Vercel's 4.5 MB request limit, which a request carrying the original would hit.
     expect(original.buffer.length).toBeGreaterThan(4.5 * 1000 * 1000);
     await openCreate(page);
     await fillMinimal(page, 'Phone photo stew');
+    const upload = page.waitForResponse((answer) => new URL(answer.url()).pathname === '/api/pending-photos' && answer.request().method() === 'POST');
     await page.getByLabel('Add cover photo').setInputFiles(original);
     await expect(page.getByText(/^phone-photo\.(webp|jpg) · \d+(\.\d)? (KB|MB)$/)).toBeVisible();
+    // The photo uploads on its own as soon as it is shrunk, well under the limit.
+    const uploaded = await upload;
+    expect(uploaded.request().postDataBuffer()!.length).toBeLessThan(4.5 * 1000 * 1000);
+    expect(await uploaded.json()).toMatchObject({ status: 'uploaded' });
     const request = page.waitForRequest((sent) => new URL(sent.url()).pathname === '/api/recipes' && sent.method() === 'POST');
     await field.save(page).click();
-    expect((await request).postDataBuffer()!.length).toBeLessThan(4.5 * 1000 * 1000);
+    // The save names the Pending photo instead of carrying it.
+    const saveRequest = await request;
+    expect(saveRequest.postDataBuffer()!.length).toBeLessThan(64 * 1024);
+    expect(saveRequest.postDataBuffer()!.toString()).toContain('"pendingPhotoId"');
     // The same save waits as every other save in this file. Measured locally: the whole test took 33 to 55 s, most of it
     // the save and the redirect to the saved recipe over the link to Neon.
     await expect(page).toHaveURL(SAVED, { timeout: 30_000 });
@@ -160,6 +168,8 @@ test.describe('photos', () => {
     await expect(page.getByRole('img', { name: 'Phone photo stew' })).toBeVisible();
     const saved = await workerData.db.query.recipes.findFirst({ where: eq(recipes.userId, creator.user.id), with: { images: true } });
     expect(saved?.images).toHaveLength(1);
+    // Saved onto the recipe, the photo is no longer pending.
+    expect((await workerData.db.select({ n: count() }).from(pendingPhotos).where(eq(pendingPhotos.userId, creator.user.id)))[0].n).toBe(0);
   });
 });
 

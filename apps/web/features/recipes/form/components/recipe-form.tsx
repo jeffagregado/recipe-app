@@ -18,6 +18,7 @@ import { RecipeFormHeader } from './recipe-form-header'
 import { PhotoPreparationsContext } from '../hooks/photo-preparations'
 import { useRecipeForm } from '../hooks/use-recipe-form'
 import type { SaveRecipeAction } from '../hooks/use-recipe-submission'
+import type { PhotoUploader } from '../lib/upload-pending-photo'
 
 type RecipeFormProps = {
 	mode: RecipeFormMode
@@ -25,16 +26,18 @@ type RecipeFormProps = {
 	submitLabel: string
 	cancelHref: string
 	onSave: SaveRecipeAction
+	/** Uploads a picked cover as a Pending photo; tests pass a stand-in. */
+	onUploadPhoto: PhotoUploader
 	/** The user's own categories, offered as chips. */
 	categories: Category[]
 	initialValues?: RecipeFormValues
 }
 
 /**
- * Shared by Create and Edit: the mode, title, submit label, initial values, destination on cancel and the save action are props.
+ * Shared by Create and Edit: the mode, title, submit label, initial values, destination on cancel, the save action and the photo uploader are props.
  * Mount it with a `key` that changes when the stored recipe does, so a revisit never shows values from before a save.
  */
-export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, categories, initialValues }: RecipeFormProps) {
+export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, onUploadPhoto, categories, initialValues }: RecipeFormProps) {
 	const router = useRouter()
 	const { form, formRef, preparations, busy, alert, isDirty, submit, resetWhenHidden } = useRecipeForm({ mode, initialValues, onSave })
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false)
@@ -62,7 +65,7 @@ export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, categ
 						<div className="grid gap-4 sm:gap-5 xl:grid-cols-12 xl:items-start">
 							<div className="space-y-4 sm:space-y-5 xl:col-span-5">
 								<BasicInformationSection categories={categories} />
-								<CoverPhotoSection disabled={busy} />
+								<CoverPhotoSection disabled={busy} onUploadPhoto={onUploadPhoto} />
 							</div>
 							<div className="space-y-4 sm:space-y-5 xl:col-span-7">
 								<IngredientsSection />

@@ -16,7 +16,7 @@ type PhotoPreviewProps = {
  * longer every attempt can fail; a neutral placeholder then stands in and the slot stays "kept".
  */
 export function PhotoPreview({ photo, label, sizes, className }: PhotoPreviewProps) {
-	if (photo.kind === 'new') return <PhotoThumbnail file={photo.file} className={cn('object-cover', className)} />
+	if ('file' in photo) return <PhotoThumbnail file={photo.file} className={cn('object-cover', className)} />
 	return (
 		<div className={cn('relative overflow-hidden bg-muted', className)}>
 			<RecipePhoto key={photo.url} src={photo.url} alt={label} fill sizes={sizes} unavailableLabel={`${label} (preview unavailable)`} className="object-cover" />
