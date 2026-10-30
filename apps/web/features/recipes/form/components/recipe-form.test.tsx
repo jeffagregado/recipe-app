@@ -259,6 +259,8 @@ it('shows a failed cover upload inline with Retry, which uploads the same photo 
 	expect(await screen.findByText('Couldn’t upload this photo. Try again.')).toBeInTheDocument()
 	expect(screen.getByRole('button', { name: 'Remove cover photo' })).toBeEnabled()
 	await user.click(screen.getByRole('button', { name: 'Retry cover photo upload' }))
+	// Retry leaves once it is pressed; focus stays on the slot instead of falling back to the page.
+	expect(screen.getByRole('button', { name: 'Remove cover photo' })).toHaveFocus()
 	await waitFor(() => expect(uploadPhoto).toHaveBeenCalledTimes(2))
 	expect(uploadPhoto.mock.calls[1][0]).toBe(uploadPhoto.mock.calls[0][0])
 	await waitFor(() => expect(screen.queryByText('Couldn’t upload this photo. Try again.')).not.toBeInTheDocument())

@@ -1,4 +1,5 @@
 import { ImageIcon } from 'lucide-react'
+import { useRef } from 'react'
 import { useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -29,6 +30,13 @@ export function CoverPhotoSection({ disabled, onUploadPhoto }: { disabled: boole
 		upload: onUploadPhoto,
 	})
 	const error = pickError ?? uploadError ?? errors.cover?.message
+	const removeButton = useRef<HTMLButtonElement>(null)
+
+	function retryUpload() {
+		retry()
+		// Retry disappears while the upload runs; keep focus on the slot.
+		removeButton.current?.focus()
+	}
 	const a11y = fieldA11y(FIELD_ID, error)
 
 	return (
@@ -41,7 +49,7 @@ export function CoverPhotoSection({ disabled, onUploadPhoto }: { disabled: boole
 						<PhotoPicker label="Replace cover photo" onPick={pick} disabled={disabled} a11y={a11y} className="rounded-lg">
 							<span className="inline-flex h-11 items-center rounded-lg border border-border bg-background px-4 text-sm font-medium">Replace</span>
 						</PhotoPicker>
-						<Button type="button" variant="outline" className="h-11 px-4" aria-label="Remove cover photo" disabled={disabled} onClick={remove}>Remove</Button>
+						<Button ref={removeButton} type="button" variant="outline" className="h-11 px-4" aria-label="Remove cover photo" disabled={disabled} onClick={remove}>Remove</Button>
 					</div>
 				</div>
 			) : (
@@ -69,7 +77,7 @@ export function CoverPhotoSection({ disabled, onUploadPhoto }: { disabled: boole
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
 					<FieldError id={`${FIELD_ID}-error`} className="min-w-0 flex-1">{error}</FieldError>
 					{uploadError && !pickError && (
-						<Button type="button" variant="outline" className="h-11 px-4" aria-label="Retry cover photo upload" disabled={disabled} onClick={retry}>Retry</Button>
+						<Button type="button" variant="outline" className="h-11 px-4" aria-label="Retry cover photo upload" disabled={disabled} onClick={retryUpload}>Retry</Button>
 					)}
 				</div>
 			)}

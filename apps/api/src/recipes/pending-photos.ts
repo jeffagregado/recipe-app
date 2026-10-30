@@ -60,14 +60,16 @@ export class PendingPhotoService {
     writeDeadlineCheck(deadline)();
     const id = randomUUID();
     const key = `photos/${id}.${photo.extension}`;
-    try {
-      await this.storage.upload(key, photo.buffer, photo.contentType);
-      await this.db.insert(pendingPhotos).values({ id, userId, objectKey: key });
-    } catch (cause) {
-      // Nothing names the object yet, so it is removed; a deletion that fails leaves it to reconciliation.
+    try { await this.storage.upload(key, photo.buffer, photo.contentType); }
+    catch (cause) {
+      // Nothing names the object, so a partly written one is removed straight away.
       await this.storage.deleteObject(key).catch((cleanupCause: unknown) => { logRecipeFailure('cleanup', cleanupCause); });
       throw recipeUnavailable('photo', cause);
     }
+    // A failed insert keeps the object: the row may still have committed, and deleting under it would leave a Pending photo
+    // with no photo. An object no row names is left for the Pending photo cleanup.
+    try { await this.db.insert(pendingPhotos).values({ id, userId, objectKey: key }); }
+    catch (cause) { throw recipeUnavailable('photo', cause); }
     return { id };
   }
 }
