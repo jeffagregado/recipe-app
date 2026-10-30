@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { attachDatabasePool } from '@vercel/functions';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
@@ -29,6 +30,9 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
       max: 5,
       connectionTimeoutMillis: 10_000,
     });
+    // On Vercel, keeps a paused function from holding Neon connections: idle clients close before it pauses (ADR 0005).
+    // Elsewhere this does nothing.
+    attachDatabasePool(this.pool);
     this.pool.on('error', (cause: Error) => {
       this.onPoolError(new DatabaseError('Database pool connection failed. Check Neon availability and DATABASE_URL; API is shutting down.', { cause }));
     });

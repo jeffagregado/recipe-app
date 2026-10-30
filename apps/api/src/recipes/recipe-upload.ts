@@ -8,6 +8,7 @@ import { RECIPE_IMAGE_MIME_TYPES, RECIPE_LIMITS } from '@recipe-app/contracts/ty
 import type { AuthRequest } from '../auth/auth.request.js';
 import { AuthRateLimiter, rateLimitKey } from '../auth/auth.rate-limit.js';
 import { unauthenticated } from '../auth/auth.errors.js';
+import { runAfterResponse } from '../lifecycle/after-response.js';
 import { IMAGE_TOO_LARGE } from './recipe-images.js';
 import type { RecipeFile } from './recipe-images.js';
 import { fieldError, RecipeError } from './recipe-errors.js';
@@ -237,12 +238,16 @@ export class RecipeUploadInterceptor implements NestInterceptor {
     try { await this.read(request, context.switchToHttp().getResponse<ServerResponse>()); }
     catch (error) { release(); throw error; }
     return next.handle().pipe(finalize(() => {
-      if (!request.writeSettled) { release(); return; }
-      // Bound retention even if a driver or cleanup promise never settles. Durable attempts fence later writes.
-      const timer = setTimeout(release, Math.max(1, request.writeDeadline! + RECIPE_BACKGROUND_TIMEOUT_MS - Date.now()));
-      timer.unref();
-      const settled = () => { clearTimeout(timer); release(); };
-      void request.writeSettled.then(settled, settled);
+      const { writeSettled } = request;
+      if (!writeSettled) { release(); return; }
+      // Released once the write settles, which may be after the response. Bound retention even if a driver or cleanup
+      // promise never settles. Durable attempts fence later writes.
+      runAfterResponse(new Promise<void>((released) => {
+        const settled = () => { clearTimeout(timer); release(); released(); };
+        const timer = setTimeout(settled, Math.max(1, request.writeDeadline! + RECIPE_BACKGROUND_TIMEOUT_MS - Date.now()));
+        timer.unref();
+        void writeSettled.then(settled, settled);
+      }), () => undefined);
     }));
   }
 }

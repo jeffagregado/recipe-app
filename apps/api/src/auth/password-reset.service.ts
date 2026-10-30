@@ -3,6 +3,7 @@ import { and, eq, gt, like, or } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { authAccounts, authSessions, authVerifications, users } from '../database/schema.js';
+import { runAfterResponse } from '../lifecycle/after-response.js';
 import { MAIL_TRANSPORT } from '../mail/mail.transport.js';
 import type { MailTransport } from '../mail/mail.transport.js';
 import { clearEmailChange } from './auth.email-change.js';
@@ -43,7 +44,7 @@ export class PasswordResetService {
       return;
     }
     // Not awaited: waiting for the mail provider would make the answer for a known address measurably slower.
-    void this.mail.send(resetMessage(user.email, origin, token)).catch((cause: unknown) => logAuthFailure('forgot-password-mail', cause));
+    runAfterResponse(this.mail.send(resetMessage(user.email, origin, token)), (cause) => logAuthFailure('forgot-password-mail', cause));
   }
 
   /**

@@ -11,6 +11,7 @@ import { AuthRateLimiter, rateLimitKey } from '../auth/auth.rate-limit.js';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { pendingPhotos, recipeImages } from '../database/schema.js';
+import { runAfterResponse } from '../lifecycle/after-response.js';
 import { StorageService } from '../storage/storage.service.js';
 import { fieldError, logRecipeFailure, RecipeError, recipeUnavailable } from './recipe-errors.js';
 import { prepareRecipePhoto } from './recipe-images.js';
@@ -107,7 +108,7 @@ export class PendingPhotoService {
       throw pendingPhotoLimit();
     }
     // Started after the row is written and never awaited: the sweep neither slows nor fails the upload.
-    void sweepExpiredPendingPhotos(this.db, this.storage, this.sweep.scope()).catch((cause: unknown) => { logRecipeFailure('cleanup', cause); });
+    runAfterResponse(sweepExpiredPendingPhotos(this.db, this.storage, this.sweep.scope()), (cause) => { logRecipeFailure('cleanup', cause); });
     return { id };
   }
 

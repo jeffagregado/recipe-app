@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
 import { recipeWriteAttempts } from '../database/schema.js';
+import { runAfterResponse } from '../lifecycle/after-response.js';
 import { StorageService } from '../storage/storage.service.js';
 import { RecipeError, logRecipeFailure, recipeCleanupFailure, recipeUnavailable } from './recipe-errors.js';
 import { completeRecipeAttempt } from './recipe-persist.js';
@@ -45,6 +46,8 @@ export class RecipeAttempts {
     const checkDeadline = writeDeadlineCheck(deadline);
     const work = this.write(plan, checkDeadline, budget);
     request.writeSettled = work;
+    // A write that outlives its deadline settles behind the timed-out response; the promise below answers its failure.
+    runAfterResponse(work, () => undefined);
     return new Promise<RecipeWriteResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (budget.committed) { resolve(budget.committed); return; }
@@ -63,6 +66,8 @@ export class RecipeAttempts {
     const stopAt = Date.now() + budgetMs;
     const cleanup = resolveRecipeAttempt(this.db, this.storage, attemptId, { now: new Date(), stopAt: () => stopAt })
       .then(() => undefined, (cause: unknown) => { logRecipeFailure('cleanup', cause); });
+    // Deletions still running when the budget ends settle behind the response.
+    runAfterResponse(cleanup, () => undefined);
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([cleanup, new Promise<void>((resolve) => { timer = setTimeout(resolve, budgetMs); })]);
     clearTimeout(timer);
