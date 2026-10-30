@@ -240,7 +240,7 @@ const metadataFields = {
 };
 const instructionDescription = () => metadataText().min(1).max(RECIPE_LIMITS.instructionDescription);
 
-/** A save slot filled by a Pending photo: its multipart field name (`cover`, `step-<index>`), its metadata path and the Pending photo. */
+/** A save slot filled by a Pending photo: its slot name (`cover`, `step-<index>`), its metadata path and the Pending photo. */
 export type NamedPendingPhoto = { field: string; path: (string | number)[]; pendingPhotoId: string };
 
 /** The slots of save metadata that name Pending photos, cover first, then steps by their index. */
@@ -266,11 +266,8 @@ export const createRecipeMetadataSchema: z.ZodType<CreateRecipeMetadata> = z.str
   cover: pendingPhotoSlotSchema.optional(),
   instructions: groupedRows(z.strictObject({
     description: instructionDescription(),
-    hasImage: z.boolean(),
     image: pendingPhotoSlotSchema.optional(),
     heading: headingSchema(),
-  }).refine((step) => !(step.hasImage && step.image), {
-    message: "Send the step photo as a file or name a Pending photo, not both.", path: ["image"],
   }), RECIPE_LIMITS.instructions),
 }).superRefine(oneSlotPerPendingPhoto);
 
@@ -305,19 +302,3 @@ export const recipeDetailSchema: z.ZodType<RecipeDetail> = recipeSchema.and(z.ob
   videoUrl: z.string().max(RECIPE_LIMITS.videoUrl).nullable(),
   instructions: z.array(recipeDetailInstructionSchema),
 }));
-
-/** Multipart image fields in cover-first order, using original instruction indexes. A slot named as a Pending photo sends no file. */
-export function expectedRecipeFileFields(metadata: CreateRecipeMetadata, hasCover: boolean): string[] {
-  return [
-    ...(hasCover && !metadata.cover ? ["cover"] : []),
-    ...metadata.instructions.flatMap((step, index) => step.hasImage ? [`step-${index}`] : []),
-  ];
-}
-
-/** Multipart image fields an update must carry: one per slot marked `replace`. A slot named as a Pending photo sends no file. */
-export function expectedRecipeUpdateFileFields(metadata: UpdateRecipeMetadata): string[] {
-  return [
-    ...(metadata.cover === "replace" ? ["cover"] : []),
-    ...metadata.instructions.flatMap((step, index) => step.image === "replace" ? [`step-${index}`] : []),
-  ];
-}

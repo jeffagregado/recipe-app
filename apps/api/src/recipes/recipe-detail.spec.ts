@@ -46,9 +46,9 @@ describe('Recipe field error bounds', () => {
   it('bounds unknown metadata key length and count in public errors', () => {
     const metadata = { title: 'Soup', description: null, notes: null, videoUrl: null, categories: [], servings: null,
       prepTimeMinutes: null, cookTimeMinutes: null, ingredients: [{ name: 'Salt', quantity: null, unit: null }],
-      instructions: [{ description: 'Mix', hasImage: false }],
+      instructions: [{ description: 'Mix' }],
       ...Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`${i}${'x'.repeat(5000)}`, true])) };
-    try { parseRecipeMetadata({ recipe: JSON.stringify(metadata) }); expect.fail('Expected invalid metadata'); }
+    try { parseRecipeMetadata(JSON.stringify(metadata)); expect.fail('Expected invalid metadata'); }
     catch (cause) {
       const error = cause as { getResponse: () => { fieldErrors: Record<string, string[]> } };
       const fields = Object.keys(error.getResponse().fieldErrors);

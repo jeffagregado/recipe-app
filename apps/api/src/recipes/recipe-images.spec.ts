@@ -40,10 +40,9 @@ const rejection = (message: string, status = 400, code = 'VALIDATION_FAILED') =>
   expect.objectContaining({ status, response: { code, message, fieldErrors: { 'step-3': [message] } } });
 
 describe('Recipe photo preparation', () => {
-  it.each(['jpeg', 'png', 'webp'] as const)('stores a 100 by 80 %s as a 100 by 80 WebP under a .webp key, keeping the uploaded bytes for the request hash', async (format) => {
-    const uploaded = await image(format);
-    const photo = await prepare(uploaded, mimes[format]);
-    expect({ ...photo, buffer: undefined }).toEqual({ fieldname: 'step-3', buffer: undefined, extension: 'webp', contentType: 'image/webp', uploaded });
+  it.each(['jpeg', 'png', 'webp'] as const)('stores a 100 by 80 %s as a 100 by 80 WebP under a .webp key', async (format) => {
+    const photo = await prepare(await image(format), mimes[format]);
+    expect({ ...photo, buffer: undefined }).toEqual({ buffer: undefined, extension: 'webp', contentType: 'image/webp' });
     expect(await described(photo.buffer)).toEqual({ ...bare, format: 'webp', width: 100, height: 80 });
   });
 

@@ -1,11 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../database/database.module.js';
 import type { DrizzleDb } from '../database/database.service.js';
-import { recipeImages, recipeWriteAttempts } from '../database/schema.js';
+import { recipeWriteAttempts } from '../database/schema.js';
 import { StorageService } from '../storage/storage.service.js';
 import { RecipeError, logRecipeFailure, recipeCleanupFailure, recipeUnavailable } from './recipe-errors.js';
-import type { PreparedPhoto } from './recipe-images.js';
 import { completeRecipeAttempt } from './recipe-persist.js';
 import { RECIPE_CLEANUP_BUDGET_MS, resolveRecipeAttempt } from './recipe-reconcile.js';
 import type { RecipeUploadRequest } from './recipe-upload.js';
@@ -18,22 +17,21 @@ const RECIPE_ATTEMPT_STALE_MS = 2 * RECIPE_WRITE_TIMEOUT_MS;
 export type RecipeWriteResult = { id: string; replay: boolean };
 /** `committed` is set as soon as the rows are known to be committed; from then on the write only ever answers with it. */
 type WriteBudget = { deadline: number; transactionStarted: boolean; committed?: RecipeWriteResult };
-type WriteAttempt = Pick<typeof recipeWriteAttempts.$inferSelect, 'id' | 'userId' | 'idempotencyKey' | 'requestHash' | 'recipeId' | 'objectKeys'>
+type WriteAttempt = Pick<typeof recipeWriteAttempts.$inferSelect, 'id' | 'userId' | 'idempotencyKey' | 'requestHash' | 'recipeId'>
   & { operation: 'create' | 'update' };
 type WriteClaim = { owned: boolean };
 /** Post-commit object cleanup gets the cleanup budget or what is left of the request deadline, whichever is smaller. */
 const cleanupBudget = (deadline: number) => Math.max(0, Math.min(RECIPE_CLEANUP_BUDGET_MS, deadline - Date.now()));
-/** One idempotent recipe write: the claim to record, the objects to store first, and the rows to change in one transaction. */
+/** One idempotent recipe write: the claim to record and the rows to change in one transaction. Its photos are already stored as Pending photos. */
 export type RecipeWritePlan = {
   attempt: WriteAttempt;
-  uploads: { key: string; photo: PreparedPhoto }[];
-  /** Runs once the claim is owned and before any upload; throws to reject the write. */
+  /** Runs once the claim is owned and before the transaction; throws to reject the write. */
   prepare?: () => Promise<void>;
   /** Returns the keys of stored objects the committed write no longer references. */
   apply: (tx: RecipeTransaction) => Promise<string[]>;
 };
 
-/** Claim, upload, commit and compensation shared by the idempotent multipart recipe writes. */
+/** Claim, commit and compensation shared by the idempotent recipe writes. */
 @Injectable()
 export class RecipeAttempts {
   constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb, private readonly storage: StorageService, private readonly hook: RecipeWriteHook) {}
@@ -70,8 +68,7 @@ export class RecipeAttempts {
     clearTimeout(timer);
   }
 
-  private async write({ attempt, uploads, prepare, apply }: RecipeWritePlan, checkDeadline: () => void, budget: WriteBudget): Promise<RecipeWriteResult> {
-    const startedKeys: string[] = [];
+  private async write({ attempt, prepare, apply }: RecipeWritePlan, checkDeadline: () => void, budget: WriteBudget): Promise<RecipeWriteResult> {
     const claim: WriteClaim = { owned: false };
     let stale = false;
     try {
@@ -79,14 +76,13 @@ export class RecipeAttempts {
       const replay = await this.claimAttempt(attempt, claim, checkDeadline);
       if (replay) return replay;
       await prepare?.();
-      for (const upload of uploads) { checkDeadline(); startedKeys.push(upload.key); await this.storage.upload(upload.key, upload.photo.buffer, upload.photo.contentType); }
       checkDeadline();
       budget.transactionStarted = true;
       stale = await this.commit(attempt.id, budget.deadline, checkDeadline, apply);
       budget.committed = { id: attempt.recipeId, replay: false };
     } catch (cause) {
       if (claim.owned) {
-        const committed = await this.compensate(attempt, startedKeys, cause, budget);
+        const committed = await this.compensate(attempt, cause, budget);
         if (committed) return { id: committed, replay: false };
       }
       if (cause instanceof RecipeError) throw cause;
@@ -133,7 +129,7 @@ export class RecipeAttempts {
   }
 
   /** Called only after the transaction Promise settles; a failed COMMIT acknowledgement does not prove rollback. */
-  private async compensate(attempt: WriteAttempt, startedKeys: string[], cause: unknown, budget: WriteBudget): Promise<string | undefined> {
+  private async compensate(attempt: WriteAttempt, cause: unknown, budget: WriteBudget): Promise<string | undefined> {
     const outcome: { resolved: boolean; committed?: string } = { resolved: false };
     try {
       const result = await resolveRecipeAttempt(this.db, this.storage, attempt.id, {
@@ -141,16 +137,10 @@ export class RecipeAttempts {
           outcome.resolved = true; outcome.committed = committed;
           if (committed) budget.committed = { id: committed, replay: false };
         },
-        // A rolled-back write waits for its uploads to be removed; a committed one only spends the cleanup budget.
+        // A rolled-back write waits for its recorded objects to be removed; a committed one only spends the cleanup budget.
         stopAt: (committed) => committed ? Date.now() + cleanupBudget(budget.deadline) : undefined,
       });
       if (result.recipeId) { logRecipeFailure(attempt.operation, cause); return result.recipeId; }
-      if (!result.removed && startedKeys.length) {
-        // A takeover removed our fenced row while an upload was still settling. Only our old, unreferenced keys are eligible.
-        const references = await this.db.select({ key: recipeImages.objectKey }).from(recipeImages).where(inArray(recipeImages.objectKey, startedKeys));
-        if (references.length) throw new Error('Recipe state cannot safely be compensated.');
-        for (const key of startedKeys) await this.storage.deleteObject(key);
-      }
     } catch (cleanupCause) {
       logRecipeFailure('cleanup', cleanupCause);
       // Rows that committed stay committed: only the objects they replaced are left, recorded for reconciliation.

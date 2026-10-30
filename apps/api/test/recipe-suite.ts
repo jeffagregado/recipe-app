@@ -26,7 +26,7 @@ export type RecipeSuite = Awaited<ReturnType<typeof openRecipeSuite>>;
 export const minimalRecipe = (name: string): CreateRecipeMetadata => ({
   title: 'Temporary recipe', description: null, categoryIds: [], servings: null, prepTimeMinutes: null,
   cookTimeMinutes: null, videoUrl: null, notes: null,
-  ingredients: [{ name, quantity: null, unit: null }], instructions: [{ description: 'Mix.', hasImage: false }],
+  ingredients: [{ name, quantity: null, unit: null }], instructions: [{ description: 'Mix.' }],
 });
 
 /** Two temporary users on the dev API plus helpers that never surface cookies or signed URLs, and object keys only in `recordCleanup`. */
@@ -66,11 +66,20 @@ export async function openRecipeSuite() {
     if (origin !== null) values.set('Origin', origin);
     return values;
   };
-  /** Multipart recipe write: POST /recipes by default, PATCH /recipes/:id for updates. */
-  function send(path: string, metadata: unknown, photos: Photo[] = [], { method = 'POST', key = randomUUID(), ...options }: SendOptions = {}) {
-    const body = new FormData(); body.set('recipe', typeof metadata === 'string' ? metadata : JSON.stringify(metadata));
-    for (const photo of photos) body.append(photo.field, new Blob([new Uint8Array(photo.bytes)], { type: photo.mime ?? 'image/jpeg' }), 'client-name.jpg');
-    return fetch(`${baseUrl}${path}`, { method, body, headers: headers(options, key) });
+  /** JSON recipe write: POST /recipes by default, PATCH /recipes/:id for updates. A string is sent as the body unchanged. */
+  function send(path: string, metadata: unknown, { method = 'POST', key = randomUUID(), ...options }: SendOptions = {}) {
+    const body = typeof metadata === 'string' ? metadata : JSON.stringify(metadata);
+    const sent = headers(options, key); sent.set('Content-Type', 'application/json');
+    return fetch(`${baseUrl}${path}`, { method, body, headers: sent });
+  }
+  /** Uploads each photo as a Pending photo of `cookie`'s Account and names it in its slot (`cover` or `step-<index>`) of the metadata. */
+  async function withPendingPhotos<T extends { cover?: unknown; instructions: { image?: unknown }[] }>(metadata: T, photos: Photo[], cookie = owner.cookie): Promise<T> {
+    const named = { ...metadata, instructions: metadata.instructions.map((step) => ({ ...step })) };
+    for (const { field, bytes } of photos) {
+      const slot = { pendingPhotoId: await pendingPhoto(bytes, cookie) };
+      if (field === 'cover') named.cover = slot; else named.instructions[Number(field.slice('step-'.length))].image = slot;
+    }
+    return named;
   }
   const call = (method: 'GET' | 'PUT' | 'DELETE', path: string, options: CallOptions = {}) => fetch(`${baseUrl}${path}`, { method, headers: headers(options) });
   /** One photo upload: POST /pending-photos with a single `photo` part. */
@@ -204,6 +213,6 @@ export async function openRecipeSuite() {
     try { await cleanup(); } finally { vi.restoreAllMocks(); await app.close(); }
   }
 
-  return { app, db, baseUrl, storage, name, owner, other, categories, categoryIds, upload, send, call, uploadPhoto, pendingPhoto, pendingRow, expectError, expectEmpty, savedId, detail, list, stored, photoAt,
+  return { app, db, baseUrl, storage, name, owner, other, categories, categoryIds, upload, send, withPendingPhotos, call, uploadPhoto, pendingPhoto, pendingRow, expectError, expectEmpty, savedId, detail, list, stored, photoAt,
     imageRows, resetLimits, fillLimit, orphans, recordCleanup, uploadedKeys: () => new Set(objectKeys), cleanup, close };
 }

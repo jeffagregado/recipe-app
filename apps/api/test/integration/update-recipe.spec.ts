@@ -23,11 +23,11 @@ describe('Update recipe HTTP', () => {
   const base = (): CreateRecipeMetadata => ({ title: 'Base recipe', description: 'Old description', categoryIds: s.categoryIds(['Dinner', 'Lunch']),
     servings: 2, prepTimeMinutes: 5, cookTimeMinutes: 10, videoUrl: 'https://www.youtube.com/watch?v=old', notes: 'Old notes',
     ingredients: [{ name: `${s.name} flour`, quantity: 1, unit: 'cup' }, { name: `${s.name} salt`, quantity: null, unit: null }],
-    instructions: ['A', 'B', 'C', 'D'].map((description, index) => ({ description, hasImage: index < 3 })) });
+    instructions: ['A', 'B', 'C', 'D'].map((description) => ({ description })) });
   const basePhotos = [{ field: 'cover', bytes: jpeg(10) }, { field: 'step-0', bytes: jpeg(11) }, { field: 'step-1', bytes: jpeg(12) }, { field: 'step-2', bytes: jpeg(13) }];
   /** Cover plus photos on steps A, B and C; step D has none. */
   async function seed() {
-    const id = await s.savedId(await s.send('/recipes', base(), basePhotos), 201);
+    const id = await s.savedId(await s.send('/recipes', await s.withPendingPhotos(base(), basePhotos)), 201);
     return { id, value: await s.detail(id), rows: await s.imageRows(id) };
   }
   /** The edit form's starting point: every field as saved and every image slot kept. */
@@ -35,8 +35,10 @@ describe('Update recipe HTTP', () => {
     servings: value.servings, prepTimeMinutes: value.prepTimeMinutes, cookTimeMinutes: value.cookTimeMinutes, videoUrl: value.videoUrl, notes: value.notes,
     ingredients: value.ingredients.map(({ name, quantity, unit, heading }) => ({ name, quantity, unit, heading })), cover: 'keep',
     instructions: value.instructions.map(({ id, description, heading }) => ({ id, description, heading, image: 'keep' })) });
-  const patch = (id: string, metadata: unknown, photos: Photo[] = [], options: Parameters<RecipeSuite['send']>[3] = {}) =>
-    s.send(`/recipes/${encodeURIComponent(id)}`, metadata, photos, { ...options, method: 'PATCH' });
+  const patch = (id: string, metadata: unknown, options: Parameters<RecipeSuite['send']>[2] = {}) =>
+    s.send(`/recipes/${encodeURIComponent(id)}`, metadata, { ...options, method: 'PATCH' });
+  /** The metadata with each photo uploaded as a Pending photo and named in its slot, replacing what the slot held. */
+  const replacing = (metadata: UpdateRecipeMetadata, photos: Photo[]) => s.withPendingPhotos(metadata, photos);
   /** Everything a failed update must leave alone, without signed URLs. */
   async function snapshot(id: string) {
     const value = await s.detail(id);
@@ -45,9 +47,8 @@ describe('Update recipe HTTP', () => {
   const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
   const attemptFor = (key: string) => s.db.query.recipeWriteAttempts.findFirst({ where: eq(recipeWriteAttempts.idempotencyKey, key) });
   const attemptCount = (key: string) => s.db.$count(recipeWriteAttempts, eq(recipeWriteAttempts.idempotencyKey, key));
-  const serviceRequest = (metadata: UpdateRecipeMetadata, photos: Photo[], key = randomUUID()) => ({ headers: {}, user: s.owner.user, idempotencyKey: key,
-    writeDeadline: Date.now() + 30_000, body: { recipe: JSON.stringify(metadata) },
-    files: photos.map((photo) => ({ fieldname: photo.field, mimetype: 'image/jpeg', buffer: photo.bytes })) }) as unknown as RecipeUploadRequest;
+  const serviceRequest = (metadata: UpdateRecipeMetadata, key = randomUUID()) => ({ headers: {}, user: s.owner.user, idempotencyKey: key,
+    writeDeadline: Date.now() + 30_000, recipeJson: JSON.stringify(metadata) }) as unknown as RecipeUploadRequest;
 
   it('updates every scalar field, category order and ingredients while keeping photos, favorite state and created_at', async () => {
     const { id, value, rows } = await seed(); const calls = s.upload.mock.calls.length;
@@ -76,8 +77,8 @@ describe('Update recipe HTTP', () => {
   it('stores group headings on create, first rows included, returns them in order, and replaces them on update', async () => {
     const created: CreateRecipeMetadata = { ...base(),
       ingredients: [{ name: `${s.name} flour`, quantity: 1.5, unit: 'cup', heading: 'Dough' }, { name: `${s.name} butter`, quantity: 0.25, unit: 'cup', heading: '  Sauce ' }, { name: `${s.name} salt`, quantity: null, unit: null, heading: null }],
-      instructions: [{ description: 'Mix', hasImage: false, heading: 'Prep' }, { description: 'Melt', hasImage: true, heading: 'Make the sauce' }, { description: 'Pour', hasImage: false }] };
-    const id = await s.savedId(await s.send('/recipes', created, [{ field: 'step-1', bytes: jpeg(30) }]), 201);
+      instructions: [{ description: 'Mix', heading: 'Prep' }, { description: 'Melt', heading: 'Make the sauce' }, { description: 'Pour' }] };
+    const id = await s.savedId(await s.send('/recipes', await s.withPendingPhotos(created, [{ field: 'step-1', bytes: jpeg(30) }])), 201);
     const value = await s.detail(id);
     expect(value.ingredients.map(({ name, heading, sortOrder }) => ({ name, heading, sortOrder }))).toEqual([
       { name: `${s.name} flour`, heading: 'Dough', sortOrder: 0 }, { name: `${s.name} butter`, heading: 'Sauce', sortOrder: 1 }, { name: `${s.name} salt`, heading: null, sortOrder: 2 }]);
@@ -100,10 +101,11 @@ describe('Update recipe HTTP', () => {
     const imageOf = async (stepId: string) => (await s.db.query.recipeInstructions.findFirst({ where: (row, { eq }) => eq(row.id, stepId) }))?.imageId;
     const photoIds = { a: await imageOf(a.id), b: await imageOf(b.id), c: await imageOf(c.id) };
     const keyOf = (imageId?: string | null) => rows.find((row) => row.id === imageId)!.objectKey;
-    const metadata: UpdateRecipeMetadata = { ...unchanged(value), cover: 'replace', instructions: [
-      { id: c.id, description: 'C moved first', image: 'keep' }, { id: null, description: 'New step', image: 'replace' },
-      { id: a.id, description: 'A without photo', image: 'remove' }, { id: d.id, description: 'D', image: 'keep' }, { id: null, description: 'Plain new step', image: 'remove' }] };
-    expect(await s.savedId(await patch(id, metadata, [{ field: 'step-1', bytes: jpeg(21) }, { field: 'cover', bytes: jpeg(20) }], { key }), 200)).toBe(id);
+    const metadata = await replacing({ ...unchanged(value), instructions: [
+      { id: c.id, description: 'C moved first', image: 'keep' }, { id: null, description: 'New step', image: 'remove' },
+      { id: a.id, description: 'A without photo', image: 'remove' }, { id: d.id, description: 'D', image: 'keep' }, { id: null, description: 'Plain new step', image: 'remove' }] },
+    [{ field: 'step-1', bytes: jpeg(21) }, { field: 'cover', bytes: jpeg(20) }]);
+    expect(await s.savedId(await patch(id, metadata, { key }), 200)).toBe(id);
     const updated = await s.detail(id);
     expect(updated.instructions.map(({ stepNumber, description }) => [stepNumber, description])).toEqual([
       [1, 'C moved first'], [2, 'New step'], [3, 'A without photo'], [4, 'D'], [5, 'Plain new step']]);
@@ -113,7 +115,7 @@ describe('Update recipe HTTP', () => {
     expect(await s.photoAt(updated.instructions[1].imageUrl)).toEqual(storedPhoto(21));
     expect(updated.instructions.slice(2).map((step) => step.imageUrl === null)).toEqual([true, true, true]);
     const after = await s.imageRows(id);
-    // The kept photo is the same row and object; only the two replacements were uploaded.
+    // The kept photo is the same row and object; only the two replacements were uploaded, as Pending photos.
     expect(same(after.find((row) => row.id === photoIds.c), rows.find((row) => row.id === photoIds.c))).toBe(true);
     expect(await imageOf(c.id)).toBe(photoIds.c); expect(s.upload.mock.calls.length).toBe(calls + 2);
     expect(after.map(({ sortOrder }) => sortOrder)).toEqual([0, ...after.slice(1).map(({ sortOrder }) => sortOrder)]);
@@ -136,62 +138,58 @@ describe('Update recipe HTTP', () => {
     const { id, value } = await seed(); const foreign = await seed();
     const before = await snapshot(id); const calls = s.upload.mock.calls.length;
     const valid = unchanged(value); const [first, ...rest] = valid.instructions;
-    const cover = [{ field: 'cover', bytes: jpeg(30) }];
     const injected = (key: string) => JSON.parse(JSON.stringify(valid).slice(0, -1) + `,"${key}":"injected"}`) as unknown;
-    const cases: [unknown, Photo[], number, string, string][] = [
-      [{ ...valid, title: ' ' }, [], 400, 'VALIDATION_FAILED', 'title'],
-      [{ ...valid, categoryIds: s.categoryIds(['Dinner', 'Lunch', 'Breakfast', 'Snacks']) }, [], 400, 'VALIDATION_FAILED', 'categoryIds'],
-      [{ ...valid, ingredients: [{ name: `${s.name} flour`, quantity: 0.1234, unit: 'g' }] }, [], 400, 'VALIDATION_FAILED', 'ingredients.0.quantity'],
-      [{ ...valid, instructions: [{ id: null, description: 'New', image: 'keep' }, ...rest] }, [], 400, 'VALIDATION_FAILED', 'instructions.0.image'],
-      [{ ...valid, instructions: [first, { ...rest[0], id: foreign.value.instructions[0].id }, ...rest.slice(1)] }, [], 400, 'VALIDATION_FAILED', 'instructions.1.id'],
-      [{ ...valid, cover: 'replace', instructions: [{ ...first, id: randomUUID() }, ...rest] }, cover, 400, 'VALIDATION_FAILED', 'instructions.0.id'],
-      [{ ...valid, instructions: [first, first, ...rest] }, [], 400, 'VALIDATION_FAILED', 'instructions'],
-      [{ ...valid, instructions: [{ description: 'Create shape', hasImage: false }] }, [], 400, 'VALIDATION_FAILED', 'instructions.0.hasImage'],
-      [valid, cover, 400, 'VALIDATION_FAILED', 'cover'],
-      [valid, [{ field: 'step-0', bytes: jpeg(30) }], 400, 'VALIDATION_FAILED', 'step-0'],
-      [{ ...valid, cover: 'replace' }, [], 400, 'VALIDATION_FAILED', 'cover'],
-      [{ ...valid, instructions: [{ ...first, image: 'replace' }, ...rest] }, cover, 400, 'VALIDATION_FAILED', 'cover'],
-      [{ ...valid, cover: 'replace' }, [{ field: 'cover', bytes: Buffer.alloc(5 * 1024 * 1024 + 1) }], 413, 'PAYLOAD_TOO_LARGE', 'cover'],
-      [{ ...valid, cover: 'replace' }, [{ field: 'cover', bytes: jpeg(30), mime: 'image/gif' }], 415, 'UNSUPPORTED_MEDIA_TYPE', 'cover'],
-      [{ ...valid, cover: 'replace' }, [{ field: 'cover', bytes: jpeg(30), mime: 'image/png' }], 400, 'VALIDATION_FAILED', 'cover'],
-      [{ ...valid, instructions: [{ ...first, imageId: 'injected' }, ...rest] }, [], 400, 'VALIDATION_FAILED', 'instructions.0.imageId'],
-      ['not JSON', [], 400, 'VALIDATION_FAILED', 'recipe'],
-      ...['userId', 'id', 'imageUrl', 'objectKey', 'isFavorite', '__proto__'].map((key): [unknown, Photo[], number, string, string] => [injected(key), [], 400, 'VALIDATION_FAILED', key]),
+    const cases: [unknown, string][] = [
+      [{ ...valid, title: ' ' }, 'title'],
+      [{ ...valid, categoryIds: s.categoryIds(['Dinner', 'Lunch', 'Breakfast', 'Snacks']) }, 'categoryIds'],
+      [{ ...valid, ingredients: [{ name: `${s.name} flour`, quantity: 0.1234, unit: 'g' }] }, 'ingredients.0.quantity'],
+      [{ ...valid, instructions: [{ id: null, description: 'New', image: 'keep' }, ...rest] }, 'instructions.0.image'],
+      [{ ...valid, instructions: [first, { ...rest[0], id: foreign.value.instructions[0].id }, ...rest.slice(1)] }, 'instructions.1.id'],
+      [{ ...valid, instructions: [{ ...first, id: randomUUID() }, ...rest] }, 'instructions.0.id'],
+      [{ ...valid, instructions: [first, first, ...rest] }, 'instructions'],
+      [{ ...valid, instructions: [{ description: 'Create shape', hasImage: false }] }, 'instructions.0.hasImage'],
+      // A slot is replaced by naming a Pending photo; there is no file to replace it with.
+      [{ ...valid, cover: 'replace' }, 'cover'],
+      [{ ...valid, instructions: [{ ...first, image: 'replace' }, ...rest] }, 'instructions.0.image'],
+      [{ ...valid, instructions: [{ ...first, imageId: 'injected' }, ...rest] }, 'instructions.0.imageId'],
+      ['not JSON', 'recipe'],
+      ...['userId', 'id', 'imageUrl', 'objectKey', 'isFavorite', '__proto__'].map((key): [unknown, string] => [injected(key), key]),
     ];
-    for (const [metadata, photos, status, code, field] of cases) {
+    for (const [metadata, field] of cases) {
       const key = randomUUID();
-      await s.expectError(await patch(id, metadata, photos, { key }), status, code, field);
+      await s.expectError(await patch(id, metadata, { key }), 400, 'VALIDATION_FAILED', field);
       expect(await attemptCount(key), `Attempt left for ${field}`).toBe(0);
     }
     for (const [options, status, code, field] of [
       [{ cookie: null }, 401, 'UNAUTHENTICATED', undefined], [{ origin: 'https://hostile.example.invalid' }, 403, 'ORIGIN_REJECTED', undefined],
       [{ origin: null }, 403, 'ORIGIN_REJECTED', undefined], [{ key: null }, 400, 'VALIDATION_FAILED', 'idempotencyKey'],
       [{ key: 'not-a-uuid' }, 400, 'VALIDATION_FAILED', 'idempotencyKey'],
-    ] as const) await s.expectError(await patch(id, { ...valid, title: 'Rejected' }, [], options), status, code, field);
+    ] as const) await s.expectError(await patch(id, { ...valid, title: 'Rejected' }, options), status, code, field);
     expect(await snapshot(id) === before).toBe(true); expect(s.upload.mock.calls.length).toBe(calls);
   }, 120_000);
 
-  it('answers 404 before validation or upload for another owner and unknown ids', async () => {
+  it('answers 404 before validation for another owner and unknown ids', async () => {
     const { id, value } = await seed(); const before = await snapshot(id); const calls = s.upload.mock.calls.length;
-    const replace = { ...unchanged(value), title: 'Hijacked', cover: 'replace' }; const cover = [{ field: 'cover', bytes: jpeg(40) }];
-    await s.expectError(await patch(id, replace, cover, { cookie: s.other.cookie }), 404, 'NOT_FOUND');
-    await s.expectError(await patch(id, 'not JSON', [], { cookie: s.other.cookie }), 404, 'NOT_FOUND');
-    for (const unknown of [randomUUID(), 'bad\u0000id', 'x'.repeat(201)]) await s.expectError(await patch(unknown, replace, cover), 404, 'NOT_FOUND');
-    expect(await snapshot(id) === before).toBe(true); expect(s.upload.mock.calls.length).toBe(calls);
+    const replace = { ...unchanged(value), title: 'Hijacked', cover: { pendingPhotoId: await s.pendingPhoto(jpeg(40), s.other.cookie) } };
+    await s.expectError(await patch(id, replace, { cookie: s.other.cookie }), 404, 'NOT_FOUND');
+    await s.expectError(await patch(id, 'not JSON', { cookie: s.other.cookie }), 404, 'NOT_FOUND');
+    for (const unknown of [randomUUID(), 'bad\u0000id', 'x'.repeat(201)]) await s.expectError(await patch(unknown, replace), 404, 'NOT_FOUND');
+    expect(await snapshot(id) === before).toBe(true); expect(s.upload.mock.calls.length).toBe(calls + 1);
   }, 60_000);
 
-  it('rolls back a forced transaction failure, removes the new uploads and allows a same-key retry', async () => {
+  it('rolls back a forced transaction failure, keeps its Pending photos and allows a same-key retry', async () => {
     const { id, value, rows } = await seed(); const before = await snapshot(id); const uploaded = s.uploadedKeys(); const key = randomUUID();
-    const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: 'Rolled back', cover: 'replace', categoryIds: s.categoryIds(['Snacks']),
+    const metadata = await replacing({ ...unchanged(value), title: 'Rolled back', categoryIds: s.categoryIds(['Snacks']),
       ingredients: [{ name: `${s.name} butter`, quantity: 3, unit: 'tbsp' }],
-      instructions: [{ id: value.instructions[1].id, description: 'Only step', image: 'replace' }] };
-    const photos = [{ field: 'cover', bytes: jpeg(50) }, { field: 'step-0', bytes: jpeg(51) }];
+      instructions: [{ id: value.instructions[1].id, description: 'Only step', image: 'remove' }] }, [{ field: 'cover', bytes: jpeg(50) }, { field: 'step-0', bytes: jpeg(51) }]);
+    const pending = [metadata.cover, metadata.instructions[0].image].map((slot) => (slot as { pendingPhotoId: string }).pendingPhotoId);
     const hook = vi.spyOn(s.app.get(RecipeWriteHook), 'beforeComplete').mockRejectedValueOnce(new Error('Forced transaction failure'));
-    try { await s.expectError(await patch(id, metadata, photos, { key }), 503, 'SERVICE_UNAVAILABLE'); } finally { hook.mockRestore(); }
+    try { await s.expectError(await patch(id, metadata, { key }), 503, 'SERVICE_UNAVAILABLE'); } finally { hook.mockRestore(); }
     expect(await snapshot(id) === before).toBe(true); expect(await attemptCount(key)).toBe(0);
-    expect([...s.uploadedKeys()].filter((object) => !uploaded.has(object))).toHaveLength(2); expect(await s.orphans(uploaded)).toBe(0);
+    // The rollback leaves both photos pending and stored, for the retry to use.
+    for (const pendingPhotoId of pending) expect(await s.stored((await s.pendingRow(pendingPhotoId))!.objectKey)).toBe(true);
     for (const row of rows) expect(await s.stored(row.objectKey)).toBe(true);
-    expect(await s.savedId(await patch(id, metadata, photos, { key }), 200)).toBe(id);
+    expect(await s.savedId(await patch(id, metadata, { key }), 200)).toBe(id);
     const updated = await s.detail(id);
     expect(updated.title).toBe('Rolled back'); expect(await s.photoAt(updated.imageUrl)).toEqual(storedPhoto(50));
     expect(await s.photoAt(updated.instructions[0].imageUrl)).toEqual(storedPhoto(51));
@@ -201,27 +199,27 @@ describe('Update recipe HTTP', () => {
 
   it('replays the same key once, and rejects a changed payload, another recipe or another operation under that key', async () => {
     const { id, value, rows } = await seed(); const sibling = await seed(); const key = randomUUID();
-    const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: 'Replayed', cover: 'replace', instructions: unchanged(value).instructions.slice(0, 2) };
-    const photos = [{ field: 'cover', bytes: jpeg(60) }];
-    expect(await s.savedId(await patch(id, metadata, photos, { key }), 200)).toBe(id);
+    const metadata = await replacing({ ...unchanged(value), title: 'Replayed', instructions: unchanged(value).instructions.slice(0, 2) }, [{ field: 'cover', bytes: jpeg(60) }]);
+    const otherCover = { pendingPhotoId: await s.pendingPhoto(jpeg(61)) };
+    expect(await s.savedId(await patch(id, metadata, { key }), 200)).toBe(id);
     const applied = await snapshot(id); const calls = s.upload.mock.calls.length;
     // The dropped steps no longer exist, yet the replay still answers 200 without applying anything.
-    expect(await s.savedId(await patch(id, { ...metadata, title: ' Replayed ' }, photos, { key }), 200)).toBe(id);
+    expect(await s.savedId(await patch(id, { ...metadata, title: ' Replayed ' }, { key }), 200)).toBe(id);
     expect(await snapshot(id) === applied).toBe(true); expect(s.upload.mock.calls.length).toBe(calls);
-    await s.expectError(await patch(id, { ...metadata, title: 'Changed' }, photos, { key }), 409, 'IDEMPOTENCY_CONFLICT');
-    await s.expectError(await patch(id, metadata, [{ field: 'cover', bytes: jpeg(61) }], { key }), 409, 'IDEMPOTENCY_CONFLICT');
-    await s.expectError(await patch(sibling.id, { ...metadata, instructions: unchanged(sibling.value).instructions.slice(0, 2) }, photos, { key }), 409, 'IDEMPOTENCY_CONFLICT');
-    await s.expectError(await s.send('/recipes', minimalRecipe(s.name), [], { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    await s.expectError(await patch(id, { ...metadata, title: 'Changed' }, { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    await s.expectError(await patch(id, { ...metadata, cover: otherCover }, { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    await s.expectError(await patch(sibling.id, { ...metadata, instructions: unchanged(sibling.value).instructions.slice(0, 2) }, { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    await s.expectError(await s.send('/recipes', minimalRecipe(s.name), { key }), 409, 'IDEMPOTENCY_CONFLICT');
     const createKey = randomUUID();
-    await s.savedId(await s.send('/recipes', minimalRecipe(s.name), [], { key: createKey }), 201);
-    await s.expectError(await patch(id, unchanged(await s.detail(id)), [], { key: createKey }), 409, 'IDEMPOTENCY_CONFLICT');
+    await s.savedId(await s.send('/recipes', minimalRecipe(s.name), { key: createKey }), 201);
+    await s.expectError(await patch(id, unchanged(await s.detail(id)), { key: createKey }), 409, 'IDEMPOTENCY_CONFLICT');
     expect(await snapshot(id) === applied).toBe(true); expect(s.upload.mock.calls.length).toBe(calls);
     expect(await s.stored(rows[0].objectKey)).toBe(false);
     // A young pending claim answers in progress.
     const pending = randomUUID();
-    const requestHash = recipeRequestHash(updateRecipeMetadataSchema.parse(metadata), [{ fieldname: 'cover', uploaded: jpeg(60) }], id);
+    const requestHash = recipeRequestHash(updateRecipeMetadataSchema.parse(metadata), id);
     await s.db.insert(recipeWriteAttempts).values({ userId: s.owner.user.id, idempotencyKey: pending, operation: 'update', requestHash, recipeId: id, state: 'pending' });
-    await s.expectError(await patch(id, metadata, photos, { key: pending }), 409, 'IDEMPOTENCY_IN_PROGRESS');
+    await s.expectError(await patch(id, metadata, { key: pending }), 409, 'IDEMPOTENCY_IN_PROGRESS');
     expect(await snapshot(id) === applied).toBe(true);
   }, 90_000);
 
@@ -229,31 +227,30 @@ describe('Update recipe HTTP', () => {
     const { id, value, rows } = await seed(); const key = randomUUID();
     const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: 'Committed', cover: 'remove' };
     const deletion = vi.spyOn(s.storage, 'deleteObject').mockRejectedValueOnce(new Error('Forced stale deletion failure'));
-    try { expect(await s.savedId(await patch(id, metadata, [], { key }), 200)).toBe(id); } finally { deletion.mockRestore(); }
+    try { expect(await s.savedId(await patch(id, metadata, { key }), 200)).toBe(id); } finally { deletion.mockRestore(); }
     const committed = await s.detail(id);
     expect(committed.title).toBe('Committed'); expect(committed.imageUrl === null).toBe(true);
     const attempt = await attemptFor(key);
     expect([attempt?.state, attempt?.staleObjectKeys.length]).toEqual(['cleanup_pending', 1]); expect(await s.stored(rows[0].objectKey)).toBe(true);
-    expect(await s.savedId(await patch(id, metadata, [], { key }), 200)).toBe(id);
+    expect(await s.savedId(await patch(id, metadata, { key }), 200)).toBe(id);
     expect((await s.detail(id)).updatedAt).toBe(committed.updatedAt);
     expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds: [attempt!.id] })).toEqual({ completed: 1, removed: 0, deletedObjects: 1, failed: 0 });
     expect(await s.stored(rows[0].objectKey)).toBe(false); expect((await attemptFor(key))?.state).toBe('completed');
-    expect(await s.savedId(await patch(id, metadata, [], { key }), 200)).toBe(id);
+    expect(await s.savedId(await patch(id, metadata, { key }), 200)).toBe(id);
     for (const row of rows.slice(1)) expect(await s.stored(row.objectKey)).toBe(true);
   }, 90_000);
 
   it('answers 200 inside a short deadline while replaced-object deletion hangs, then reconciles', async () => {
     const { id, value, rows } = await seed(); const key = randomUUID(); const deadlineMs = 8000;
-    const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: 'Slow cleanup', cover: 'replace',
-      instructions: unchanged(value).instructions.map((step) => ({ ...step, image: 'remove' })) };
-    const photos = [{ field: 'cover', bytes: jpeg(100) }];
+    const metadata = await replacing({ ...unchanged(value), title: 'Slow cleanup',
+      instructions: unchanged(value).instructions.map((step) => ({ ...step, image: 'remove' as const })) }, [{ field: 'cover', bytes: jpeg(100) }]);
     const guard = s.app.get(RecipeWriteGuard); const admit = guard.canActivate.bind(guard);
     const admission = vi.spyOn(guard, 'canActivate').mockImplementationOnce(async (context) => {
       const result = await admit(context); context.switchToHttp().getRequest<RecipeUploadRequest>().writeDeadline = Date.now() + deadlineMs; return result;
     });
     let fail!: () => void; const held = new Promise<void>((resolve) => { fail = resolve; });
     const deletion = vi.spyOn(s.storage, 'deleteObject').mockImplementation(async () => { await held; throw new Error('Forced slow stale deletion failure'); });
-    const started = Date.now(); const request = patch(id, metadata, photos, { key });
+    const started = Date.now(); const request = patch(id, metadata, { key });
     try {
       // A committed update is never reported as timed out because its cleanup is slow.
       expect(await s.savedId(await request, 200)).toBe(id);
@@ -263,7 +260,7 @@ describe('Update recipe HTTP', () => {
       const attempt = await attemptFor(key);
       expect([attempt?.state, attempt?.staleObjectKeys.length]).toEqual(['cleanup_pending', 4]);
       // The upload slot is free again: the replay is admitted and answers without waiting for cleanup.
-      expect(await s.savedId(await patch(id, metadata, photos, { key }), 200)).toBe(id);
+      expect(await s.savedId(await patch(id, metadata, { key }), 200)).toBe(id);
       expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), attemptIds: [attempt!.id] })).toEqual({ completed: 0, removed: 0, deletedObjects: 0, failed: 0 });
       fail(); deletion.mockRestore();
       await vi.waitFor(async () => {
@@ -277,45 +274,48 @@ describe('Update recipe HTTP', () => {
   it('answers a replay of a finished update with a conflict once its recipe was deleted', async () => {
     const { id, value, rows } = await seed(); const finished = randomUUID(); const cleaning = randomUUID();
     const first: UpdateRecipeMetadata = { ...unchanged(value), title: 'Finished edit' };
-    expect(await s.savedId(await patch(id, first, [], { key: finished }), 200)).toBe(id);
+    expect(await s.savedId(await patch(id, first, { key: finished }), 200)).toBe(id);
     // A second edit commits but leaves its replaced cover to reconciliation.
     const second: UpdateRecipeMetadata = { ...first, title: 'Edit with cleanup left', cover: 'remove' };
     const deletion = vi.spyOn(s.storage, 'deleteObject').mockRejectedValueOnce(new Error('Forced stale deletion failure'));
-    try { expect(await s.savedId(await patch(id, second, [], { key: cleaning }), 200)).toBe(id); } finally { deletion.mockRestore(); }
+    try { expect(await s.savedId(await patch(id, second, { key: cleaning }), 200)).toBe(id); } finally { deletion.mockRestore(); }
     expect((await attemptFor(cleaning))?.state).toBe('cleanup_pending');
     await s.expectEmpty(await s.call('DELETE', `/recipes/${id}`));
     const owned = await s.db.$count(recipes, eq(recipes.userId, s.owner.user.id)); const calls = s.upload.mock.calls.length;
     for (const [key, metadata] of [[finished, first], [cleaning, second], [finished, { ...first, title: 'Changed' }]] as const) {
-      await s.expectError(await patch(id, metadata, [], { key }), 409, 'IDEMPOTENCY_CONFLICT');
+      await s.expectError(await patch(id, metadata, { key }), 409, 'IDEMPOTENCY_CONFLICT');
     }
     // A key that never wrote this recipe, and another account, still answer like any unknown recipe.
     await s.expectError(await patch(id, first), 404, 'NOT_FOUND');
-    await s.expectError(await patch(id, first, [], { key: finished, cookie: s.other.cookie }), 404, 'NOT_FOUND');
+    await s.expectError(await patch(id, first, { key: finished, cookie: s.other.cookie }), 404, 'NOT_FOUND');
     const attemptIds = [(await attemptFor(finished))!.id, (await attemptFor(cleaning))!.id];
     expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), ageMs: 0, attemptIds })).toEqual({ completed: 1, removed: 0, deletedObjects: 1, failed: 0 });
     expect([(await attemptFor(finished))?.state, (await attemptFor(cleaning))?.state]).toEqual(['completed', 'completed']);
-    for (const [key, metadata] of [[finished, first], [cleaning, second]] as const) await s.expectError(await patch(id, metadata, [], { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    for (const [key, metadata] of [[finished, first], [cleaning, second]] as const) await s.expectError(await patch(id, metadata, { key }), 409, 'IDEMPOTENCY_CONFLICT');
     expect(await s.db.$count(recipes, eq(recipes.userId, s.owner.user.id))).toBe(owned); expect(s.upload.mock.calls.length).toBe(calls);
     for (const row of rows) expect(await s.stored(row.objectKey)).toBe(false);
   }, 90_000);
 
   it('lets an update racing a delete of the same recipe commit first or fail with 404, leaving no objects or open attempts', async () => {
-    const { id, value, rows } = await seed(); const uploaded = s.uploadedKeys(); const key = randomUUID();
-    const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: 'Racing edit', cover: 'replace' };
-    const cover = [{ field: 'cover', bytes: jpeg(110) }];
-    const [updated, removed] = await Promise.all([patch(id, metadata, cover, { key }), s.call('DELETE', `/recipes/${id}`)]);
+    const { id, value, rows } = await seed(); const key = randomUUID();
+    const metadata = await replacing({ ...unchanged(value), title: 'Racing edit' }, [{ field: 'cover', bytes: jpeg(110) }]);
+    const cover = metadata.cover as { pendingPhotoId: string }; const { objectKey: coverKey } = (await s.pendingRow(cover.pendingPhotoId))!;
+    const uploaded = s.uploadedKeys();
+    const [updated, removed] = await Promise.all([patch(id, metadata, { key }), s.call('DELETE', `/recipes/${id}`)]);
     await s.expectEmpty(removed);
     if (updated.status === 200) expect(await s.savedId(updated, 200)).toBe(id); else await s.expectError(updated, 404, 'NOT_FOUND');
     expect(await s.db.$count(recipes, eq(recipes.id, id))).toBe(0); expect(await s.imageRows(id)).toEqual([]);
     for (const row of rows) expect(await s.stored(row.objectKey)).toBe(false);
     expect(await s.orphans(uploaded)).toBe(0);
+    // A committed edit's new cover went with the recipe; a refused one stays a Pending photo the cook can still use.
+    if (updated.status === 200) expect(await s.stored(coverKey)).toBe(false); else expect((await s.pendingRow(cover.pendingPhotoId))?.objectKey).toBe(coverKey);
     const attempts = await s.db.select().from(recipeWriteAttempts).where(eq(recipeWriteAttempts.recipeId, id));
     expect(attempts.filter(({ state }) => state !== 'completed')).toEqual([]);
     expect(attempts.filter(({ operation }) => operation === 'delete')).toEqual([]);
     // The recipe is gone for good: a second delete and a fresh edit answer 404, and the key that already wrote answers a conflict.
     await s.expectError(await s.call('DELETE', `/recipes/${id}`), 404, 'NOT_FOUND');
-    await s.expectError(await patch(id, metadata, cover), 404, 'NOT_FOUND');
-    if (updated.status === 200) await s.expectError(await patch(id, metadata, cover, { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    await s.expectError(await patch(id, metadata), 404, 'NOT_FOUND');
+    if (updated.status === 200) await s.expectError(await patch(id, metadata, { key }), 409, 'IDEMPOTENCY_CONFLICT');
   }, 90_000);
 
   it('reconciles an abandoned pending update by deleting only its unreferenced uploads', async () => {
@@ -328,12 +328,14 @@ describe('Update recipe HTTP', () => {
     expect(await s.stored(orphan)).toBe(false); expect(await s.stored(rows[0].objectKey)).toBe(true);
     expect(await attemptCount(key)).toBe(0); expect(await snapshot(id) === before).toBe(true);
     // The abandoned update never applied, so its key is free to apply it now.
-    expect(await s.savedId(await patch(id, { ...unchanged(value), title: 'Applied after takeover' }, [], { key }), 200)).toBe(id);
+    expect(await s.savedId(await patch(id, { ...unchanged(value), title: 'Applied after takeover' }, { key }), 200)).toBe(id);
     expect((await s.detail(id)).title).toBe('Applied after takeover');
   }, 90_000);
 
   it('resolves a lost COMMIT acknowledgement to the committed update before deleting any object', async () => {
     const { id, value, rows } = await seed(); const uploaded = s.uploadedKeys();
+    // Uploaded first: the upload writes its Pending photo row in a transaction of its own.
+    const metadata = await replacing({ ...unchanged(value), title: 'Acknowledgement lost' }, [{ field: 'cover', bytes: jpeg(80) }]);
     const transaction = s.db.transaction.bind(s.db);
     let finish!: () => void; const held = new Promise<void>((resolve) => { finish = resolve; });
     let resolutionStarted!: () => void; const resolving = new Promise<void>((resolve) => { resolutionStarted = resolve; });
@@ -350,9 +352,8 @@ describe('Update recipe HTTP', () => {
       if (!committedYet) deletedBeforeCommit = true;
       resolutionStarted(); return deleteObject(object);
     });
-    const key = randomUUID(); const metadata: UpdateRecipeMetadata = { ...unchanged(value), title: 'Acknowledgement lost', cover: 'replace' };
-    const photos = [{ field: 'cover', bytes: jpeg(80) }];
-    const response = patch(id, metadata, photos, { key });
+    const key = randomUUID();
+    const response = patch(id, metadata, { key });
     try { await resolving; finish(); await committing; expect(await s.savedId(await response, 200)).toBe(id); }
     finally { finish(); await committing; await response.catch(() => undefined); seam.mockRestore(); deletion.mockRestore(); }
     expect(deletedBeforeCommit).toBe(false);
@@ -360,19 +361,20 @@ describe('Update recipe HTTP', () => {
     expect(updated.title).toBe('Acknowledgement lost'); expect(await s.photoAt(updated.imageUrl)).toEqual(storedPhoto(80));
     expect(await s.stored(rows[0].objectKey)).toBe(false); expect(await s.orphans(uploaded)).toBe(0);
     expect((await attemptFor(key))?.state).toBe('completed');
-    expect(await s.savedId(await patch(id, metadata, photos, { key }), 200)).toBe(id);
+    expect(await s.savedId(await patch(id, metadata, { key }), 200)).toBe(id);
   }, 90_000);
 
   it('serializes two concurrent updates of one recipe so that one of them wins entirely', async () => {
     const { id, value, rows } = await seed(); const uploaded = s.uploadedKeys();
     const [a, b, ...rest] = unchanged(value).instructions;
-    const first: UpdateRecipeMetadata = { ...unchanged(value), title: 'First writer', cover: 'replace', categoryIds: s.categoryIds(['Breakfast']),
-      ingredients: [{ name: `${s.name} oats`, quantity: 1, unit: 'cup' }], instructions: [{ ...a, image: 'replace' }, { ...b, image: 'remove' }, ...rest] };
-    const second: UpdateRecipeMetadata = { ...unchanged(value), title: 'Second writer', cover: 'replace', categoryIds: s.categoryIds(['Desserts']),
-      ingredients: [{ name: `${s.name} cocoa`, quantity: 2, unit: 'tbsp' }], instructions: [{ ...a, image: 'remove' }, { ...b, image: 'replace' }, ...rest] };
+    const first = await replacing({ ...unchanged(value), title: 'First writer', categoryIds: s.categoryIds(['Breakfast']),
+      ingredients: [{ name: `${s.name} oats`, quantity: 1, unit: 'cup' }], instructions: [a, { ...b, image: 'remove' }, ...rest] },
+    [{ field: 'cover', bytes: jpeg(91) }, { field: 'step-0', bytes: jpeg(93) }]);
+    const second = await replacing({ ...unchanged(value), title: 'Second writer', categoryIds: s.categoryIds(['Desserts']),
+      ingredients: [{ name: `${s.name} cocoa`, quantity: 2, unit: 'tbsp' }], instructions: [{ ...a, image: 'remove' }, b, ...rest] },
+    [{ field: 'cover', bytes: jpeg(92) }, { field: 'step-1', bytes: jpeg(94) }]);
     const service = s.app.get(RecipeUpdateService);
-    const requests = [serviceRequest(first, [{ field: 'cover', bytes: jpeg(91) }, { field: 'step-0', bytes: jpeg(93) }]),
-      serviceRequest(second, [{ field: 'cover', bytes: jpeg(92) }, { field: 'step-1', bytes: jpeg(94) }])];
+    const requests = [serviceRequest(first), serviceRequest(second)];
     const record = s.recordCleanup(); const began = Date.now(); let results: unknown;
     try { results = await Promise.all(requests.map((request) => service.update(id, request))); await Promise.all(requests.map((request) => request.writeSettled)); }
     finally { record.stop(); }
@@ -385,7 +387,7 @@ describe('Update recipe HTTP', () => {
       { title: 'First writer', categories: ['Breakfast'], ingredients: [`${s.name} oats`], images: [storedPhoto(91), storedPhoto(93), null] },
       { title: 'Second writer', categories: ['Desserts'], ingredients: [`${s.name} cocoa`], images: [storedPhoto(92), null, storedPhoto(94)] },
     ]).toContainEqual(view);
-    // Step C's kept photo survives both writers; every other original and the loser's uploads are gone.
+    // Step C's kept photo survives both writers; every other original and the loser's Pending photos are gone.
     expect(await s.photoAt(final.instructions[2].imageUrl)).toEqual(storedPhoto(13));
     const remaining = await s.imageRows(id);
     expect(remaining).toHaveLength(3);
@@ -410,13 +412,14 @@ describe('Update recipe HTTP', () => {
     expect(['Third writer', 'Fourth writer']).toContain((await s.detail(id)).title);
   }, 120_000);
 
-  it('routes a JSON PATCH to the 415 guard and applies the per-user write limit', async () => {
-    const { id, value } = await seed(); const before = await snapshot(id);
-    for (const body of ['{broken JSON', 'x'.repeat(9 * 1024)]) {
-      const response = await fetch(`${s.baseUrl}/recipes/${id}`, { method: 'PATCH', body, headers: {
-        Cookie: s.owner.cookie, Origin: TEST_ORIGIN, 'Idempotency-Key': randomUUID(), 'Content-Type': 'application/json' } });
-      await s.expectError(response, 415, 'UNSUPPORTED_MEDIA_TYPE');
-    }
+  it('refuses a multipart PATCH as 415 and applies the per-user write limit', async () => {
+    const { id, value } = await seed(); const before = await snapshot(id); const calls = s.upload.mock.calls.length;
+    const body = new FormData(); body.set('recipe', JSON.stringify({ ...unchanged(value), title: 'Multipart' }));
+    body.append('cover', new Blob([new Uint8Array(jpeg(120))], { type: 'image/jpeg' }), 'client-name.jpg');
+    const key = randomUUID();
+    await s.expectError(await fetch(`${s.baseUrl}/recipes/${id}`, { method: 'PATCH', body, headers: { Cookie: s.owner.cookie, Origin: TEST_ORIGIN, 'Idempotency-Key': key } }),
+      415, 'UNSUPPORTED_MEDIA_TYPE');
+    expect([await attemptCount(key), s.upload.mock.calls.length]).toEqual([0, calls]);
     await s.fillLimit('recipe-write', s.owner.user.id, RECIPE_WRITE_LIMIT);
     const limited = await patch(id, { ...unchanged(value), title: 'Limited' });
     await s.expectError(limited, 429, 'RATE_LIMITED'); expect(Number(limited.headers.get('retry-after')) > 0).toBe(true);

@@ -4,25 +4,29 @@ import type { AddressInfo } from 'node:net';
 import { once } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import { RECIPE_LIMITS } from '@recipe-app/contracts/types';
-import { parseRecipeUpload, RECIPE_UPLOAD, recipeBodyCounter, RecipeUploadSlots, RecipeUploadInterceptor } from './recipe-upload.js';
+import { parsePhotoUpload, PHOTO_UPLOAD, readRecipeJson, recipeBodyCounter, RecipeUploadSlots, RecipeUploadInterceptor } from './recipe-upload.js';
 import type { RecipeUploadRequest } from './recipe-upload.js';
 import { RecipeError } from './recipe-errors.js';
 import { rawRecipeRequest } from './testing/recipe-http.js';
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
 import { lastValueFrom, of } from 'rxjs';
 
-const rejectedPart = Buffer.from('--verification-boundary\r\nContent-Disposition: form-data; name="cover"; filename="bad.gif"\r\nContent-Type: image/gif\r\n\r\nGIF89a');
+const rejectedPart = Buffer.from('--verification-boundary\r\nContent-Disposition: form-data; name="photo"; filename="bad.gif"\r\nContent-Type: image/gif\r\n\r\nGIF89a');
+const photoPart = Buffer.from('--verification-boundary\r\nContent-Disposition: form-data; name="photo"; filename="photo.jpg"\r\nContent-Type: image/jpeg\r\n\r\n');
 
 type FirstConnection = { answered: Promise<void>; closed: Promise<void> };
 
-async function parserServer(test: (url: string, received: () => number, first: FirstConnection) => Promise<void>, limit = 4096) {
+type Reader = (request: RecipeUploadRequest, response: Parameters<typeof parsePhotoUpload>[1]) => Promise<void>;
+const photoReader = (limit: number): Reader => (request, response) => parsePhotoUpload(request, response, { ...PHOTO_UPLOAD, requestBytes: limit });
+
+async function parserServer(test: (url: string, received: () => number, first: FirstConnection) => Promise<void>, read: Reader = photoReader(4096)) {
   let received = 0; let markAnswered = () => {}; let markClosed = () => {};
   const first: FirstConnection = { answered: new Promise((resolve) => { markAnswered = resolve; }), closed: new Promise((resolve) => { markClosed = resolve; }) };
   const server = createServer((req, res) => {
     res.once('finish', markAnswered); req.socket.once('close', markClosed);
     req.on('data', (chunk: Buffer) => { received += chunk.length; });
     const request = req as RecipeUploadRequest; request.writeDeadline = Date.now() + 150;
-    void parseRecipeUpload(request, res, { ...RECIPE_UPLOAD, requestBytes: limit }).then(() => { res.end('{}'); }, (cause: unknown) => {
+    void read(request, res).then(() => { res.end('{}'); }, (cause: unknown) => {
       res.statusCode = cause instanceof RecipeError ? cause.getStatus() : 500;
       res.end(JSON.stringify(cause instanceof RecipeError ? cause.getResponse() : { code: 'UNKNOWN' }));
     });
@@ -37,21 +41,11 @@ const multipartHeaders = { 'Content-Type': 'multipart/form-data; boundary=verifi
 describe('Upload admission and wire byte bound', () => {
   it('marks early rejection connections as closed so fetch cannot reuse them', async () => {
     await parserServer(async (url) => {
-      const body = new FormData(); body.append('cover', new Blob(['GIF89a'], { type: 'image/gif' }), 'bad.gif');
+      const body = new FormData(); body.append('photo', new Blob(['GIF89a'], { type: 'image/gif' }), 'bad.gif');
       const response = await fetch(url, { method: 'POST', body });
       expect(response.status).toBe(415); expect(response.headers.get('connection')).toBe('close');
       expect((await response.json()).code).toBe('UNSUPPORTED_MEDIA_TYPE');
     });
-  });
-  it('does not pause a reusable socket after a fully drained metadata rejection', async () => {
-    const bytes = Buffer.from(`--verification-boundary\r\nContent-Disposition: form-data; name="recipe"\r\n\r\n${'x'.repeat(RECIPE_LIMITS.metadataBytes + 1)}\r\n--verification-boundary--\r\n`);
-    const request = Readable.from([bytes]) as unknown as RecipeUploadRequest;
-    request.headers = { 'Content-Type': multipartHeaders['Content-Type'], 'content-type': multipartHeaders['Content-Type'], 'content-length': String(bytes.length) };
-    request.writeDeadline = Date.now() + 1000;
-    const pause = vi.fn(); request.socket = { pause } as unknown as RecipeUploadRequest['socket'];
-    await expect(parseRecipeUpload(request, {} as Parameters<typeof parseRecipeUpload>[1])).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(request.readableEnded).toBe(true); expect(pause).not.toHaveBeenCalled();
   });
   it('survives a rejected part whose body never finishes and returns its error promptly', async () => {
     await parserServer(async (url) => {
@@ -84,18 +78,25 @@ describe('Upload admission and wire byte bound', () => {
   });
   it('bounds raw chunked bytes while parser is active', async () => {
     await parserServer(async (url) => {
-      const first = Buffer.from('--verification-boundary\r\nContent-Disposition: form-data; name="recipe"\r\n\r\n');
-      const response = await rawRecipeRequest(url, multipartHeaders, [first, Buffer.alloc(8192)]);
+      const response = await rawRecipeRequest(url, multipartHeaders, [photoPart, Buffer.alloc(8192)]);
       expect(response.status).toBe(413); expect(JSON.parse(response.body).code).toBe('PAYLOAD_TOO_LARGE');
     });
   });
   it('delivers 413 while the client still has a large chunk queued', async () => {
     await parserServer(async (url, received) => {
-      const first = Buffer.from('--verification-boundary\r\nContent-Disposition: form-data; name="recipe"\r\n\r\n');
-      const response = await rawRecipeRequest(url, multipartHeaders, [first, Buffer.alloc(5 * 1024 * 1024)]);
+      const response = await rawRecipeRequest(url, multipartHeaders, [photoPart, Buffer.alloc(5 * 1024 * 1024)]);
       expect(response.status).toBe(413); expect(JSON.parse(response.body).code).toBe('PAYLOAD_TOO_LARGE');
       expect(received()).toBeLessThanOrEqual(4096 + 65536);
     });
+  });
+  it('refuses a JSON save body past 1 MiB while it arrives, and stops reading the rest', async () => {
+    await parserServer(async (url, received, { closed }) => {
+      const response = await rawRecipeRequest(url, { 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' },
+        (function* () { for (let i = 0; i < 64; i++) yield Buffer.alloc(64 * 1024, 32); })());
+      expect(response.status).toBe(413); expect(JSON.parse(response.body).code).toBe('PAYLOAD_TOO_LARGE');
+      await closed;
+      expect(received()).toBeLessThan(2 * RECIPE_LIMITS.metadataBytes);
+    }, readRecipeJson);
   });
   it('limits each owner to one slot and frees it exactly once', () => {
     const slots = new RecipeUploadSlots();
@@ -107,8 +108,8 @@ describe('Upload admission and wire byte bound', () => {
     vi.useFakeTimers();
     try {
       const slots = new RecipeUploadSlots(); const interceptor = new RecipeUploadInterceptor(slots);
-      const request = Readable.from([Buffer.from('--verification-boundary--\r\n')]) as RecipeUploadRequest;
-      request.headers = { ...multipartHeaders, 'content-length': '27' };
+      const request = Readable.from([Buffer.from('{}')]) as RecipeUploadRequest;
+      request.headers = { 'content-type': 'application/json', 'content-length': '2' };
       request.user = { id: 'owner' } as RecipeUploadRequest['user'];
       request.writeDeadline = Date.now() + 30_000; request.writeSettled = new Promise(() => {});
       const context = { switchToHttp: () => ({ getRequest: () => request, getResponse: () => ({}) }) } as ExecutionContext;
@@ -118,15 +119,15 @@ describe('Upload admission and wire byte bound', () => {
       releases.forEach((release) => release());
     } finally { vi.useRealTimers(); }
   });
-  it('accepts exactly 128 MiB but rejects one extra chunk byte before forwarding it', async () => {
-    const chunk = Buffer.alloc(1024 * 1024);
+  it('accepts exactly one photo request but rejects one extra chunk byte before forwarding it', async () => {
+    const chunk = Buffer.alloc(64 * 1024);
     async function count(extra: boolean) {
-      const input = Readable.from((function* () { for (let i = 0; i < 128; i++) yield chunk; if (extra) yield Buffer.from([1]); })());
-      const countBytes = recipeBodyCounter(); let bytes = 0;
+      const input = Readable.from((function* () { for (let i = 0; i < 65; i++) yield chunk; if (extra) yield Buffer.from([1]); })());
+      const countBytes = recipeBodyCounter(PHOTO_UPLOAD); let bytes = 0;
       for await (const part of input) { countBytes(part as Buffer); bytes += (part as Buffer).length; }
       return bytes;
     }
-    expect(await count(false)).toBe(RECIPE_LIMITS.requestBytes);
+    expect(await count(false)).toBe(RECIPE_LIMITS.photoRequestBytes);
     await expect(count(true)).rejects.toMatchObject({ response: { code: 'PAYLOAD_TOO_LARGE' } });
   });
   it('admits four uploads and releases slots exactly once', () => {

@@ -22,8 +22,9 @@ describe('Recipe update image plan', () => {
   });
 
   it('marks replaced, removed and dropped-step photos stale and places new images on free positions', () => {
-    const plan = planRecipeUpdate(state, metadata('replace', [
-      { id: 'a', description: 'A', image: 'replace' }, { id: null, description: 'New', image: 'replace' }, { id: 'c', description: 'C', image: 'remove' }]),
+    const pending = (pendingPhotoId: string) => ({ pendingPhotoId });
+    const plan = planRecipeUpdate(state, metadata(pending('p-cover'), [
+      { id: 'a', description: 'A', image: pending('p-a') }, { id: null, description: 'New', image: pending('p-new') }, { id: 'c', description: 'C', image: 'remove' }]),
     [upload('cover'), upload('step-0'), upload('step-1')]);
     expect(plan.stepImageIds).toEqual(['new-step-0', 'new-step-1', null]);
     expect(keys(plan.stale)).toEqual(['k-a', 'k-b', 'k-cover']);

@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   createRecipeMetadataSchema,
   createRecipeResultSchema,
-  expectedRecipeFileFields,
-  expectedRecipeUpdateFileFields,
   pendingPhotoSchema,
   recipeDetailSchema,
   recipeListItemSchema,
@@ -16,7 +14,7 @@ import { apiErrorEnvelopeSchema } from "./common.schema.js";
 import { RECIPE_LIMITS } from "../types/recipe.js";
 
 const ingredient = { name: " Salt ", quantity: null, unit: null };
-const instruction = { description: " Stir ", hasImage: false };
+const instruction = { description: " Stir " };
 const metadata = {
   title: " Soup ", description: null, categoryIds: [], servings: null,
   prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
@@ -130,8 +128,7 @@ describe("recipe creation metadata", () => {
       delete missing[key];
       expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: [missing] }).success).toBe(false);
     }
-    expect(createRecipeMetadataSchema.safeParse({ ...metadata, instructions: [{ description: "Stir" }] }).success).toBe(false);
-    expect(createRecipeMetadataSchema.safeParse({ ...metadata, instructions: [{ ...instruction, hasImage: "true" }] }).success).toBe(false);
+    expect(createRecipeMetadataSchema.safeParse({ ...metadata, instructions: [{}] }).success).toBe(false);
     expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: [{ ...ingredient, preparation: null, note: null }] }).success).toBe(true);
     for (const key of ["preparation", "note"]) {
       expect(createRecipeMetadataSchema.safeParse({ ...metadata, ingredients: [{ ...ingredient, [key]: "text" }] }).success).toBe(false);
@@ -139,17 +136,7 @@ describe("recipe creation metadata", () => {
   });
 });
 
-describe("recipe files and responses", () => {
-  it("declares cover first and image steps by original zero-based index", () => {
-    const parsed = createRecipeMetadataSchema.parse({ ...metadata, instructions: [instruction, { ...instruction, hasImage: true }, instruction, { ...instruction, hasImage: true }] });
-    expect(expectedRecipeFileFields(parsed, true)).toEqual(["cover", "step-1", "step-3"]);
-    expect(expectedRecipeFileFields(parsed, false)).toEqual(["step-1", "step-3"]);
-    expect(expectedRecipeFileFields(createRecipeMetadataSchema.parse(metadata), false)).toEqual([]);
-    const all = createRecipeMetadataSchema.parse({ ...metadata, instructions: Array.from({ length: 50 }, () => ({ ...instruction, hasImage: true })) });
-    expect(expectedRecipeFileFields(all, true)).toHaveLength(51);
-    expect(expectedRecipeFileFields(all, true).at(-1)).toBe("step-49");
-  });
-
+describe("recipe responses", () => {
   it("validates creation IDs and general API errors", () => {
     expect(createRecipeResultSchema.parse({ id: "recipe-1" })).toEqual({ id: "recipe-1" });
     expect(createRecipeResultSchema.safeParse({ id: "" }).success).toBe(false);
@@ -171,11 +158,9 @@ describe("recipe files and responses", () => {
 describe("recipe update metadata", () => {
   const update = { ...metadata, cover: "keep", instructions: [{ id: "step-a", description: " Stir ", image: "keep" }] };
 
-  it("accepts keep, replace and remove slots and applies the creation rules", () => {
+  it("accepts keep and remove slots and applies the creation rules", () => {
     expect(updateRecipeMetadataSchema.parse(update)).toMatchObject({ title: "Soup", cover: "keep", instructions: [{ id: "step-a", description: "Stir", image: "keep" }] });
-    for (const slot of ["replace", "remove"]) {
-      expect(updateRecipeMetadataSchema.safeParse({ ...update, cover: slot, instructions: [{ id: null, description: "New", image: slot }] }).success, slot).toBe(true);
-    }
+    expect(updateRecipeMetadataSchema.safeParse({ ...update, cover: "remove", instructions: [{ id: null, description: "New", image: "remove" }] }).success).toBe(true);
     expect(updateRecipeMetadataSchema.safeParse({ ...update, title: " " }).success).toBe(false);
     expect(updateRecipeMetadataSchema.safeParse({ ...update, cover: "delete" }).success).toBe(false);
   });
@@ -188,13 +173,6 @@ describe("recipe update metadata", () => {
     expect(updateRecipeMetadataSchema.safeParse({ ...update, instructions: [{ ...twice, hasImage: true }] }).success).toBe(false);
   });
 
-  it("names one file field per replaced slot", () => {
-    const parsed = updateRecipeMetadataSchema.parse({ ...update, cover: "replace", instructions: [
-      { id: "step-a", description: "One", image: "keep" }, { id: null, description: "Two", image: "replace" }, { id: "step-b", description: "Three", image: "remove" },
-    ] });
-    expect(expectedRecipeUpdateFileFields(parsed)).toEqual(["cover", "step-1"]);
-    expect(expectedRecipeUpdateFileFields(updateRecipeMetadataSchema.parse(update))).toEqual([]);
-  });
 });
 
 describe("Pending photos", () => {
@@ -206,6 +184,12 @@ describe("Pending photos", () => {
     expect(RECIPE_LIMITS.photoRequestBytes).toBe(4_259_840);
   });
 
+  it("limits a save to its JSON metadata, 1 MiB, with no photo request size or file count", () => {
+    expect(RECIPE_LIMITS.metadataBytes).toBe(1_048_576);
+    expect(Object.keys(RECIPE_LIMITS)).not.toContain("requestBytes");
+    expect(Object.keys(RECIPE_LIMITS)).not.toContain("maxFiles");
+  });
+
   it.each([
     ["create", createRecipeMetadataSchema, metadata],
     ["update", updateRecipeMetadataSchema, update],
@@ -214,13 +198,6 @@ describe("Pending photos", () => {
     for (const cover of [{ pendingPhotoId: "photo-1" }, { pendingPhotoId, extra: true }, {}, pendingPhotoId]) {
       expect(schema.safeParse({ ...base, cover }).success, JSON.stringify(cover)).toBe(false);
     }
-  });
-
-  it("expects no cover file when the cover names a Pending photo", () => {
-    const create = createRecipeMetadataSchema.parse({ ...metadata, cover: { pendingPhotoId }, instructions: [instruction, { ...instruction, hasImage: true }] });
-    expect(expectedRecipeFileFields(create, true)).toEqual(["step-1"]);
-    const edit = updateRecipeMetadataSchema.parse({ ...update, cover: { pendingPhotoId }, instructions: [{ id: null, description: "New", image: "replace" }] });
-    expect(expectedRecipeUpdateFileFields(edit)).toEqual(["step-0"]);
   });
 
   const otherId = "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f";
@@ -237,17 +214,15 @@ describe("Pending photos", () => {
     }
   });
 
-  it("refuses a create step that declares a photo file and names a Pending photo", () => {
-    const result = createRecipeMetadataSchema.safeParse({ ...metadata, instructions: [{ ...instruction, hasImage: true, image: { pendingPhotoId } }] });
+  it.each([
+    ["a create step's photo file flag", createRecipeMetadataSchema, { ...metadata, instructions: [{ ...instruction, hasImage: true }] }, "instructions.0.hasImage"],
+    ["a create step's empty photo file flag", createRecipeMetadataSchema, { ...metadata, instructions: [{ ...instruction, hasImage: false }] }, "instructions.0.hasImage"],
+    ["an update cover replaced by a file", updateRecipeMetadataSchema, { ...update, cover: "replace" }, "cover"],
+    ["an update step replaced by a file", updateRecipeMetadataSchema, { ...update, instructions: [updateStep("replace")] }, "instructions.0.image"],
+  ] as const)("names photos only as saved or Pending photos, never as files: refuses %s", (_name, schema, input, path) => {
+    const result = schema.safeParse(input);
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.issues.map((issue) => issue.path.join("."))).toEqual(["instructions.0.image"]);
-  });
-
-  it("expects no file for a step that names a Pending photo", () => {
-    const create = createRecipeMetadataSchema.parse({ ...metadata, instructions: [createStep({ pendingPhotoId }), { ...instruction, hasImage: true }] });
-    expect(expectedRecipeFileFields(create, false)).toEqual(["step-1"]);
-    const edit = updateRecipeMetadataSchema.parse({ ...update, instructions: [updateStep({ pendingPhotoId }), updateStep("replace")] });
-    expect(expectedRecipeUpdateFileFields(edit)).toEqual(["step-1"]);
+    if (!result.success) expect(result.error.issues.map((issue) => [...issue.path, ...("keys" in issue ? issue.keys : [])].join("."))).toEqual([path]);
   });
 
   it.each([

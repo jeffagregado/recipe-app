@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import type { ServerResponse } from 'node:http';
 import { Inject, Injectable } from '@nestjs/common';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { RECIPE_LIMITS } from '@recipe-app/contracts/types';
 import { namedPendingPhotos } from '@recipe-app/contracts/schemas';
 import type { CreateRecipeMetadata, PendingPhoto, UpdateRecipeMetadata } from '@recipe-app/contracts/types';
 import { unauthenticated } from '../auth/auth.errors.js';
@@ -15,8 +15,8 @@ import { StorageService } from '../storage/storage.service.js';
 import { fieldError, logRecipeFailure, RecipeError, recipeUnavailable } from './recipe-errors.js';
 import { prepareRecipePhoto } from './recipe-images.js';
 import type { RecipeFile } from './recipe-images.js';
-import { checkMultipartHeaders, RecipeUploadInterceptor, RecipeUploadSlots, writeDeadlineCheck } from './recipe-upload.js';
-import type { RecipeUploadRequest, UploadShape } from './recipe-upload.js';
+import { checkMultipartHeaders, parsePhotoUpload, PHOTO_UPLOAD, RecipeUploadInterceptor, RecipeUploadSlots, writeDeadlineCheck } from './recipe-upload.js';
+import type { RecipeUploadRequest } from './recipe-upload.js';
 
 /** Enough for a recipe's 51 photo slots twice over, with retries; bounds scripted uploads per Account. */
 export const PENDING_PHOTO_UPLOAD_LIMIT = 120;
@@ -28,17 +28,12 @@ const expired = sql`${pendingPhotos.createdAt} <= clock_timestamp() - interval '
 const SWEEP_BATCH = 10;
 /** Unexpired Pending photos one Account may hold, so one Account cannot fill storage with photos it never saves. */
 const PENDING_PHOTOS_PER_ACCOUNT = 60;
-const PHOTO_FIELD = 'photo';
+const PHOTO_FIELD = PHOTO_UPLOAD.field;
 /** Where Pending photos are stored. A save keeps the object where it is, so a saved photo can sit here too. */
 const PENDING_PHOTO_PREFIX = 'photos/';
 /** How old a stored photo no row names must be before reconciliation deletes it: an upload writes its row just after storing it. */
 const ORPHAN_AGE_MS = 24 * 60 * 60_000;
 const RECONCILE_BATCH = 100;
-
-/** One photo per request, so every upload stays under Vercel's 4.5 MB request limit (ADR 0005). */
-const PHOTO_UPLOAD: UploadShape = {
-  requestBytes: RECIPE_LIMITS.photoRequestBytes, tooLarge: 'Request exceeds one photo.', files: 1, fileField: /^photo$/, field: PHOTO_FIELD,
-};
 
 const pendingPhotoLimit = () => new RecipeError(409, 'PENDING_PHOTO_LIMIT', 'Too many photos are waiting to be saved. Save the recipe first, or try again tomorrow.');
 const heldPendingPhotos = (db: Pick<DrizzleDb, '$count'>, userId: string) => db.$count(pendingPhotos, and(eq(pendingPhotos.userId, userId), unexpired));
@@ -62,9 +57,9 @@ export class PendingPhotoUploadGuard implements CanActivate {
 /** Holds an upload slot while the photo is received and processed. Two per owner, so a photo picked again while the last one is still processing is not refused. */
 @Injectable()
 export class PendingPhotoUploadInterceptor extends RecipeUploadInterceptor {
-  protected override readonly shape = PHOTO_UPLOAD;
   protected override readonly perOwner = 2;
   constructor(slots: RecipeUploadSlots) { super(slots); }
+  protected override read(request: RecipeUploadRequest, response: ServerResponse): Promise<void> { return parsePhotoUpload(request, response); }
 }
 
 @Injectable()
@@ -177,7 +172,7 @@ async function deleteStoredPhotos(storage: Pick<StorageService, 'deleteObject'>,
 /** A photo slot a save fills with a Pending photo: the slot's field name and the Pending photo's id. */
 export type PendingPhotoUse = { field: string; id: string };
 
-/** The slots of a save that name Pending photos, by their multipart field names: `cover` and `step-<index>`. */
+/** The slots of a save that name Pending photos, by their slot names: `cover` and `step-<index>`. */
 export function pendingPhotoUses(metadata: CreateRecipeMetadata | UpdateRecipeMetadata): PendingPhotoUse[] {
   return namedPendingPhotos(metadata).map(({ field, pendingPhotoId }) => ({ field, id: pendingPhotoId }));
 }

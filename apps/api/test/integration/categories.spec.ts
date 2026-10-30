@@ -54,7 +54,7 @@ describe('Categories HTTP', () => {
   const rows = (list: CategoryWithUsage[]): SaveCategoryInput[] => list.map(({ id, name }) => ({ id, name }));
   const names = (list: { name: string }[]) => list.map(({ name }) => name);
   const createTagged = async (tags: string[], cookie = s.owner.cookie) =>
-    s.savedId(await s.send('/recipes', { ...minimalRecipe(s.name), categoryIds: tags }, [], { cookie }), 201);
+    s.savedId(await s.send('/recipes', { ...minimalRecipe(s.name), categoryIds: tags }, { cookie }), 201);
 
   it('gives every new account its own five defaults in order, unused', async () => {
     const [mine, theirs] = [await read(), await read(s.other.cookie)];
@@ -156,18 +156,19 @@ describe('Categories HTTP', () => {
   it('rejects another owner\'s category on recipe create and update, storing nothing', async () => {
     const mine = named(await read(), 'Dinner');
     const foreign = (await read(s.other.cookie))[0];
-    const uploads = s.uploadedKeys().size;
-    await s.expectError(await s.send('/recipes', { ...minimalRecipe(s.name), categoryIds: [mine.id, foreign.id], instructions: [{ description: 'Mix.', hasImage: true }] },
-      [{ field: 'step-0', bytes: jpeg() }]), 400, 'VALIDATION_FAILED', 'categories');
+    const pendingPhotoId = await s.pendingPhoto(jpeg());
+    await s.expectError(await s.send('/recipes', { ...minimalRecipe(s.name), categoryIds: [mine.id, foreign.id], instructions: [{ description: 'Mix.', image: { pendingPhotoId } }] }),
+      400, 'VALIDATION_FAILED', 'categories');
     expect((await s.list()).counts.total).toBe(0);
-    expect(s.uploadedKeys().size).toBe(uploads);
+    // The refused save took nothing: its photo is still a Pending photo.
+    expect((await s.pendingRow(pendingPhotoId))?.id).toBe(pendingPhotoId);
 
     const recipeId = await createTagged([mine.id]);
     const value = await s.detail(recipeId);
     const update = { title: value.title, description: null, servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
       ingredients: [{ name: s.name, quantity: null, unit: null }], cover: 'keep', instructions: value.instructions.map(({ id, description }) => ({ id, description, image: 'keep' })) };
     for (const categoryIds of [[foreign.id], [mine.id, randomUUID()]]) {
-      await s.expectError(await s.send(`/recipes/${recipeId}`, { ...update, categoryIds }, [], { method: 'PATCH' }), 400, 'VALIDATION_FAILED', 'categories');
+      await s.expectError(await s.send(`/recipes/${recipeId}`, { ...update, categoryIds }, { method: 'PATCH' }), 400, 'VALIDATION_FAILED', 'categories');
     }
     expect((await s.detail(recipeId)).categories).toEqual([{ id: mine.id, name: 'Dinner' }]);
     expect((await read(s.other.cookie))[0].recipeCount).toBe(0);

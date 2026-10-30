@@ -201,18 +201,18 @@ describe('Pending photos HTTP', () => {
     it('creates the recipe with that photo as its cover and leaves it no longer pending', async () => {
       const pendingPhotoId = await s.pendingPhoto(jpeg(50)); const { objectKey } = (await s.pendingRow(pendingPhotoId))!;
       const key = randomUUID();
-      const id = await s.savedId(await s.send('/recipes', withCover(pendingPhotoId), [], { key }), 201);
+      const id = await s.savedId(await s.send('/recipes', withCover(pendingPhotoId), { key }), 201);
       expect(await s.photoAt((await s.detail(id)).imageUrl)).toEqual(storedPhoto(50));
       expect((await s.imageRows(id)).map((row) => [row.objectKey, row.sortOrder])).toEqual([[objectKey, 0]]);
       expect(await s.pendingRow(pendingPhotoId)).toBeUndefined();
-      // The attempt records only objects the save uploaded itself, so its cleanup can never delete the Pending photo.
+      // A save stores no objects of its own, so its attempt records none and its cleanup can never delete the Pending photo.
       expect((await s.db.query.recipeWriteAttempts.findFirst({ where: eq(recipeWriteAttempts.idempotencyKey, key) }))?.objectKeys).toEqual([]);
     }, 60_000);
 
     it('takes effect once when retried with the same key and Pending photo', async () => {
       const pendingPhotoId = await s.pendingPhoto(jpeg(51)); const key = randomUUID(); const before = await ownedRecipes();
-      const id = await s.savedId(await s.send('/recipes', withCover(pendingPhotoId), [], { key }), 201);
-      expect(await s.savedId(await s.send('/recipes', withCover(pendingPhotoId), [], { key }), 200)).toBe(id);
+      const id = await s.savedId(await s.send('/recipes', withCover(pendingPhotoId), { key }), 201);
+      expect(await s.savedId(await s.send('/recipes', withCover(pendingPhotoId), { key }), 200)).toBe(id);
       expect(await ownedRecipes()).toBe(before + 1);
       expect(await s.photoAt((await s.detail(id)).imageUrl)).toEqual(storedPhoto(51));
     }, 60_000);
@@ -232,7 +232,7 @@ describe('Pending photos HTTP', () => {
       }],
     ])('rejects the Pending photo of %s Account on the cover and saves nothing', async (_name, prepare) => {
       const pendingPhotoId = await prepare(); const key = randomUUID(); const before = await ownedRecipes(); const calls = s.upload.mock.calls.length;
-      await s.expectError(await s.send('/recipes', withCover(pendingPhotoId), [], { key }), 400, 'VALIDATION_FAILED', 'cover');
+      await s.expectError(await s.send('/recipes', withCover(pendingPhotoId), { key }), 400, 'VALIDATION_FAILED', 'cover');
       expect([await ownedRecipes(), s.upload.mock.calls.length]).toEqual([before, calls]);
       expect(await s.db.$count(recipeWriteAttempts, eq(recipeWriteAttempts.idempotencyKey, key))).toBe(0);
     }, 60_000);
@@ -240,31 +240,24 @@ describe('Pending photos HTTP', () => {
     it('keeps the Pending photo after a save that rolls back, so a retry can use it', async () => {
       const pendingPhotoId = await s.pendingPhoto(jpeg(56)); const { objectKey } = (await s.pendingRow(pendingPhotoId))!;
       const hook = vi.spyOn(s.app.get(RecipeWriteHook), 'beforeComplete').mockRejectedValueOnce(new Error('forced rollback'));
-      const metadata = { ...withCover(pendingPhotoId), instructions: [{ description: 'Mix.', hasImage: true }] };
-      await s.expectError(await s.send('/recipes', metadata, [{ field: 'step-0', bytes: jpeg(57) }]), 503, 'SERVICE_UNAVAILABLE');
+      const metadata = await s.withPendingPhotos(withCover(pendingPhotoId), [{ field: 'step-0', bytes: jpeg(57) }]);
+      await s.expectError(await s.send('/recipes', metadata), 503, 'SERVICE_UNAVAILABLE');
       hook.mockRestore();
       expect((await s.pendingRow(pendingPhotoId))?.objectKey).toBe(objectKey);
       expect(await s.stored(objectKey)).toBe(true);
-      const id = await s.savedId(await s.send('/recipes', metadata, [{ field: 'step-0', bytes: jpeg(57) }]), 201);
+      const id = await s.savedId(await s.send('/recipes', metadata), 201);
       const value = await s.detail(id);
-      // Step photos keep travelling in the multipart save beside a Pending cover.
       expect([await s.photoAt(value.imageUrl), await s.photoAt(value.instructions[0].imageUrl)]).toEqual([storedPhoto(56), storedPhoto(57)]);
     }, 60_000);
 
-    it('rejects a cover file sent beside a cover named as a Pending photo', async () => {
-      const pendingPhotoId = await s.pendingPhoto(jpeg(58));
-      await s.expectError(await s.send('/recipes', withCover(pendingPhotoId), [{ field: 'cover', bytes: jpeg(59) }]), 400, 'VALIDATION_FAILED', 'cover');
-      expect(await s.pendingRow(pendingPhotoId)).toBeDefined();
-    }, 60_000);
-
     it('replaces the cover while editing and removes the replaced photo from storage', async () => {
-      const id = await s.savedId(await s.send('/recipes', minimalRecipe(`${s.name} pepper`), [{ field: 'cover', bytes: jpeg(60) }]), 201);
+      const id = await s.savedId(await s.send('/recipes', await s.withPendingPhotos(minimalRecipe(`${s.name} pepper`), [{ field: 'cover', bytes: jpeg(60) }])), 201);
       const [oldCover] = await s.imageRows(id);
       const pendingPhotoId = await s.pendingPhoto(jpeg(61)); const { objectKey } = (await s.pendingRow(pendingPhotoId))!;
       const metadata: UpdateRecipeMetadata = { ...unchanged(await s.detail(id)), cover: { pendingPhotoId } };
       const key = randomUUID();
-      expect(await s.savedId(await s.send(`/recipes/${id}`, metadata, [], { method: 'PATCH', key }), 200)).toBe(id);
-      expect(await s.savedId(await s.send(`/recipes/${id}`, metadata, [], { method: 'PATCH', key }), 200)).toBe(id);
+      expect(await s.savedId(await s.send(`/recipes/${id}`, metadata, { method: 'PATCH', key }), 200)).toBe(id);
+      expect(await s.savedId(await s.send(`/recipes/${id}`, metadata, { method: 'PATCH', key }), 200)).toBe(id);
       expect(await s.photoAt((await s.detail(id)).imageUrl)).toEqual(storedPhoto(61));
       expect((await s.imageRows(id)).map((row) => [row.objectKey, row.sortOrder])).toEqual([[objectKey, 0]]);
       expect(await s.pendingRow(pendingPhotoId)).toBeUndefined();
@@ -272,37 +265,34 @@ describe('Pending photos HTTP', () => {
     }, 60_000);
 
     it('rejects another Account\'s Pending photo on an edited cover and keeps the recipe as it was', async () => {
-      const id = await s.savedId(await s.send('/recipes', minimalRecipe(`${s.name} thyme`), [{ field: 'cover', bytes: jpeg(62) }]), 201);
+      const id = await s.savedId(await s.send('/recipes', await s.withPendingPhotos(minimalRecipe(`${s.name} thyme`), [{ field: 'cover', bytes: jpeg(62) }])), 201);
       const pendingPhotoId = await s.pendingPhoto(jpeg(63), s.other.cookie);
       const metadata: UpdateRecipeMetadata = { ...unchanged(await s.detail(id)), cover: { pendingPhotoId } };
-      await s.expectError(await s.send(`/recipes/${id}`, metadata, [], { method: 'PATCH' }), 400, 'VALIDATION_FAILED', 'cover');
+      await s.expectError(await s.send(`/recipes/${id}`, metadata, { method: 'PATCH' }), 400, 'VALIDATION_FAILED', 'cover');
       expect(await s.photoAt((await s.detail(id)).imageUrl)).toEqual(storedPhoto(62));
       expect((await s.pendingRow(pendingPhotoId))?.userId).toBe(s.other.user.id);
     }, 60_000);
   });
 
   describe('saving step photos named as Pending photos', () => {
-    const steps = (...ids: string[]) => ids.map((pendingPhotoId, index) => ({ description: `Step ${index + 1}.`, hasImage: false, image: { pendingPhotoId } }));
+    const steps = (...ids: string[]) => ids.map((pendingPhotoId, index) => ({ description: `Step ${index + 1}.`, image: { pendingPhotoId } }));
 
-    it('creates the recipe with Pending photos on its steps, beside a step photo file, each step showing its own photo', async () => {
-      const [cover, first, last] = [await s.pendingPhoto(jpeg(70)), await s.pendingPhoto(jpeg(71)), await s.pendingPhoto(jpeg(73))];
-      const objectKeys = await Promise.all([cover, first, last].map(async (id) => (await s.pendingRow(id))!.objectKey));
+    it('creates the recipe with Pending photos on its steps, each step showing its own photo', async () => {
+      const [cover, first, third, last] = [await s.pendingPhoto(jpeg(70)), await s.pendingPhoto(jpeg(71)), await s.pendingPhoto(jpeg(72)), await s.pendingPhoto(jpeg(73))];
       const metadata: CreateRecipeMetadata = { ...withCover(cover), instructions: [
-        { description: 'Chop.', hasImage: false, image: { pendingPhotoId: first } }, { description: 'Rest.', hasImage: false },
-        { description: 'Fry.', hasImage: true }, { description: 'Serve.', hasImage: false, image: { pendingPhotoId: last } },
+        { description: 'Chop.', image: { pendingPhotoId: first } }, { description: 'Rest.' },
+        { description: 'Fry.', image: { pendingPhotoId: third } }, { description: 'Serve.', image: { pendingPhotoId: last } },
       ] };
-      const key = randomUUID(); const before = await ownedRecipes();
-      const id = await s.savedId(await s.send('/recipes', metadata, [{ field: 'step-2', bytes: jpeg(72) }], { key }), 201);
+      const key = randomUUID(); const before = await ownedRecipes(); const uploads = s.upload.mock.calls.length;
+      const id = await s.savedId(await s.send('/recipes', metadata, { key }), 201);
       const value = await s.detail(id);
       expect(await Promise.all([value.imageUrl, ...value.instructions.map((step) => step.imageUrl)].map((url) => url && s.photoAt(url))))
         .toEqual([storedPhoto(70), storedPhoto(71), null, storedPhoto(72), storedPhoto(73)]);
-      const rows = await s.imageRows(id);
-      expect(rows.map((row) => row.sortOrder)).toEqual([0, 1, 2, 3]);
-      expect(rows.filter((row) => objectKeys.includes(row.objectKey)).map((row) => row.sortOrder)).toEqual([0, 1, 3]);
-      expect(await Promise.all([cover, first, last].map(s.pendingRow))).toEqual([undefined, undefined, undefined]);
-      // Retried with the same key and Pending photos, the save takes effect once.
-      expect(await s.savedId(await s.send('/recipes', metadata, [{ field: 'step-2', bytes: jpeg(72) }], { key }), 200)).toBe(id);
-      expect(await ownedRecipes()).toBe(before + 1);
+      expect((await s.imageRows(id)).map((row) => row.sortOrder)).toEqual([0, 1, 2, 3]);
+      expect(await Promise.all([cover, first, third, last].map(s.pendingRow))).toEqual([undefined, undefined, undefined, undefined]);
+      // Retried with the same key and Pending photos, the save takes effect once; neither save stores a photo.
+      expect(await s.savedId(await s.send('/recipes', metadata, { key }), 200)).toBe(id);
+      expect([await ownedRecipes(), s.upload.mock.calls.length]).toEqual([before + 1, uploads]);
     }, 60_000);
 
     it.each([
@@ -321,16 +311,16 @@ describe('Pending photos HTTP', () => {
     }, 60_000);
 
     it('replaces one step photo while editing, keeps the others without sending them, and removes the replaced photo from storage', async () => {
-      const created: CreateRecipeMetadata = { ...minimalRecipe(`${s.name} basil`), instructions: [{ description: 'Chop.', hasImage: true }, { description: 'Fry.', hasImage: true }] };
-      const id = await s.savedId(await s.send('/recipes', created, [{ field: 'step-0', bytes: jpeg(77) }, { field: 'step-1', bytes: jpeg(78) }]), 201);
+      const created: CreateRecipeMetadata = { ...minimalRecipe(`${s.name} basil`), instructions: [{ description: 'Chop.' }, { description: 'Fry.' }] };
+      const id = await s.savedId(await s.send('/recipes', await s.withPendingPhotos(created, [{ field: 'step-0', bytes: jpeg(77) }, { field: 'step-1', bytes: jpeg(78) }])), 201);
       const before = await s.imageRows(id);
       const replaced = before.find((row) => row.sortOrder === 2)!;
       const pendingPhotoId = await s.pendingPhoto(jpeg(79)); const { objectKey } = (await s.pendingRow(pendingPhotoId))!;
       const current = unchanged(await s.detail(id));
       const metadata: UpdateRecipeMetadata = { ...current, instructions: current.instructions.map((step, index) => (index === 1 ? { ...step, image: { pendingPhotoId } } : step)) };
       const key = randomUUID(); const uploads = s.upload.mock.calls.length;
-      expect(await s.savedId(await s.send(`/recipes/${id}`, metadata, [], { method: 'PATCH', key }), 200)).toBe(id);
-      expect(await s.savedId(await s.send(`/recipes/${id}`, metadata, [], { method: 'PATCH', key }), 200)).toBe(id);
+      expect(await s.savedId(await s.send(`/recipes/${id}`, metadata, { method: 'PATCH', key }), 200)).toBe(id);
+      expect(await s.savedId(await s.send(`/recipes/${id}`, metadata, { method: 'PATCH', key }), 200)).toBe(id);
       // Nothing was uploaded by the saves: the kept photo is referenced, the new one was already stored as a Pending photo.
       expect(s.upload.mock.calls.length).toBe(uploads);
       const value = await s.detail(id);
@@ -341,13 +331,13 @@ describe('Pending photos HTTP', () => {
     }, 60_000);
 
     it('rejects an expired Pending photo on an edited step and keeps the recipe as it was', async () => {
-      const created: CreateRecipeMetadata = { ...minimalRecipe(`${s.name} dill`), instructions: [{ description: 'Chop.', hasImage: true }] };
-      const id = await s.savedId(await s.send('/recipes', created, [{ field: 'step-0', bytes: jpeg(80) }]), 201);
+      const created: CreateRecipeMetadata = { ...minimalRecipe(`${s.name} dill`), instructions: [{ description: 'Chop.' }] };
+      const id = await s.savedId(await s.send('/recipes', await s.withPendingPhotos(created, [{ field: 'step-0', bytes: jpeg(80) }])), 201);
       const pendingPhotoId = await s.pendingPhoto(jpeg(81));
       await s.db.update(pendingPhotos).set({ createdAt: sql`now() - interval '24 hours 1 minute'` }).where(eq(pendingPhotos.id, pendingPhotoId));
       const current = unchanged(await s.detail(id));
       const metadata: UpdateRecipeMetadata = { ...current, instructions: [{ ...current.instructions[0], image: { pendingPhotoId } }] };
-      await s.expectError(await s.send(`/recipes/${id}`, metadata, [], { method: 'PATCH' }), 400, 'VALIDATION_FAILED', 'step-0');
+      await s.expectError(await s.send(`/recipes/${id}`, metadata, { method: 'PATCH' }), 400, 'VALIDATION_FAILED', 'step-0');
       expect(await s.photoAt((await s.detail(id)).instructions[0].imageUrl)).toEqual(storedPhoto(80));
     }, 60_000);
   });
