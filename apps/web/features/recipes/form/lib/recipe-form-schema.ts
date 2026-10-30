@@ -138,7 +138,9 @@ export type IngredientFormRow = IngredientFormGroup['rows'][number]
 export type InstructionFormRow = InstructionFormGroup['steps'][number]
 
 export const emptyIngredientRow = (): IngredientFormRow => ({ name: '', amount: '', unit: '' })
-export const emptyInstructionRow = (): InstructionFormRow => ({ key: crypto.randomUUID(), id: null, description: '', photo: noPhoto() })
+// Unique for the page's lifetime; a counter, because crypto.randomUUID is missing outside secure contexts (a dev server over plain HTTP).
+let rowKeys = 0
+export const emptyInstructionRow = (): InstructionFormRow => ({ key: `row-${++rowKeys}`, id: null, description: '', photo: noPhoto() })
 
 /** The form path of a photo slot: the cover, or the photo of the step with this key wherever it is now; null once that step is gone. */
 export function photoSlotPath(values: Pick<RecipeFormValues, 'instructions'>, slot: string): 'cover' | `instructions.${number}.steps.${number}.photo` | null {

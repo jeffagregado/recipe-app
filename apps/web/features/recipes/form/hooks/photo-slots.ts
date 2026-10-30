@@ -6,7 +6,6 @@ import { compressPhoto } from '../lib/compress-photo'
 import { checkPickedPhoto } from '../lib/recipe-files'
 import { noPhoto, pendingPhoto, pickedPhoto, type PhotoValue } from '../lib/recipe-photo'
 import type { PhotoUploader } from '../lib/upload-pending-photo'
-import { createPhotoPreparations } from './photo-preparations'
 
 /** What a slot shows besides its photo: a pick being shrunk or the pick's problem, and the upload's progress or failure. */
 type SlotStatus = { preparing: boolean; pickError?: string; progress: number; uploadError?: string }
@@ -29,7 +28,13 @@ type Upload = { file: File; controller: AbortController }
  * waits for all of this. Only a slot's latest pick and latest upload count.
  */
 export function createPhotoSlots(host: PhotoSlotHost) {
-	const preparations = createPhotoPreparations()
+	// Shrinking and uploading still running; Save waits for them, so it never sends the form without a photo just picked.
+	const running = new Set<Promise<unknown>>()
+	const track = (work: Promise<unknown>) => {
+		running.add(work)
+		const done = () => { running.delete(work) }
+		work.then(done, done)
+	}
 	const statuses = new Map<string, SlotStatus>()
 	const picks = new Map<string, object>()
 	const uploads = new Map<string, Upload>()
@@ -76,8 +81,11 @@ export function createPhotoSlots(host: PhotoSlotHost) {
 	}
 
 	return {
-		isPreparing: preparations.isPreparing,
-		settled: preparations.settled,
+		isPreparing: () => running.size > 0,
+		async settled() {
+			// A photo picked while waiting joins the set; wait for that one too.
+			while (running.size > 0) await Promise.allSettled([...running])
+		},
 		subscribe(listener: () => void) {
 			listeners.add(listener)
 			return () => { listeners.delete(listener) }
@@ -89,11 +97,11 @@ export function createPhotoSlots(host: PhotoSlotHost) {
 			picks.set(slot, pick)
 			const problem = checkPickedPhoto(file)
 			update(slot, { pickError: problem ?? undefined, preparing: !problem })
-			if (!problem) preparations.track(prepare(slot, pick, file))
+			if (!problem) track(prepare(slot, pick, file))
 		},
 		retry(slot: string) {
 			const photo = host.read(slot)
-			if (photo?.kind === 'picked') preparations.track(send(slot, photo.file))
+			if (photo?.kind === 'picked') track(send(slot, photo.file))
 		},
 		remove(slot: string) {
 			stop(slot)

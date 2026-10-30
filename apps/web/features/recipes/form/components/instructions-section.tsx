@@ -156,7 +156,7 @@ function StepPhoto({ group, row, position, disabled }: { group: number; row: num
 				</div>
 			)}
 			<PhotoSlotStatus photo={photo} error={error} errorId={`${fieldId}-error`} progressLabel={`Step ${position} photo upload`} retryLabel={`Retry photo upload for step ${position}`}
-				disabled={disabled} onRetry={retryUpload} className="px-3 sm:px-4" />
+				disabled={disabled} onRetry={retryUpload} retryClassName="px-3 sm:px-4" />
 		</div>
 	)
 }

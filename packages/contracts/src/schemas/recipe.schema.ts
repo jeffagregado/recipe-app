@@ -240,13 +240,22 @@ const metadataFields = {
 };
 const instructionDescription = () => metadataText().min(1).max(RECIPE_LIMITS.instructionDescription);
 
+/** A save slot filled by a Pending photo: its multipart field name (`cover`, `step-<index>`), its metadata path and the Pending photo. */
+export type NamedPendingPhoto = { field: string; path: (string | number)[]; pendingPhotoId: string };
+
+/** The slots of save metadata that name Pending photos, cover first, then steps by their index. */
+export function namedPendingPhotos(metadata: { cover?: unknown; instructions: { image?: unknown }[] }): NamedPendingPhoto[] {
+  const slots: [string, (string | number)[], unknown][] = [
+    ["cover", ["cover"], metadata.cover],
+    ...metadata.instructions.map((step, index): [string, (string | number)[], unknown] => [`step-${index}`, ["instructions", index, "image"], step.image]),
+  ];
+  return slots.flatMap(([field, path, slot]) => (typeof slot === "object" && slot !== null ? [{ field, path, pendingPhotoId: (slot as PendingPhotoSlot).pendingPhotoId }] : []));
+}
+
 /** A Pending photo stops being pending once a recipe takes it, so it can fill only one of a save's photo slots. */
 function oneSlotPerPendingPhoto(metadata: { cover?: unknown; instructions: { image?: unknown }[] }, ctx: z.RefinementCtx): void {
-  const slots: [PropertyKey[], unknown][] = [[["cover"], metadata.cover], ...metadata.instructions.map((step, index): [PropertyKey[], unknown] => [["instructions", index, "image"], step.image])];
   const named = new Set<string>();
-  for (const [path, slot] of slots) {
-    if (typeof slot !== "object" || slot === null) continue;
-    const { pendingPhotoId } = slot as PendingPhotoSlot;
+  for (const { path, pendingPhotoId } of namedPendingPhotos(metadata)) {
     if (named.has(pendingPhotoId)) ctx.addIssue({ code: "custom", path, message: "Each Pending photo can fill one photo slot." });
     named.add(pendingPhotoId);
   }

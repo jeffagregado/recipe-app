@@ -218,5 +218,16 @@ describe('Pending photos HTTP', () => {
       expect(await s.pendingRow(pendingPhotoId)).toBeUndefined();
       await expect.poll(() => s.stored(replaced.objectKey), { timeout: 20_000 }).toBe(false);
     }, 60_000);
+
+    it('rejects an expired Pending photo on an edited step and keeps the recipe as it was', async () => {
+      const created: CreateRecipeMetadata = { ...minimalRecipe(`${s.name} dill`), instructions: [{ description: 'Chop.', hasImage: true }] };
+      const id = await s.savedId(await s.send('/recipes', created, [{ field: 'step-0', bytes: jpeg(80) }]), 201);
+      const pendingPhotoId = await s.pendingPhoto(jpeg(81));
+      await s.db.update(pendingPhotos).set({ createdAt: sql`now() - interval '24 hours 1 minute'` }).where(eq(pendingPhotos.id, pendingPhotoId));
+      const current = unchanged(await s.detail(id));
+      const metadata: UpdateRecipeMetadata = { ...current, instructions: [{ ...current.instructions[0], image: { pendingPhotoId } }] };
+      await s.expectError(await s.send(`/recipes/${id}`, metadata, [], { method: 'PATCH' }), 400, 'VALIDATION_FAILED', 'step-0');
+      expect(await s.photoAt((await s.detail(id)).instructions[0].imageUrl)).toEqual(storedPhoto(80));
+    }, 60_000);
   });
 });

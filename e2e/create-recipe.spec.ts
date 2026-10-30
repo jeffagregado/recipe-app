@@ -172,7 +172,7 @@ test.describe('photos', () => {
     expect((await workerData.db.select({ n: count() }).from(pendingPhotos).where(eq(pendingPhotos.userId, creator.user.id)))[0].n).toBe(0);
   });
 
-  test('several phone-sized step photos, far over 4.5 MB together, each upload on their own and the recipe saves with all of them', async ({ page, workerData, creator }) => {
+  test('several phone-sized step photos, far over 4.5 MB together, each upload on their own and the recipe saves with all of them', async ({ page }) => {
     const originals = [[200, 110, 60], [60, 140, 90], [90, 80, 190]].map((colour, index) => photo(`step-${index + 1}.png`, colour as [number, number, number], 2400, 1800, 4));
     // Together well over Vercel's 4.5 MB request limit, which a save carrying them all would hit.
     expect(originals.reduce((total, { buffer }) => total + buffer.length, 0)).toBeGreaterThan(3 * 4.5 * 1000 * 1000);
@@ -200,12 +200,12 @@ test.describe('photos', () => {
     const saveBody = (await request).postDataBuffer()!;
     expect(saveBody.length).toBeLessThan(64 * 1024);
     expect(saveBody.toString().match(/"pendingPhotoId"/g)).toHaveLength(3);
+    // The same waits as the phone-sized cover above, whose save and redirect over the link to Neon took most of its 33 to
+    // 55 s locally. Measured locally, this whole test took 12 s.
     await expect(page).toHaveURL(SAVED, { timeout: 30_000 });
     await expect(page.getByRole('heading', { level: 1, name: 'Three photo stew' })).toBeVisible({ timeout: 20_000 });
+    // Each step shows its own photo; what the API stored is asserted by its integration tests.
     await expect(photoButtons(page)).toHaveCount(3);
-    const saved = await workerData.db.query.recipes.findFirst({ where: eq(recipes.userId, creator.user.id), with: { images: true } });
-    expect(saved?.images).toHaveLength(3);
-    expect((await workerData.db.select({ n: count() }).from(pendingPhotos).where(eq(pendingPhotos.userId, creator.user.id)))[0].n).toBe(0);
   });
 });
 
