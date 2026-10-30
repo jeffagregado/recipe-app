@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { TEST_WEB_SECRET } from './apps/api/test/test-web-secret.js';
 
 const webUrl = 'http://127.0.0.1:4100';
 const apiUrl = 'http://127.0.0.1:4101';
@@ -41,7 +42,9 @@ export default defineConfig({
       command: 'pnpm --filter @recipe/api run test:server',
       url: `${apiUrl}/api/auth/ok`,
       // The server records its mail and serves it on MAIL_READER_PORT: the tests read each link there (e2e/fixtures.ts).
-      env: { PORT: '4101', MAIL_READER_PORT: '4102' },
+      // Both servers share the test secret, so the API trusts the client IP the web app names and each worker keeps its
+      // own rate-limit bucket. The process environment overrides the env files.
+      env: { PORT: '4101', MAIL_READER_PORT: '4102', RECIPE_WEB_PROXY_SECRET: TEST_WEB_SECRET },
       reuseExistingServer: false,
       timeout: 60_000,
     },
@@ -49,7 +52,7 @@ export default defineConfig({
       name: 'recipe-web',
       command: 'pnpm --filter @recipe/web exec next start --hostname 127.0.0.1 --port 4100',
       url: `${webUrl}/`,
-      env: { RECIPE_API_URL: apiUrl },
+      env: { RECIPE_API_URL: apiUrl, RECIPE_WEB_PROXY_SECRET: TEST_WEB_SECRET },
       reuseExistingServer: false,
       timeout: 60_000,
     },

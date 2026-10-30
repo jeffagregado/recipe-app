@@ -144,6 +144,7 @@ export const authTest = base.extend<Record<never, never>, { workerData: WorkerDa
     }
   }, { scope: 'worker', timeout: 90_000 }],
   context: async ({ context, workerData }, use) => {
+    // Stands in for the user's IP, which Vercel puts in X-Forwarded-For; the web app passes it on to the API.
     await context.setExtraHTTPHeaders({ 'X-Forwarded-For': workerData.address });
     await use(context);
   },
