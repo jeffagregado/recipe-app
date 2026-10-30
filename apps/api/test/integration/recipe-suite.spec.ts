@@ -11,7 +11,7 @@ describe('Recipe suite teardown', () => {
   afterAll(() => s?.close(), 60_000);
 
   it('still removes users, recipes, attempts and ingredients when an object deletion throws, and reports the failure', async () => {
-    await s.savedId(await s.send('/recipes', minimalRecipe(s.name), [{ field: 'cover', bytes: jpeg(1) }]), 201);
+    await s.savedId(await s.send('/recipes', await s.withPendingPhotos(minimalRecipe(s.name), [{ field: 'cover', bytes: jpeg(1) }])), 201);
     const userIds = [s.owner.user.id, s.other.user.id];
     const deletion = vi.spyOn(s.storage, 'deleteObject').mockRejectedValueOnce(new Error('Forced teardown storage failure'));
     try { await expect(s.cleanup()).rejects.toThrow('Forced teardown storage failure'); } finally { deletion.mockRestore(); }

@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Component, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { CreateRecipeMetadata } from '@recipe-app/contracts/types'
+import type { RecipeSaveBody } from '../lib/recipe-payload'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
 import type { PhotoUploadResult } from '../lib/photo-upload-result'
 import type { PhotoDiscarder, PhotoUploader } from '../lib/upload-pending-photo'
@@ -20,7 +22,7 @@ const categories = [
 	{ id: 'category-desserts', name: 'Desserts' },
 ]
 
-const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
+const onSave = vi.fn<(body: RecipeSaveBody) => Promise<SaveRecipeResult>>()
 const uploadPhoto = vi.fn<PhotoUploader>()
 const discardPhoto = vi.fn<PhotoDiscarder>()
 const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
@@ -240,7 +242,7 @@ it.each([
 	// Save waits for the deleted step's photo work to settle, so the payload shows where that photo went.
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
-	expect(sentRecipe().instructions).toEqual([{ description: 'Serve', hasImage: false, heading: null }])
+	expect(sentRecipe().instructions).toEqual([{ description: 'Serve', heading: null }])
 	expect(uploadPhoto.mock.calls.map(([, { signal }]) => signal.aborted)).toEqual(aborted)
 	expect(screen.getByLabelText('Add photo to step 1')).toBeInTheDocument()
 })
@@ -300,7 +302,7 @@ const SLOTS = [
 	{ slot: 'a step', add: 'Add photo to step 1', replace: 'Replace photo for step 1', remove: 'Remove photo from step 1', retry: 'Retry photo upload for step 1', progress: 'Step 1 photo upload',
 		sent: (recipe: { instructions: { image?: unknown }[] }) => recipe.instructions[0].image },
 ] as const
-const sentRecipe = (call = 0) => JSON.parse(onSave.mock.calls[call][0].get('recipe') as string)
+const sentRecipe = (call = 0) => onSave.mock.calls[call][0].recipe as CreateRecipeMetadata
 
 it.each(SLOTS)('uploads a photo picked for $slot once it is prepared and shows its progress on the slot', async ({ add, progress }) => {
 	const user = userEvent.setup()
@@ -356,7 +358,7 @@ it.each(SLOTS)('waits behind its saving state for $slot still uploading, with no
 	upload.finish({ status: 'uploaded', id: PHOTO_ID })
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	expect(sent(sentRecipe())).toEqual({ pendingPhotoId: PHOTO_ID })
-	expect([...onSave.mock.calls[0][0].keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+	expect(Object.keys(onSave.mock.calls[0][0]).sort()).toEqual(['idempotencyKey', 'recipe'])
 })
 
 it.each(SLOTS)('blocks Save while the upload on $slot has failed, until it is removed', async ({ add, replace, remove, sent }) => {
@@ -403,7 +405,7 @@ it('uploads two photos at a time and saves once, after every upload has finished
 	uploads[0].finish({ status: 'uploaded', id: ids[0] })
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	expect(sentRecipe().instructions.map((step: { image?: unknown }) => step.image)).toEqual(ids.map((pendingPhotoId) => ({ pendingPhotoId })))
-	expect([...onSave.mock.calls[0][0].keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+	expect(Object.keys(onSave.mock.calls[0][0]).sort()).toEqual(['idempotencyKey', 'recipe'])
 })
 
 it('keeps the uploaded cover after a failed save, so the next attempt names it without uploading again', async () => {
@@ -418,7 +420,7 @@ it('keeps the uploaded cover after a failed save, so the next attempt names it w
 	await waitFor(() => expect(save()).toBeEnabled())
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
-	expect(onSave.mock.calls.map(([data]) => JSON.parse(data.get('recipe') as string).cover)).toEqual([{ pendingPhotoId: PHOTO_ID }, { pendingPhotoId: PHOTO_ID }])
+	expect(onSave.mock.calls.map(([body]) => body.recipe.cover)).toEqual([{ pendingPhotoId: PHOTO_ID }, { pendingPhotoId: PHOTO_ID }])
 	expect(uploadPhoto).toHaveBeenCalledOnce()
 	expect(discardPhoto).not.toHaveBeenCalled()
 })
@@ -539,13 +541,13 @@ it('sends the normalized recipe, announces saving and ignores a second submit wh
 	await user.click(save())
 	expect(onSave).toHaveBeenCalledOnce()
 	const data = onSave.mock.calls[0][0]
-	expect(JSON.parse(data.get('recipe') as string)).toMatchObject({
+	expect(data.recipe).toMatchObject({
 		title: 'Creamy Garlic Pasta', categoryIds: [], servings: null,
-		ingredients: [{ name: 'Spaghetti', quantity: 200, unit: 'g' }], instructions: [{ description: 'Boil the pasta.', hasImage: false, image: { pendingPhotoId: PHOTO_ID } }],
+		ingredients: [{ name: 'Spaghetti', quantity: 200, unit: 'g' }], instructions: [{ description: 'Boil the pasta.', image: { pendingPhotoId: PHOTO_ID } }],
 	})
 	// The photo was uploaded on its own; the save only names it.
-	expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
-	expect(data.get('idempotencyKey')).toMatch(/^[0-9a-f-]{36}$/)
+	expect(Object.keys(data).sort()).toEqual(['idempotencyKey', 'recipe'])
+	expect(data.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/)
 	finish({ status: 'failed', message: 'Couldn’t save recipe. Try again.' })
 	await waitFor(() => expect(save()).toBeEnabled())
 })
@@ -564,7 +566,7 @@ it('keeps every value after a confirmed failure and uses a new key for the next 
 	await waitFor(() => expect(save()).toBeEnabled())
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
-	expect(onSave.mock.calls[1][0].get('idempotencyKey')).not.toBe(onSave.mock.calls[0][0].get('idempotencyKey'))
+	expect(onSave.mock.calls[1][0].idempotencyKey).not.toBe(onSave.mock.calls[0][0].idempotencyKey)
 })
 
 it('reuses the same submission key and payload when retrying after an unknown outcome', async () => {
@@ -581,8 +583,8 @@ it('reuses the same submission key and payload when retrying after an unknown ou
 	await user.click(within(alert).getByRole('button', { name: 'Retry save' }))
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
 	const [first, second] = onSave.mock.calls.map(([data]) => data)
-	expect(second.get('idempotencyKey')).toBe(first.get('idempotencyKey'))
-	expect(second.get('recipe')).toBe(first.get('recipe'))
+	expect(second.idempotencyKey).toBe(first.idempotencyKey)
+	expect(second.recipe).toEqual(first.recipe)
 	// The photo was shrunk and uploaded once, when it was picked; the retry names the same Pending photo.
 	expect(canvas.encodeCount()).toBe(1)
 	expect(uploadPhoto).toHaveBeenCalledOnce()
@@ -600,7 +602,7 @@ it('asks a new key once the user edits after an unknown outcome', async () => {
 	await waitFor(() => expect(save()).toBeEnabled())
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
-	expect(onSave.mock.calls[1][0].get('idempotencyKey')).not.toBe(onSave.mock.calls[0][0].get('idempotencyKey'))
+	expect(onSave.mock.calls[1][0].idempotencyKey).not.toBe(onSave.mock.calls[0][0].idempotencyKey)
 })
 
 it('keeps values and explains an expired session', async () => {

@@ -24,11 +24,11 @@ export const RECIPE_LIMITS = {
   ingredientName: 100, instructionDescription: 5000, groupHeading: 100,
   maxInteger: 2147483647, maxQuantity: 999999999.999, quantityDecimals: 3,
   // One stored photo; also the most a browser-compressed photo may weigh (ADR 0005).
-  imageBytes: PHOTO_BYTES, metadataBytes: MIB,
+  imageBytes: PHOTO_BYTES,
+  // One recipe save: its JSON metadata, which names photos and never carries them.
+  metadataBytes: MIB,
   // One Pending photo upload: the photo plus multipart overhead, well under Vercel's 4.5 MB request limit.
   photoRequestBytes: PHOTO_BYTES + 64 * 1024,
-  // The cover plus one photo per step.
-  maxFiles: MAX_RECIPE_STEPS + 1, requestBytes: 128 * MIB,
 } as const;
 
 export const RECIPE_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
@@ -45,9 +45,7 @@ export type CreateRecipeMetadataIngredient = {
 
 export type CreateRecipeMetadataInstruction = {
   description: string;
-  /** A photo sent as the multipart `step-<index>` file. */
-  hasImage: boolean;
-  /** A photo uploaded as a Pending photo; a step names this or `hasImage`, never both. */
+  /** The step's photo, uploaded as a Pending photo. Absent means no photo. */
   image?: PendingPhotoSlot;
   /** Opens a named group at this step; null or absent continues the current group. Always null on the first step. */
   heading?: string | null;
@@ -71,14 +69,14 @@ export type CreateRecipeMetadata = {
   notes: string | null;
   ingredients: CreateRecipeMetadataIngredient[];
   instructions: CreateRecipeMetadataInstruction[];
-  /** A cover uploaded as a Pending photo. Absent means no cover, or one sent as a multipart `cover` file. */
+  /** A cover uploaded as a Pending photo. Absent means no cover. */
   cover?: PendingPhotoSlot;
 };
 
 export type CreateRecipeResult = { id: EntityId };
 
-/** What an update does with an existing image slot (cover or one step photo). */
-export const RECIPE_IMAGE_SLOTS = ["keep", "replace", "remove"] as const;
+/** What an update does with an existing image slot (cover or one step photo); naming a Pending photo replaces it. */
+export const RECIPE_IMAGE_SLOTS = ["keep", "remove"] as const;
 
 export type RecipeImageSlot = (typeof RECIPE_IMAGE_SLOTS)[number];
 
@@ -86,7 +84,6 @@ export type UpdateRecipeMetadataInstruction = {
   /** Existing instruction this row continues, or null for a new row. `keep` keeps that instruction's photo. */
   id: EntityId | null;
   description: string;
-  /** `replace` sends the new photo as a multipart file; a Pending photo replaces it without one. */
   image: RecipeImageSlot | PendingPhotoSlot;
   heading?: string | null;
 };

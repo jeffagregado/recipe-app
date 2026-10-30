@@ -31,7 +31,7 @@ export class RecipeFavoriteGuard implements CanActivate {
   }
 }
 
-/** Deleting shares the per-user budget of the multipart recipe writes. */
+/** Deleting shares the per-user budget of the recipe saves. */
 @Injectable()
 export class RecipeDeleteGuard implements CanActivate {
   constructor(private readonly rateLimiter: AuthRateLimiter) {}

@@ -4,9 +4,9 @@ import { fieldError } from './recipe-errors.js';
 
 export type RecipeFile = { fieldname: string; mimetype: string; buffer: Buffer };
 /** An accepted upload as storage receives it: the re-encoded bytes to store, the extension of their object key and the content type
- * they are served with. `uploaded` is the file as it arrived, kept only for the request hash and never stored.
+ * they are served with. The file as it arrived is never stored.
  */
-export type PreparedPhoto = { fieldname: string; buffer: Buffer; extension: 'webp'; contentType: 'image/webp'; uploaded: Buffer };
+export type PreparedPhoto = { buffer: Buffer; extension: 'webp'; contentType: 'image/webp' };
 /** Declared pixels above this are refused from the header, before any pixel is decoded. */
 const MAX_INPUT_PIXELS = 50_000_000;
 const MAX_STORED_EDGE = 2048;
@@ -86,5 +86,5 @@ export async function prepareRecipePhoto(file: RecipeFile): Promise<PreparedPhot
       .resize({ width: MAX_STORED_EDGE, height: MAX_STORED_EDGE, fit: 'inside', withoutEnlargement: true })
       .webp({ quality: STORED_QUALITY }).toBuffer();
   } catch { throw fieldError(file.fieldname, 'Photo could not be decoded.'); }
-  return { fieldname: file.fieldname, buffer, extension: 'webp', contentType: 'image/webp', uploaded: file.buffer };
+  return { buffer, extension: 'webp', contentType: 'image/webp' };
 }

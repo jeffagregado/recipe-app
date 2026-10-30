@@ -1,4 +1,5 @@
 import { navigationError } from '@/features/recipes/lib/navigation-error'
+import type { RecipeSaveBody } from './recipe-payload'
 import type { SaveRecipeResult } from './save-recipe-result'
 
 /**
@@ -6,8 +7,8 @@ import type { SaveRecipeResult } from './save-recipe-result'
  * so it is handed back instead of being treated as a failure. Any other throw means the outcome is unknown.
  */
 export async function attemptSave(
-	onSave: (formData: FormData) => Promise<SaveRecipeResult>,
-	payload: FormData,
+	onSave: (body: RecipeSaveBody) => Promise<SaveRecipeResult>,
+	payload: RecipeSaveBody,
 	unknownMessage: string,
 ): Promise<{ result: SaveRecipeResult } | { navigation: unknown }> {
 	try {

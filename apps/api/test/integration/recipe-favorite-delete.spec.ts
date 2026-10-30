@@ -16,7 +16,7 @@ describe('Recipe favorites and delete HTTP', () => {
   afterAll(() => s?.close(), 60_000);
 
   const create = async (metadata: CreateRecipeMetadata = minimalRecipe(s.name), photos: Photo[] = [], cookie = s.owner.cookie) =>
-    s.savedId(await s.send('/recipes', metadata, photos, { cookie }), 201);
+    s.savedId(await s.send('/recipes', await s.withPendingPhotos(metadata, photos, cookie), { cookie }), 201);
   const favorite = (method: 'PUT' | 'DELETE', id: string, options?: Parameters<RecipeSuite['call']>[2]) =>
     s.call(method, `/recipes/${encodeURIComponent(id)}/favorite`, options);
   const remove = (id: string, options?: Parameters<RecipeSuite['call']>[2]) => s.call('DELETE', `/recipes/${encodeURIComponent(id)}`, options);
@@ -30,7 +30,7 @@ describe('Recipe favorites and delete HTTP', () => {
   ]);
   const rich = (): CreateRecipeMetadata => ({ ...minimalRecipe(s.name), categoryIds: s.categoryIds(['Dinner', 'Lunch']),
     ingredients: [{ name: `${s.name} flour`, quantity: 1.5, unit: 'cup' }, { name: `${s.name} salt`, quantity: null, unit: null }],
-    instructions: [{ description: 'First', hasImage: true }, { description: 'Second', hasImage: false }] });
+    instructions: [{ description: 'First' }, { description: 'Second' }] });
   const richPhotos = [{ field: 'cover', bytes: jpeg(1) }, { field: 'step-0', bytes: jpeg(2) }];
   const objectKeysOf = async (id: string) => (await s.imageRows(id)).map(({ objectKey }) => objectKey);
   const attemptsOf = (id: string, operation?: 'create' | 'delete') => s.db.select().from(recipeWriteAttempts)
@@ -132,7 +132,7 @@ describe('Recipe favorites and delete HTTP', () => {
   }, 60_000);
 
   it('answers 204 within the cleanup budget while object deletion hangs, and leaves the objects to reconciliation', async () => {
-    const metadata = { ...rich(), instructions: Array.from({ length: 7 }, (_, index) => ({ description: `Step ${index}`, hasImage: true })) };
+    const metadata = { ...rich(), instructions: Array.from({ length: 7 }, (_, index) => ({ description: `Step ${index}` })) };
     const id = await create(metadata, [{ field: 'cover', bytes: jpeg(1) }, ...metadata.instructions.map((_, index) => ({ field: `step-${index}`, bytes: jpeg(index + 2) }))]);
     const keys = await objectKeysOf(id); expect(keys).toHaveLength(8);
     let fail!: () => void; const held = new Promise<void>((resolve) => { fail = resolve; });
@@ -160,18 +160,18 @@ describe('Recipe favorites and delete HTTP', () => {
   }, 90_000);
 
   it('answers a replay of a finished create with a conflict once its recipe was deleted, and never creates it again', async () => {
-    const key = randomUUID(); const photos = [{ field: 'cover', bytes: jpeg(3) }];
-    const id = await s.savedId(await s.send('/recipes', minimalRecipe(s.name), photos, { key }), 201);
+    const key = randomUUID(); const metadata = await s.withPendingPhotos(minimalRecipe(s.name), [{ field: 'cover', bytes: jpeg(3) }]);
+    const id = await s.savedId(await s.send('/recipes', metadata, { key }), 201);
     await s.expectEmpty(await remove(id));
     const owned = await s.db.$count(recipes, eq(recipes.userId, s.owner.user.id)); const calls = s.upload.mock.calls.length; const before = s.uploadedKeys();
-    await s.expectError(await s.send('/recipes', minimalRecipe(s.name), photos, { key }), 409, 'IDEMPOTENCY_CONFLICT');
-    await s.expectError(await s.send('/recipes', { ...minimalRecipe(s.name), title: 'Changed' }, photos, { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    await s.expectError(await s.send('/recipes', metadata, { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    await s.expectError(await s.send('/recipes', { ...metadata, title: 'Changed' }, { key }), 409, 'IDEMPOTENCY_CONFLICT');
     expect(await s.db.$count(recipes, eq(recipes.userId, s.owner.user.id))).toBe(owned);
     expect(s.upload.mock.calls.length).toBe(calls); expect(await s.orphans(before)).toBe(0);
     const attempts = await attemptsOf(id);
     expect(attempts.map(({ operation, state, idempotencyKey }) => [operation, state, idempotencyKey === key])).toEqual([['create', 'completed', true]]);
     // Reconciliation never takes a finished attempt, so the key stays spent.
     expect(await reconcileRecipeWrites(s.db, s.storage, { now: new Date(), ageMs: 0, attemptIds: attempts.map((attempt) => attempt.id) })).toEqual({ completed: 0, removed: 0, deletedObjects: 0, failed: 0 });
-    await s.expectError(await s.send('/recipes', minimalRecipe(s.name), photos, { key }), 409, 'IDEMPOTENCY_CONFLICT');
+    await s.expectError(await s.send('/recipes', metadata, { key }), 409, 'IDEMPOTENCY_CONFLICT');
   }, 60_000);
 });

@@ -1,6 +1,6 @@
 import { handleCreateRecipe } from '@/features/recipes/api/save-route'
 
-/** Recipe saves carry photos, so they come here as a plain multipart request instead of through a Server Action. */
+/** The form posts a new recipe here as JSON with fetch; the handler checks the origin, the session and the body before forwarding it. */
 export function POST(request: Request) {
 	return handleCreateRecipe(request)
 }

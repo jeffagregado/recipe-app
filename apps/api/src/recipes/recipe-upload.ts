@@ -21,18 +21,22 @@ const RECIPE_BACKGROUND_TIMEOUT_MS = 30_000;
 export const consumeRecipeWrite = (rateLimiter: AuthRateLimiter, userId: string) =>
   rateLimiter.consume(rateLimitKey('recipe-write:user', userId), { limit: RECIPE_WRITE_LIMIT, windowMs: RECIPE_WRITE_WINDOW_MS });
 
-/** What one multipart write may carry: its byte limit, the file fields it accepts and its one text field, if any.
- * `field` names the part that request-level problems are reported on.
- */
-export type UploadShape = { requestBytes: number; tooLarge: string; files: number; fileField: RegExp; textField?: string; field: string };
+type BodyLimit = { requestBytes: number; tooLarge: string };
 
-export const RECIPE_UPLOAD: UploadShape = {
-  requestBytes: RECIPE_LIMITS.requestBytes, tooLarge: 'Request exceeds 128 MiB.', files: RECIPE_LIMITS.maxFiles,
-  fileField: /^(cover|step-(?:[0-9]|[1-9][0-9]))$/, textField: 'recipe', field: 'recipe',
+/** What one multipart photo upload may carry: its byte limit, the file fields it accepts and the field request-level problems are reported on. */
+export type UploadShape = BodyLimit & { files: number; fileField: RegExp; field: string };
+
+/** One photo per request, so every upload stays under Vercel's 4.5 MB request limit (ADR 0005). */
+export const PHOTO_UPLOAD: UploadShape = {
+  requestBytes: RECIPE_LIMITS.photoRequestBytes, tooLarge: 'Request exceeds one photo.', files: 1, fileField: /^photo$/, field: 'photo',
 };
 
+/** A recipe save is JSON metadata that names its photos and never carries one. */
+const RECIPE_SAVE: BodyLimit = { requestBytes: RECIPE_LIMITS.metadataBytes, tooLarge: 'Recipe exceeds 1 MiB.' };
+
 export type RecipeUploadRequest = AuthRequest & {
-  body?: Record<string, unknown>; files?: RecipeFile[]; idempotencyKey?: string;
+  /** A save's JSON body as received, read once the guards have passed. */
+  recipeJson?: string; files?: RecipeFile[]; idempotencyKey?: string;
   writeDeadline?: number; writeSettled?: Promise<unknown>;
 };
 
@@ -48,7 +52,7 @@ export class RecipeWriteGuard implements CanActivate {
       throw fieldError('idempotencyKey', 'Provide a canonical UUID Idempotency-Key.');
     }
     request.idempotencyKey = key.toLowerCase();
-    checkMultipartHeaders(request, RECIPE_UPLOAD);
+    admitBody(request, RECIPE_SAVE, /^application\/json(?:\s*;|$)/i, 'Send the recipe as application/json.');
     await consumeRecipeWrite(this.rateLimiter, request.user.id);
     return true;
   }
@@ -56,13 +60,15 @@ export class RecipeWriteGuard implements CanActivate {
 
 /** Refuses a declared size over the shape's limit and any body that is not multipart before a byte of it is read; starts the write deadline. */
 export function checkMultipartHeaders(request: RecipeUploadRequest, shape: UploadShape): void {
+  admitBody(request, shape, /^multipart\/form-data(?:\s*;|$)/i, 'Use multipart/form-data.');
+}
+
+function admitBody(request: RecipeUploadRequest, { requestBytes, tooLarge }: BodyLimit, type: RegExp, typeMessage: string): void {
   const size = request.headers['content-length'];
-  if (size !== undefined && (!/^\d+$/.test(size) || Number(size) > shape.requestBytes)) {
-    throw new RecipeError(413, 'PAYLOAD_TOO_LARGE', shape.tooLarge);
+  if (size !== undefined && (!/^\d+$/.test(size) || Number(size) > requestBytes)) {
+    throw new RecipeError(413, 'PAYLOAD_TOO_LARGE', tooLarge);
   }
-  if (!/^multipart\/form-data(?:\s*;|$)/i.test(request.headers['content-type'] ?? '')) {
-    throw new RecipeError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Use multipart/form-data.');
-  }
+  if (!type.test(request.headers['content-type'] ?? '')) throw new RecipeError(415, 'UNSUPPORTED_MEDIA_TYPE', typeMessage);
   request.writeDeadline = Date.now() + RECIPE_WRITE_TIMEOUT_MS;
 }
 
@@ -91,8 +97,8 @@ export class RecipeUploadSlots {
   }
 }
 
-/** Counts raw request bytes even when Multer has unpiped its parser and is draining. */
-export function recipeBodyCounter({ requestBytes, tooLarge }: Pick<UploadShape, 'requestBytes' | 'tooLarge'> = RECIPE_UPLOAD): (chunk: Buffer) => void {
+/** Counts raw request bytes, including while Multer has unpiped its parser and is draining. */
+export function recipeBodyCounter({ requestBytes, tooLarge }: BodyLimit): (chunk: Buffer) => void {
   let received = 0;
   return (chunk) => {
     received += chunk.length;
@@ -101,7 +107,7 @@ export function recipeBodyCounter({ requestBytes, tooLarge }: Pick<UploadShape, 
 }
 
 type MulterOptions = {
-  limits: { fieldSize: number; fileSize: number; files: number; fields: number; parts: number; fieldNameSize: number; fieldNestingDepth: number };
+  limits: { fileSize: number; files: number; fields: number; parts: number; fieldNameSize: number; fieldNestingDepth: number };
   fileFilter: (request: RecipeUploadRequest, file: Pick<RecipeFile, 'fieldname' | 'mimetype'>, callback: (error: Error | null, accept: boolean) => void) => void;
   streamHandler: (request: RecipeUploadRequest, parser: Writable) => void;
 };
@@ -113,11 +119,10 @@ const multer: Multer = require(require.resolve('multer', { paths: [require.resol
 function parserError(cause: unknown, fallbackField: string): RecipeError {
   if (cause instanceof RecipeError) return cause;
   const error = cause as { code?: unknown; field?: unknown } | null | undefined;
-  const code = error?.code;
   const field = typeof error?.field === 'string' ? error.field : fallbackField;
-  if (code === 'LIMIT_FILE_SIZE') return fieldError(field, IMAGE_TOO_LARGE, 413, 'PAYLOAD_TOO_LARGE');
-  return new RecipeError(400, 'VALIDATION_FAILED', 'Invalid multipart recipe request.', {
-    cause, fieldErrors: Object.assign(Object.create(null), { [field]: [code === 'LIMIT_FIELD_VALUE' ? 'Metadata exceeds 1 MiB.' : 'Invalid or excessive multipart parts.'] }),
+  if (error?.code === 'LIMIT_FILE_SIZE') return fieldError(field, IMAGE_TOO_LARGE, 413, 'PAYLOAD_TOO_LARGE');
+  return new RecipeError(400, 'VALIDATION_FAILED', 'Invalid photo upload.', {
+    cause, fieldErrors: Object.assign(Object.create(null), { [field]: ['Invalid or excessive multipart parts.'] }),
   });
 }
 
@@ -137,7 +142,31 @@ function closeRejectedUpload(request: RecipeUploadRequest, response: ServerRespo
   response.once('finish', close);
 }
 
-export async function parseRecipeUpload(request: RecipeUploadRequest, response: ServerResponse, shape: UploadShape = RECIPE_UPLOAD): Promise<void> {
+const uploadTimeout = (request: RecipeUploadRequest) => Math.max(1, (request.writeDeadline ?? Date.now() + RECIPE_WRITE_TIMEOUT_MS) - Date.now());
+const notReceived = () => new RecipeError(504, 'TIMEOUT', 'The request timed out before it was read. Nothing was saved.');
+
+/** Reads a save's JSON body once the guards have passed, counting bytes as they arrive: more than 1 MiB is refused without reading the rest. */
+export function readRecipeJson(request: RecipeUploadRequest, response: ServerResponse): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const count = recipeBodyCounter(RECIPE_SAVE); const chunks: Buffer[] = []; let settled = false;
+    const finish = (cause?: unknown) => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); request.off('data', onData);
+      if (!cause) { request.recipeJson = Buffer.concat(chunks).toString('utf8'); resolve(); return; }
+      if (!request.readableEnded && !request.destroyed) { request.pause(); closeRejectedUpload(request, response); }
+      reject(cause instanceof RecipeError ? cause : new RecipeError(400, 'VALIDATION_FAILED', 'The recipe could not be read.', { cause }));
+    };
+    const onData = (chunk: Buffer) => { try { count(chunk); chunks.push(chunk); } catch (cause) { finish(cause); } };
+    const timer = setTimeout(() => finish(notReceived()), uploadTimeout(request));
+    request.on('data', onData);
+    request.once('end', () => finish());
+    request.once('error', finish);
+    request.once('close', () => finish(new Error('The request closed before the recipe was read.')));
+  });
+}
+
+/** Reads one multipart photo upload with Multer, bounding its bytes and parts. */
+export async function parsePhotoUpload(request: RecipeUploadRequest, response: ServerResponse, shape: UploadShape = PHOTO_UPLOAD): Promise<void> {
   const seen = new Set<string>();
   await new Promise<void>((resolve, reject) => {
     let parser: Writable | undefined; let settled = false;
@@ -166,13 +195,11 @@ export async function parseRecipeUpload(request: RecipeUploadRequest, response: 
       }
       reject(parserError(cause, shape.field));
     };
-    const timer = setTimeout(() => finish(new RecipeError(504, 'TIMEOUT', 'Upload timed out before recipe processing. Nothing was saved.')),
-      Math.max(1, (request.writeDeadline ?? Date.now() + RECIPE_WRITE_TIMEOUT_MS) - Date.now()));
+    const timer = setTimeout(() => finish(notReceived()), uploadTimeout(request));
     request.on('data', onData);
     request.once('close', () => { request.off('data', onData); request.off('resume', haltReading); });
     const upload = multer({
-    limits: { fieldSize: RECIPE_LIMITS.metadataBytes + 1, fileSize: RECIPE_LIMITS.imageBytes, files: shape.files,
-      fields: shape.textField ? 1 : 0, parts: shape.files + (shape.textField ? 1 : 0), fieldNameSize: 100, fieldNestingDepth: 0 },
+    limits: { fileSize: RECIPE_LIMITS.imageBytes, files: shape.files, fields: 0, parts: shape.files, fieldNameSize: 100, fieldNestingDepth: 0 },
     fileFilter: (_request, file, callback) => {
       if (!shape.fileField.test(file.fieldname) || seen.has(file.fieldname)) {
         const error = fieldError(file.fieldname, 'Unexpected or repeated image field.'); callback(error, false); finish(error); return;
@@ -185,9 +212,7 @@ export async function parseRecipeUpload(request: RecipeUploadRequest, response: 
     },
     streamHandler: (_request, busboy) => {
       parser = busboy;
-      busboy.on('field', (field: string) => {
-        if (field !== shape.textField) finish(fieldError(shape.field, shape.textField ? 'Only the recipe metadata field is allowed.' : 'Send only the photo.'));
-      });
+      busboy.on('field', () => finish(fieldError(shape.field, 'Send only the photo.')));
       busboy.on('error', finish);
       for (const event of ['partsLimit', 'filesLimit', 'fieldsLimit']) busboy.on(event, () => finish(fieldError(shape.field, 'Invalid or excessive multipart parts.')));
       busboy.on('file', (field: string, file: Writable) => file.once('limit', () => finish(fieldError(field, IMAGE_TOO_LARGE, 413, 'PAYLOAD_TOO_LARGE'))));
@@ -199,16 +224,17 @@ export async function parseRecipeUpload(request: RecipeUploadRequest, response: 
   });
 }
 
+/** Holds an upload slot while the body is read and until the write settles. A save reads its JSON; the photo upload overrides `read`. */
 @Injectable()
 export class RecipeUploadInterceptor implements NestInterceptor {
-  protected readonly shape: UploadShape = RECIPE_UPLOAD;
   /** Uploads one owner may run at once. */
   protected readonly perOwner: number = 1;
   constructor(private readonly slots: RecipeUploadSlots) {}
+  protected read(request: RecipeUploadRequest, response: ServerResponse): Promise<void> { return readRecipeJson(request, response); }
   async intercept(context: ExecutionContext, next: CallHandler) {
     const request = context.switchToHttp().getRequest<RecipeUploadRequest>();
     const release = this.slots.acquire(request.user!.id, this.perOwner);
-    try { await parseRecipeUpload(request, context.switchToHttp().getResponse<ServerResponse>(), this.shape); }
+    try { await this.read(request, context.switchToHttp().getResponse<ServerResponse>()); }
     catch (error) { release(); throw error; }
     return next.handle().pipe(finalize(() => {
       if (!request.writeSettled) { release(); return; }

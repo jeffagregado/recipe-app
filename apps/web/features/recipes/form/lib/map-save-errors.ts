@@ -5,7 +5,7 @@ import { flatRowPath } from './row-groups'
 const SIMPLE_FIELDS = new Set(['title', 'description', 'categories', 'servings', 'videoUrl', 'notes', 'cover', 'ingredients', 'instructions'])
 const RENAMED_FIELDS: Record<string, string> = { prepTimeMinutes: 'prepTime', cookTimeMinutes: 'cookTime' }
 const INGREDIENT_FIELDS: Record<string, string> = { name: 'name', quantity: 'amount', unit: 'unit' }
-const INSTRUCTION_FIELDS: Record<string, string> = { description: 'description', hasImage: 'photo', image: 'photo' }
+const INSTRUCTION_FIELDS: Record<string, string> = { description: 'description', image: 'photo' }
 
 type GroupedValues = Pick<RecipeFormValues, 'ingredients' | 'instructions'>
 

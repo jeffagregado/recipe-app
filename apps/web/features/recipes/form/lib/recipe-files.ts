@@ -1,7 +1,7 @@
 import { RECIPE_IMAGE_MIME_TYPES, RECIPE_LIMITS } from '@recipe-app/contracts/types'
 
 const MIB = 1024 * 1024
-/** Picked originals may be large phone photos; the browser shrinks them before a save sends them. */
+/** Picked originals may be large phone photos; the browser shrinks them before uploading them. */
 const PICKED_PHOTO_BYTES = 25 * MIB
 
 export const IMAGE_ACCEPT = RECIPE_IMAGE_MIME_TYPES.join(',')

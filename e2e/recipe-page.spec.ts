@@ -24,7 +24,7 @@ const longRich = (title: string, categoryIds: string[], videoUrl?: string | null
   const filler = 'Stir gently and keep the heat low so nothing catches on the bottom of the pan while the flavours come together. ';
   return {
     ...base,
-    instructions: Array.from({ length: 6 }, (_, index) => ({ description: `Step ${index + 1}. ${filler.repeat(3)}`, hasImage: index === 0 || index === 2 })),
+    instructions: Array.from({ length: 6 }, (_, index) => ({ description: `Step ${index + 1}. ${filler.repeat(3)}` })),
   };
 };
 

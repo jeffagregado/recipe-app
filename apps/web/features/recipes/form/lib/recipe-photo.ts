@@ -7,7 +7,7 @@ import { formatFileSize } from './recipe-files'
  * - `existing`: the photo already stored for the recipe; shown through its signed URL and never uploaded again.
  * - `picked`: a file picked in this session that is not yet a Pending photo: still uploading, or its upload failed.
  * - `pending`: a file picked in this session and uploaded as the Pending photo `id`; a save names that id.
- * The kind, not the file, tells "keep", "replace" and "remove" apart, so the form's dirty tracking notices image-only changes.
+ * The kind, not the file, tells keeping, replacing and removing a photo apart, so the form's dirty tracking notices image-only changes.
  */
 export type PhotoValue =
 	| { kind: 'none' }
