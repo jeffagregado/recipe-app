@@ -4,7 +4,7 @@ import { Component, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
 import type { PhotoUploadResult } from '../lib/photo-upload-result'
-import type { PhotoUploader } from '../lib/upload-pending-photo'
+import type { PhotoDiscarder, PhotoUploader } from '../lib/upload-pending-photo'
 import { AppToaster } from '@/components/layout/app-toaster'
 import { installFakeCanvas } from '@/test/fake-canvas'
 import { RecipeForm } from './recipe-form'
@@ -22,6 +22,7 @@ const categories = [
 
 const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
 const uploadPhoto = vi.fn<PhotoUploader>()
+const discardPhoto = vi.fn<PhotoDiscarder>()
 const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
 /** An upload the test finishes by hand, reporting progress meanwhile. */
 function holdUpload() {
@@ -52,7 +53,7 @@ afterEach(() => {
 })
 
 function renderForm(availableCategories = categories) {
-	return render(<AppToaster><RecipeForm categories={availableCategories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} /></AppToaster>)
+	return render(<AppToaster><RecipeForm categories={availableCategories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} onDiscardPhoto={discardPhoto} /></AppToaster>)
 }
 // The toast region also exposes alerts, so the form's own alert is looked up inside the form.
 const formElement = () => screen.getByRole('form', { name: 'Create Recipe' })
@@ -376,7 +377,7 @@ it.each(SLOTS)('blocks Save while the upload on $slot has failed, until it is re
 	expect(sent(sentRecipe())).toBeUndefined()
 })
 
-it('saves a recipe with several step photos once, after every upload has finished, naming each step’s own Pending photo', async () => {
+it('uploads two photos at a time and saves once, after every upload has finished, naming each step’s own Pending photo', async () => {
 	const user = userEvent.setup()
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	const ids = [1, 2, 3].map((n) => `0b0f6a3e-4c1d-4d6e-9f1a-00000000000${n}`)
@@ -388,15 +389,18 @@ it('saves a recipe with several step photos once, after every upload has finishe
 		await user.keyboard(`Step ${step}`)
 	}
 	for (const step of [1, 2, 3]) await user.upload(screen.getByLabelText(`Add photo to step ${step}`), image(`step-${step}.jpg`))
-	await waitFor(() => expect(uploadPhoto.mock.calls.map(([file]) => file.name)).toEqual(['step-1.webp', 'step-2.webp', 'step-3.webp']))
+	await waitFor(() => expect(screen.getAllByText('Uploading photo…')).toHaveLength(3))
+	// The API takes two uploads per Account at a time; the third waits for a place.
+	expect(uploadPhoto.mock.calls.map(([file]) => file.name)).toEqual(['step-1.webp', 'step-2.webp'])
 	await user.click(save())
 	await waitFor(() => expect(save()).toBeDisabled())
 	// Answered out of order; the save still waits for the last one.
+	uploads[1].finish({ status: 'uploaded', id: ids[1] })
+	await waitFor(() => expect(uploadPhoto.mock.calls.map(([file]) => file.name)).toEqual(['step-1.webp', 'step-2.webp', 'step-3.webp']))
 	uploads[2].finish({ status: 'uploaded', id: ids[2] })
-	uploads[0].finish({ status: 'uploaded', id: ids[0] })
 	await waitFor(() => expect(screen.getAllByRole('progressbar')).toHaveLength(1))
 	expect(onSave).not.toHaveBeenCalled()
-	uploads[1].finish({ status: 'uploaded', id: ids[1] })
+	uploads[0].finish({ status: 'uploaded', id: ids[0] })
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	expect(sentRecipe().instructions.map((step: { image?: unknown }) => step.image)).toEqual(ids.map((pendingPhotoId) => ({ pendingPhotoId })))
 	expect([...onSave.mock.calls[0][0].keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
@@ -416,6 +420,109 @@ it('keeps the uploaded cover after a failed save, so the next attempt names it w
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
 	expect(onSave.mock.calls.map(([data]) => JSON.parse(data.get('recipe') as string).cover)).toEqual([{ pendingPhotoId: PHOTO_ID }, { pendingPhotoId: PHOTO_ID }])
 	expect(uploadPhoto).toHaveBeenCalledOnce()
+	expect(discardPhoto).not.toHaveBeenCalled()
+})
+
+const SECOND_ID = '0b0f6a3e-4c1d-4d6e-9f1a-000000000002'
+
+it.each(SLOTS)('discards the Pending photo on $slot once another photo replaces it, and that one once it is removed', async ({ add, replace, remove }) => {
+	const user = userEvent.setup()
+	uploadPhoto.mockResolvedValueOnce({ status: 'uploaded', id: PHOTO_ID }).mockResolvedValueOnce({ status: 'uploaded', id: SECOND_ID })
+	renderForm()
+	await user.upload(screen.getByLabelText(add), image('first.jpg'))
+	await screen.findByText('first.webp · 1 KB')
+	expect(discardPhoto).not.toHaveBeenCalled()
+	await user.upload(screen.getByLabelText(replace), image('second.jpg'))
+	await screen.findByText('second.webp · 1 KB')
+	expect(discardPhoto.mock.calls).toEqual([[PHOTO_ID]])
+	await user.click(screen.getByRole('button', { name: remove }))
+	expect(discardPhoto.mock.calls).toEqual([[PHOTO_ID], [SECOND_ID]])
+})
+
+it('keeps the Pending photo when the photo picked to replace it is refused', async () => {
+	const user = userEvent.setup({ applyAccept: false })
+	renderForm()
+	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	await screen.findByText('cover.webp · 1 KB')
+	await user.upload(screen.getByLabelText('Replace cover photo'), image('logo.gif', 1024, 'image/gif'))
+	expect(await screen.findByText(/not a JPG, PNG or WebP image/)).toBeInTheDocument()
+	expect(screen.getByText('cover.webp · 1 KB')).toBeInTheDocument()
+	expect(discardPhoto).not.toHaveBeenCalled()
+})
+
+it('discards a step’s Pending photo when the step is deleted', async () => {
+	const user = userEvent.setup()
+	renderForm()
+	await user.click(screen.getByRole('button', { name: 'Add step' }))
+	await user.upload(screen.getByLabelText('Add photo to step 1'), image('boil.jpg'))
+	await screen.findByText('boil.webp · 1 KB')
+	await user.click(screen.getByRole('button', { name: 'Remove step 1' }))
+	expect(discardPhoto.mock.calls).toEqual([[PHOTO_ID]])
+})
+
+it('discards a photo whose upload finishes after the photo was removed', async () => {
+	const user = userEvent.setup()
+	// The API stored the photo before the abort reached it.
+	let finish: (result: PhotoUploadResult) => void = () => {}
+	uploadPhoto.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+	renderForm()
+	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	await screen.findByText('Uploading photo…')
+	await user.click(screen.getByRole('button', { name: 'Remove cover photo' }))
+	expect(discardPhoto).not.toHaveBeenCalled()
+	finish({ status: 'uploaded', id: PHOTO_ID })
+	await waitFor(() => expect(discardPhoto.mock.calls).toEqual([[PHOTO_ID]]))
+	expect(screen.getByLabelText('Add cover photo')).toBeInTheDocument()
+})
+
+/** A cover and a step photo, uploaded as two Pending photos. */
+async function uploadTwoPhotos(user: ReturnType<typeof userEvent.setup>) {
+	uploadPhoto.mockResolvedValueOnce({ status: 'uploaded', id: PHOTO_ID }).mockResolvedValueOnce({ status: 'uploaded', id: SECOND_ID })
+	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	await screen.findByText('cover.webp · 1 KB')
+	await user.upload(screen.getByLabelText('Add photo to step 1'), image('step.jpg'))
+	await screen.findByText('step.webp · 1 KB')
+}
+
+it('discards every Pending photo once "Discard changes?" is confirmed, and none while the cook keeps editing', async () => {
+	const user = userEvent.setup()
+	renderForm()
+	await uploadTwoPhotos(user)
+	await user.click(screen.getByRole('button', { name: 'Back' }))
+	await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Keep editing' }))
+	expect(discardPhoto).not.toHaveBeenCalled()
+	await user.click(screen.getByRole('button', { name: 'Back' }))
+	await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Discard' }))
+	expect(discardPhoto.mock.calls.flat().sort()).toEqual([PHOTO_ID, SECOND_ID].sort())
+	expect(router.push).toHaveBeenCalledWith('/recipes')
+})
+
+const hidePage = (persisted: boolean) => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted }))
+
+it('discards every Pending photo when the page is closed or reloaded, but not when the browser keeps it to come back to', async () => {
+	const user = userEvent.setup()
+	renderForm()
+	await uploadTwoPhotos(user)
+	hidePage(true)
+	expect(discardPhoto).not.toHaveBeenCalled()
+	hidePage(false)
+	expect(discardPhoto.mock.calls.flat().sort()).toEqual([PHOTO_ID, SECOND_ID].sort())
+})
+
+it('keeps the Pending photos a save still in flight names when the page is closed', async () => {
+	const user = userEvent.setup()
+	let finishSave: (result: SaveRecipeResult) => void = () => {}
+	onSave.mockReturnValue(new Promise((resolve) => { finishSave = resolve }))
+	renderForm()
+	await fillMinimum(user)
+	await uploadTwoPhotos(user)
+	await user.click(save())
+	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+	hidePage(false)
+	expect(discardPhoto).not.toHaveBeenCalled()
+	// React keeps every later save pending while this one is, so it must finish.
+	finishSave({ status: 'failed', message: 'Couldn’t save recipe. Try again.' })
+	await waitFor(() => expect(save()).toBeEnabled())
 })
 
 it('sends the normalized recipe, announces saving and ignores a second submit while saving', async () => {
@@ -645,7 +752,7 @@ it('hands a successful save’s redirect to Next instead of reporting a failure,
 		render() { return this.state.error ? <p>navigating: {this.state.error.digest}</p> : this.props.children }
 	}
 	vi.spyOn(console, 'error').mockImplementation(() => undefined)
-	render(<AppToaster><Boundary><RecipeForm categories={categories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} /></Boundary></AppToaster>)
+	render(<AppToaster><Boundary><RecipeForm categories={categories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} onDiscardPhoto={discardPhoto} /></Boundary></AppToaster>)
 	await fillMinimum(user)
 	await user.click(save())
 	expect(await screen.findByText(/navigating: NEXT_REDIRECT/)).toBeInTheDocument()

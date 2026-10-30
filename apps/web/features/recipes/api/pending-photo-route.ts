@@ -2,16 +2,20 @@ import 'server-only'
 
 import { pendingPhotoSchema } from '@recipe-app/contracts/schemas'
 import { RECIPE_LIMITS } from '@recipe-app/contracts/types'
+import { z } from 'zod'
 import { checkRecipeImage } from '@/features/recipes/form/lib/recipe-files'
 import { UPLOAD_MESSAGES, type PhotoUploadResult } from '@/features/recipes/form/lib/photo-upload-result'
 import { isSameOrigin, readMultipart } from './multipart-request'
 import { authorizeSave } from './save-recipe'
-import { sendWrite, type WriteContext } from './write-request'
+import { readErrorEnvelope, sendWrite, type WriteContext } from './write-request'
 
 const UPLOAD_TIMEOUT_MS = 30_000
+const DELETE_TIMEOUT_MS = 10_000
+
+const NO_STORE = { 'Cache-Control': 'private, no-store' }
 
 function respond(result: PhotoUploadResult, status = 200): Response {
-	return Response.json(result, { status, headers: { 'Cache-Control': 'private, no-store' } })
+	return Response.json(result, { status, headers: NO_STORE })
 }
 const failed = (message: string = UPLOAD_MESSAGES.failed): PhotoUploadResult => ({ status: 'failed', message })
 
@@ -29,13 +33,19 @@ const STATUS_MESSAGES: Record<number, string> = {
 	415: UPLOAD_MESSAGES.unsupported, 429: UPLOAD_MESSAGES.rateLimited,
 }
 
+/** A 409 is either the Account's Pending photo limit or another of its uploads still running; only the code tells them apart. */
+async function failureMessage(response: Response): Promise<string | undefined> {
+	if (response.status !== 409) return STATUS_MESSAGES[response.status]
+	return (await readErrorEnvelope(response))?.code === 'PENDING_PHOTO_LIMIT' ? UPLOAD_MESSAGES.tooManyPending : undefined
+}
+
 async function forward(file: File, context: WriteContext): Promise<{ result: PhotoUploadResult; status?: number }> {
 	const body = new FormData()
 	body.append('photo', file, file.name)
 	const outcome = await sendWrite({ context, request: { method: 'POST', path: '/pending-photos', body, timeoutMs: UPLOAD_TIMEOUT_MS } })
 	if ('problem' in outcome) return { result: failed() }
 	const { response } = outcome
-	if (response.status !== 201) return { result: failed(STATUS_MESSAGES[response.status]), status: response.status === 401 ? 401 : undefined }
+	if (response.status !== 201) return { result: failed(await failureMessage(response)), status: response.status === 401 ? 401 : undefined }
 	let payload: unknown
 	try { payload = await response.json() } catch { return { result: failed() } }
 	const uploaded = pendingPhotoSchema.safeParse(payload)
@@ -60,4 +70,23 @@ export async function handlePhotoUpload(request: Request): Promise<Response> {
 
 	const { result, status } = await forward(photo, authorized.context)
 	return respond(result, status)
+}
+
+const emptyResponse = (status: number) => new Response(null, { status, headers: NO_STORE })
+
+/**
+ * Deletes one of the caller's Pending photos; the form sends it without waiting for the answer, so no answer has a body.
+ * 204 once the API has answered that the caller holds no such Pending photo any more, 401 when signed out, 403 for a
+ * cross-site request, 400 for an id that is not a Pending photo id, and 502 or 503 when that could not be confirmed.
+ */
+export async function handlePhotoDelete(request: Request, id: string): Promise<Response> {
+	if (!isSameOrigin(request)) return emptyResponse(403)
+
+	const authorized = await authorizeSave(UPLOAD_MESSAGES)
+	if ('result' in authorized) return emptyResponse(authorized.result.status === 'session-expired' ? 401 : 503)
+	if (!z.uuid().safeParse(id).success) return emptyResponse(400)
+
+	const outcome = await sendWrite({ context: authorized.context, request: { method: 'DELETE', path: `/pending-photos/${id}`, timeoutMs: DELETE_TIMEOUT_MS } })
+	if ('problem' in outcome) return emptyResponse(502)
+	return emptyResponse(outcome.response.status === 204 || outcome.response.status === 401 ? outcome.response.status : 502)
 }

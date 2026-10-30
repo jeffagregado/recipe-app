@@ -5,7 +5,7 @@ import { AppToaster } from '@/components/layout/app-toaster'
 import { installFakeCanvas } from '@/test/fake-canvas'
 import { createEmptyRecipeValues, type RecipeFormValues } from '../lib/recipe-form-schema'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
-import type { PhotoUploader } from '../lib/upload-pending-photo'
+import type { PhotoDiscarder, PhotoUploader } from '../lib/upload-pending-photo'
 import { RecipeForm } from './recipe-form'
 
 const router = vi.hoisted(() => ({ push: vi.fn() }))
@@ -13,6 +13,7 @@ vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal
 
 const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
 const uploadPhoto = vi.fn<PhotoUploader>()
+const discardPhoto = vi.fn<PhotoDiscarder>()
 const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
 
 beforeEach(() => {
@@ -29,7 +30,7 @@ afterEach(() => {
 })
 
 function renderForm(initialValues?: RecipeFormValues) {
-	return render(<AppToaster><RecipeForm categories={[]} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} initialValues={initialValues} /></AppToaster>)
+	return render(<AppToaster><RecipeForm categories={[]} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} onDiscardPhoto={discardPhoto} initialValues={initialValues} /></AppToaster>)
 }
 const ingredients = () => screen.getByRole('region', { name: /^Ingredients/ })
 const instructions = () => screen.getByRole('region', { name: /^Instructions/ })

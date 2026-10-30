@@ -18,7 +18,7 @@ import { RecipeFormHeader } from './recipe-form-header'
 import { PhotoSlotsContext } from '../hooks/photo-slots'
 import { useRecipeForm } from '../hooks/use-recipe-form'
 import type { SaveRecipeAction } from '../hooks/use-recipe-submission'
-import type { PhotoUploader } from '../lib/upload-pending-photo'
+import type { PhotoDiscarder, PhotoUploader } from '../lib/upload-pending-photo'
 
 type RecipeFormProps = {
 	mode: RecipeFormMode
@@ -28,18 +28,20 @@ type RecipeFormProps = {
 	onSave: SaveRecipeAction
 	/** Uploads a picked photo as a Pending photo; tests pass a stand-in. */
 	onUploadPhoto: PhotoUploader
+	/** Discards a Pending photo the form no longer uses; tests pass a stand-in. */
+	onDiscardPhoto: PhotoDiscarder
 	/** The user's own categories, offered as chips. */
 	categories: Category[]
 	initialValues?: RecipeFormValues
 }
 
 /**
- * Shared by Create and Edit: the mode, title, submit label, initial values, destination on cancel, the save action and the photo uploader are props.
+ * Shared by Create and Edit: the mode, title, submit label, initial values, destination on cancel, the save action and the photo uploader and discarder are props.
  * Mount it with a `key` that changes when the stored recipe does, so a revisit never shows values from before a save.
  */
-export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, onUploadPhoto, categories, initialValues }: RecipeFormProps) {
+export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, onUploadPhoto, onDiscardPhoto, categories, initialValues }: RecipeFormProps) {
 	const router = useRouter()
-	const { form, formRef, photos, busy, alert, isDirty, submit, resetWhenHidden } = useRecipeForm({ mode, initialValues, onSave, onUploadPhoto })
+	const { form, formRef, photos, busy, alert, isDirty, submit, resetWhenHidden } = useRecipeForm({ mode, initialValues, onSave, onUploadPhoto, onDiscardPhoto })
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false)
 
 	function cancel() {
@@ -49,6 +51,7 @@ export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, onUpl
 
 	function discard() {
 		setConfirmingDiscard(false)
+		photos.abandon()
 		// The page stays mounted (hidden) after leaving; the discarded values must not greet the next visit.
 		resetWhenHidden()
 		router.push(cancelHref)

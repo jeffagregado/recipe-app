@@ -7,7 +7,7 @@ import { recipeDetailFixture } from '@/features/recipes/queries/recipe-detail.fi
 import { installFakeCanvas } from '@/test/fake-canvas'
 import { toRecipeFormValues } from '../lib/recipe-edit'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
-import type { PhotoUploader } from '../lib/upload-pending-photo'
+import type { PhotoDiscarder, PhotoUploader } from '../lib/upload-pending-photo'
 import { RecipeForm } from './recipe-form'
 
 const router = vi.hoisted(() => ({ push: vi.fn() }))
@@ -30,6 +30,7 @@ const categories = [
 
 const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
 const uploadPhoto = vi.fn<PhotoUploader>()
+const discardPhoto = vi.fn<PhotoDiscarder>()
 const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
 
 beforeEach(() => {
@@ -67,7 +68,7 @@ const recipe = recipeDetailFixture({
 	],
 })
 
-const editForm = () => <RecipeForm categories={categories} mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={onSave} onUploadPhoto={uploadPhoto} initialValues={toRecipeFormValues(recipe)} />
+const editForm = () => <RecipeForm categories={categories} mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={onSave} onUploadPhoto={uploadPhoto} onDiscardPhoto={discardPhoto} initialValues={toRecipeFormValues(recipe)} />
 const renderEdit = () => render(<AppToaster>{editForm()}</AppToaster>)
 const formElement = () => screen.getByRole('form', { name: 'Edit Recipe' })
 const save = () => screen.getByRole('button', { name: /^Save Changes$|^Saving/ })
@@ -118,7 +119,7 @@ it('pre-fills every field and shows the stored photos as current photos', () => 
 })
 
 it('shows saved groups in the same layout, with fraction amounts', () => {
-	render(<AppToaster><RecipeForm categories={categories} mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={onSave} onUploadPhoto={uploadPhoto} initialValues={toRecipeFormValues({
+	render(<AppToaster><RecipeForm categories={categories} mode="edit" title="Edit Recipe" submitLabel="Save Changes" cancelHref="/recipes/recipe-1" onSave={onSave} onUploadPhoto={uploadPhoto} onDiscardPhoto={discardPhoto} initialValues={toRecipeFormValues({
 		...recipe,
 		ingredients: [{ ...recipe.ingredients[0], quantity: 1.5, unit: 'cup' }, { ...recipe.ingredients[1], heading: 'To finish' }],
 		instructions: [recipe.instructions[0], { ...recipe.instructions[1], heading: 'Bake' }, recipe.instructions[2]],
@@ -185,6 +186,8 @@ it('removes the stored cover and a stored step photo', async () => {
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	expect(metadataOf(onSave.mock.calls[0][0])).toMatchObject({ cover: 'remove', instructions: [{ image: 'keep' }, { image: 'remove' }, { image: 'remove' }] })
 	expect([...onSave.mock.calls[0][0].keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+	// Saved photos are removed by the save, never discarded like Pending photos.
+	expect(discardPhoto).not.toHaveBeenCalled()
 })
 
 it('replaces the stored cover and keeps the rest', async () => {
@@ -355,7 +358,7 @@ it('maps update field errors for steps and photos onto their rows', async () => 
 function hiddenAndBack(mode: 'create' | 'edit') {
 	const form = mode === 'edit'
 		? editForm()
-		: <RecipeForm categories={categories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} />
+		: <RecipeForm categories={categories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} onDiscardPhoto={discardPhoto} />
 	const view = render(<AppToaster><Activity mode="visible">{form}</Activity></AppToaster>)
 	const toggle = (visible: boolean) => view.rerender(<AppToaster><Activity mode={visible ? 'visible' : 'hidden'}>{form}</Activity></AppToaster>)
 	return { leave: () => toggle(false), returnTo: () => toggle(true) }
@@ -398,4 +401,5 @@ it('forgets a discarded image-only change too', async () => {
 	leave()
 	returnTo()
 	expect(screen.getByAltText('Current cover photo')).toBeInTheDocument()
+	expect(discardPhoto).not.toHaveBeenCalled()
 })
