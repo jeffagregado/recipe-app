@@ -377,7 +377,7 @@ it.each(SLOTS)('blocks Save while the upload on $slot has failed, until it is re
 	expect(sent(sentRecipe())).toBeUndefined()
 })
 
-it('saves a recipe with several step photos once, after every upload has finished, naming each step’s own Pending photo', async () => {
+it('uploads two photos at a time and saves once, after every upload has finished, naming each step’s own Pending photo', async () => {
 	const user = userEvent.setup()
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	const ids = [1, 2, 3].map((n) => `0b0f6a3e-4c1d-4d6e-9f1a-00000000000${n}`)
@@ -389,15 +389,18 @@ it('saves a recipe with several step photos once, after every upload has finishe
 		await user.keyboard(`Step ${step}`)
 	}
 	for (const step of [1, 2, 3]) await user.upload(screen.getByLabelText(`Add photo to step ${step}`), image(`step-${step}.jpg`))
-	await waitFor(() => expect(uploadPhoto.mock.calls.map(([file]) => file.name)).toEqual(['step-1.webp', 'step-2.webp', 'step-3.webp']))
+	await waitFor(() => expect(screen.getAllByText('Uploading photo…')).toHaveLength(3))
+	// The API takes two uploads per Account at a time; the third waits for a place.
+	expect(uploadPhoto.mock.calls.map(([file]) => file.name)).toEqual(['step-1.webp', 'step-2.webp'])
 	await user.click(save())
 	await waitFor(() => expect(save()).toBeDisabled())
 	// Answered out of order; the save still waits for the last one.
+	uploads[1].finish({ status: 'uploaded', id: ids[1] })
+	await waitFor(() => expect(uploadPhoto.mock.calls.map(([file]) => file.name)).toEqual(['step-1.webp', 'step-2.webp', 'step-3.webp']))
 	uploads[2].finish({ status: 'uploaded', id: ids[2] })
-	uploads[0].finish({ status: 'uploaded', id: ids[0] })
 	await waitFor(() => expect(screen.getAllByRole('progressbar')).toHaveLength(1))
 	expect(onSave).not.toHaveBeenCalled()
-	uploads[1].finish({ status: 'uploaded', id: ids[1] })
+	uploads[0].finish({ status: 'uploaded', id: ids[0] })
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	expect(sentRecipe().instructions.map((step: { image?: unknown }) => step.image)).toEqual(ids.map((pendingPhotoId) => ({ pendingPhotoId })))
 	expect([...onSave.mock.calls[0][0].keys()].sort()).toEqual(['idempotencyKey', 'recipe'])

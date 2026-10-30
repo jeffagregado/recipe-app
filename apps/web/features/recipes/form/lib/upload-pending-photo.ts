@@ -3,6 +3,27 @@ import { photoUploadResultSchema, UPLOAD_MESSAGES, type PhotoUploadResult } from
 /** Uploads one prepared photo as a Pending photo, reporting progress as a whole percentage. Never rejects. */
 export type PhotoUploader = (file: File, options: { onProgress: (percent: number) => void; signal: AbortSignal }) => Promise<PhotoUploadResult>
 
+/** The API runs two uploads per Account at a time and refuses a third, so a form never sends more. */
+const UPLOADS_AT_ONCE = 2
+
+/** Lets `upload` run at most two at a time; the others wait in pick order. A photo stopped while waiting is never sent. */
+export function limitUploads(upload: PhotoUploader): PhotoUploader {
+	let running = 0
+	const waiting: (() => void)[] = []
+	return async (file, options) => {
+		while (running >= UPLOADS_AT_ONCE) await new Promise<void>((resolve) => { waiting.push(resolve) })
+		if (options.signal.aborted) {
+			waiting.shift()?.()
+			return { status: 'failed', message: UPLOAD_MESSAGES.failed }
+		}
+		running++
+		try { return await upload(file, options) } finally {
+			running--
+			waiting.shift()?.()
+		}
+	}
+}
+
 /** Discards a Pending photo the form no longer uses. Sent without waiting for the answer, and never rejects. */
 export type PhotoDiscarder = (id: string) => void
 

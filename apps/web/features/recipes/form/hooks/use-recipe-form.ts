@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
 import { createEmptyRecipeValues, photoSlotPath, recipeFormSchema, type RecipeFormValues } from '../lib/recipe-form-schema'
 import type { RecipeFormMode } from '../lib/recipe-payload'
-import type { PhotoDiscarder, PhotoUploader } from '../lib/upload-pending-photo'
+import { limitUploads, type PhotoDiscarder, type PhotoUploader } from '../lib/upload-pending-photo'
 import { createPhotoSlots } from './photo-slots'
 import { useRecipeSubmission, type SaveRecipeAction } from './use-recipe-submission'
 import { useUnsavedChangesWarning } from './use-unsaved-changes-warning'
@@ -32,7 +32,7 @@ export function useRecipeForm({ mode, initialValues, onSave, onUploadPhoto, onDi
 			const { cover, instructions } = form.getValues()
 			return [cover, ...instructions.flatMap((group) => group.steps.map((step) => step.photo))]
 		},
-		upload: onUploadPhoto,
+		upload: limitUploads(onUploadPhoto),
 		discard: onDiscardPhoto,
 	}))
 	const { busy, alert, focusRequest, submit, resetWhenHidden } = useRecipeSubmission({ form, mode, onSave, photos })

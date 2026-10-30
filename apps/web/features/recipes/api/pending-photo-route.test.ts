@@ -107,6 +107,7 @@ it.each([
 	['415', () => leaky(415, 'UNSUPPORTED_MEDIA_TYPE'), 200, UPLOAD_MESSAGES.unsupported],
 	['429', () => leaky(429, 'RATE_LIMITED'), 200, UPLOAD_MESSAGES.rateLimited],
 	['409', () => leaky(409, 'PENDING_PHOTO_LIMIT'), 200, 'Too many photos are waiting to be saved. Save the recipe first, or try again tomorrow.'],
+	['409 for an upload still in progress', () => leaky(409, 'IDEMPOTENCY_IN_PROGRESS'), 200, UPLOAD_MESSAGES.failed],
 	['404', () => leaky(404, 'NOT_FOUND'), 200, UPLOAD_MESSAGES.failed],
 	['503', () => leaky(503, 'SERVICE_UNAVAILABLE'), 200, UPLOAD_MESSAGES.failed],
 	['a 201 without a Pending photo id', () => json({ id: 'not-a-uuid' }, 201), 200, UPLOAD_MESSAGES.failed],

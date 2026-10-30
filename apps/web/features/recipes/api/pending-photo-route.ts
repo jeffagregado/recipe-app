@@ -7,7 +7,7 @@ import { checkRecipeImage } from '@/features/recipes/form/lib/recipe-files'
 import { UPLOAD_MESSAGES, type PhotoUploadResult } from '@/features/recipes/form/lib/photo-upload-result'
 import { isSameOrigin, readMultipart } from './multipart-request'
 import { authorizeSave } from './save-recipe'
-import { sendWrite, type WriteContext } from './write-request'
+import { readErrorEnvelope, sendWrite, type WriteContext } from './write-request'
 
 const UPLOAD_TIMEOUT_MS = 30_000
 const DELETE_TIMEOUT_MS = 10_000
@@ -30,7 +30,13 @@ function readPhoto(body: FormData): File | string {
 /** Messages are this app's own: what the API said never reaches the browser. */
 const STATUS_MESSAGES: Record<number, string> = {
 	400: UPLOAD_MESSAGES.invalid, 401: UPLOAD_MESSAGES.sessionExpired, 403: UPLOAD_MESSAGES.unverified, 413: UPLOAD_MESSAGES.tooLarge,
-	409: UPLOAD_MESSAGES.tooManyPending, 415: UPLOAD_MESSAGES.unsupported, 429: UPLOAD_MESSAGES.rateLimited,
+	415: UPLOAD_MESSAGES.unsupported, 429: UPLOAD_MESSAGES.rateLimited,
+}
+
+/** A 409 is either the Account's Pending photo limit or another of its uploads still running; only the code tells them apart. */
+async function failureMessage(response: Response): Promise<string | undefined> {
+	if (response.status !== 409) return STATUS_MESSAGES[response.status]
+	return (await readErrorEnvelope(response))?.code === 'PENDING_PHOTO_LIMIT' ? UPLOAD_MESSAGES.tooManyPending : undefined
 }
 
 async function forward(file: File, context: WriteContext): Promise<{ result: PhotoUploadResult; status?: number }> {
@@ -39,7 +45,7 @@ async function forward(file: File, context: WriteContext): Promise<{ result: Pho
 	const outcome = await sendWrite({ context, request: { method: 'POST', path: '/pending-photos', body, timeoutMs: UPLOAD_TIMEOUT_MS } })
 	if ('problem' in outcome) return { result: failed() }
 	const { response } = outcome
-	if (response.status !== 201) return { result: failed(STATUS_MESSAGES[response.status]), status: response.status === 401 ? 401 : undefined }
+	if (response.status !== 201) return { result: failed(await failureMessage(response)), status: response.status === 401 ? 401 : undefined }
 	let payload: unknown
 	try { payload = await response.json() } catch { return { result: failed() } }
 	const uploaded = pendingPhotoSchema.safeParse(payload)
