@@ -6,8 +6,8 @@ import { cookies, headers } from 'next/headers'
 import { apiHeaders, getApiOrigin } from '@/features/auth/api'
 import { sessionCookieHeader } from '@/features/auth/session-cookie'
 
-/** The only request details a write forwards to the API: the trusted origin, the session cookie and the client address. */
-export type WriteContext = { origin: string; cookie: string; address: string | null }
+/** What a write forwards to the API: the trusted origin and the session cookie, with the client IP read from `incoming`. */
+export type WriteContext = { origin: string; cookie: string; incoming: Headers }
 
 /** Reads the caller's context, or why no write may be attempted (nothing has been sent in either case). */
 export async function readWriteContext(): Promise<{ context: WriteContext } | { problem: 'unverified' | 'session-expired' }> {
@@ -16,7 +16,7 @@ export async function readWriteContext(): Promise<{ context: WriteContext } | { 
 	if (!origin || origin === 'null') return { problem: 'unverified' }
 	const cookie = sessionCookieHeader(await cookies())
 	if (!cookie) return { problem: 'session-expired' }
-	return { context: { origin, cookie, address: incoming.get('x-forwarded-for') } }
+	return { context: { origin, cookie, incoming } }
 }
 
 type WriteRequest = {
@@ -39,10 +39,9 @@ export type WriteOutcome = { response: Response } | { problem: 'not-sent' | 'unk
 export async function sendWrite({ context, request }: { context: WriteContext; request: WriteRequest }): Promise<WriteOutcome> {
 	let apiOrigin: string
 	try { apiOrigin = getApiOrigin() } catch { return { problem: 'not-sent' } }
-	const outgoing = apiHeaders({ Cookie: context.cookie, Origin: context.origin })
+	const outgoing = apiHeaders(context.incoming, { Cookie: context.cookie, Origin: context.origin })
 	if (request.idempotencyKey) outgoing.set('Idempotency-Key', request.idempotencyKey)
 	if (request.contentType) outgoing.set('Content-Type', request.contentType)
-	if (context.address) outgoing.set('X-Forwarded-For', context.address)
 	try {
 		const response = await fetch(`${apiOrigin}${request.path}`, {
 			method: request.method, headers: outgoing, body: request.body, cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(request.timeoutMs),

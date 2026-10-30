@@ -79,18 +79,28 @@ it('forwards only origin and client address, applies the session cookie and redi
 	await expect(login(credentials)).rejects.toThrow('NEXT_REDIRECT:/recipes')
 	const [url, init] = fetchMock.mock.calls[0]
 	expect(url).toBe('http://api.example/auth/login')
-	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9' })
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9' })
 	expect(next.set).toHaveBeenCalledExactlyOnceWith('better-auth.session_token', 'abc', { httpOnly: true, sameSite: 'lax', path: '/', secure: false, maxAge: 604800 })
 })
 
-it('sends the web proxy secret to the API only, never back to the caller', async () => {
+it('sends the web proxy secret with the client IP to the API only, never back to the caller', async () => {
 	const secret = 'w'.repeat(40)
 	vi.stubEnv('RECIPE_WEB_PROXY_SECRET', secret)
 	fetchMock.mockResolvedValue(json({ code: 'INVALID_CREDENTIALS', message: 'raw upstream text' }, 401))
 	const result = await login(credentials)
 	const [, init] = fetchMock.mock.calls[0]
-	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', 'x-recipe-web-secret': secret })
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9', 'x-recipe-web-secret': secret })
 	expect(result).toEqual(invalidLogin)
+})
+
+it.each([
+	['the one address Vercel gives', '198.51.100.7', '198.51.100.7'],
+	['no address', undefined, null],
+])('names the client IP from %s', async (_source, forwarded, expected) => {
+	next.headers = new Headers({ origin: 'http://localhost:3000', ...(forwarded ? { 'x-forwarded-for': forwarded } : {}) })
+	fetchMock.mockResolvedValue(json({ code: 'INVALID_CREDENTIALS', message: 'raw upstream text' }, 401))
+	await login(credentials)
+	expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('x-recipe-client-ip')).toBe(expected)
 })
 
 it('maps an email conflict to the exact message', async () => {
@@ -133,7 +143,7 @@ it('sends a resend request with only the normalised address, origin and client a
 	expect(url).toBe('http://api.example/auth/resend-verification')
 	expect(init?.method).toBe('POST')
 	expect(init?.body).toBe('{"email":"owner@example.invalid"}')
-	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9' })
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9' })
 	expect(next.set).not.toHaveBeenCalled()
 })
 
@@ -212,7 +222,7 @@ it('resets with exact body and allowed headers, clears both cookies and redirect
 	expect(url).toBe('http://api.example/auth/reset-password')
 	expect(init?.method).toBe('POST')
 	expect(init?.body).toBe(JSON.stringify({ token: 'test-only-link-value', password: 'x'.repeat(16) }))
-	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9' })
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9' })
 	expect(next.set.mock.calls).toEqual([
 		['better-auth.session_token', '', { httpOnly: true, sameSite: 'lax', path: '/', secure: false, maxAge: 0 }],
 		['__Secure-better-auth.session_token', '', { httpOnly: true, sameSite: 'lax', path: '/', secure: true, maxAge: 0 }],
@@ -254,6 +264,6 @@ it('sends a forgot request with only the normalised address, origin and client a
 	expect(url).toBe('http://api.example/auth/forgot-password')
 	expect(init?.method).toBe('POST')
 	expect(init?.body).toBe('{"email":"owner@example.invalid"}')
-	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9' })
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9' })
 	expect(next.set).not.toHaveBeenCalled()
 })

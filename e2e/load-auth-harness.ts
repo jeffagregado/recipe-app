@@ -17,7 +17,7 @@ async function loadApiTestModule(name: string): Promise<unknown> {
     if (specifier.startsWith('node:')) return statement;
     let target: string;
     if (specifier.startsWith('../src/')) target = resolve(apiRoot, 'dist', specifier.slice('../src/'.length));
-    else if (specifier === './neon-dev.js') target = resolve(apiRoot, 'test/neon-dev.ts');
+    else if (specifier === './neon-dev.js' || specifier === './test-web-secret.js') target = resolve(apiRoot, 'test', specifier.replace(/\.js$/, '.ts'));
     else target = requireApi.resolve(specifier);
     if (specifier === 'drizzle-orm') target = target.replace(/\.cjs$/, '.js');
     return `from '${pathToFileURL(target).href}'`;

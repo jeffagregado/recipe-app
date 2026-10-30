@@ -33,7 +33,8 @@ it('posts the token once from the keyboard and holds the button while it is in f
 	fail(new Error('network'))
 	// Nothing was verified, so the same link can be tried again.
 	expect(await screen.findByRole('alert')).toHaveTextContent('We could not verify your email. Please try again.')
-	expect(verify()).toBeEnabled()
+	// The message is set after the action's await, so it can render one commit before the transition ends.
+	await waitFor(() => expect(verify()).toBeEnabled())
 })
 
 it('sends a link without a token for the action to refuse', async () => {

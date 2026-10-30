@@ -9,6 +9,7 @@ import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authAccounts, authRateLimits, authSessions, authVerifications, users } from '../../src/database/schema.js';
 import { apiClient, cookiePair, latestToken, linkToken, removeTestData, signupUser, startApi, storedEmailChangeLinks, storedResetLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { clientHeaders } from '../test-web-secret.js';
 import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
 
@@ -52,7 +53,7 @@ describe('Account email HTTP', () => {
   type Options = { cookie?: string | null; origin?: string | null; address?: string };
   /** A request the harness client has no verb for; the address defaults to the newest one issued. */
   const send = (method: 'PUT' | 'POST', path: string, body: unknown, { cookie = null, origin = TEST_ORIGIN, address = addresses.at(-1) ?? '' }: Options = {}) => {
-    const headers = new Headers({ 'Content-Type': 'application/json', 'X-Forwarded-For': address });
+    const headers = new Headers({ 'Content-Type': 'application/json', ...clientHeaders(address) });
     if (cookie !== null) headers.set('Cookie', cookie);
     if (origin !== null) headers.set('Origin', origin);
     return fetch(`${baseUrl}${path}`, { method, headers, body: JSON.stringify(body) });

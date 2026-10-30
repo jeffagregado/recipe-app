@@ -42,14 +42,14 @@ it.each([
 	expect(url).toBe('http://api.example/auth/verify-email')
 	expect(init?.method).toBe('POST')
 	expect(init?.body).toBe(`{"token":"${TOKEN}"}`)
-	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.9' })
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', 'x-recipe-client-ip': '203.0.113.9' })
 })
 
 it('forgets the pending address only once the email is verified', async () => {
 	fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
 	await expect(verifyEmail({ token: TOKEN })).rejects.toThrow('NEXT_REDIRECT:/auth/login?notice=email-verified')
 	expect(next.set.mock.calls).toEqual([PENDING_CLEARED])
-	expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has('x-forwarded-for')).toBe(false)
+	expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has('x-recipe-client-ip')).toBe(false)
 	next.set.mockReset()
 	fetchMock.mockResolvedValueOnce(json({ code: 'VERIFICATION_LINK_INVALID', message: 'raw upstream text' }, 400))
 	await expect(verifyEmail({ token: TOKEN })).rejects.toThrow('NEXT_REDIRECT:/verify-email/invalid')

@@ -3,7 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import { toNodeHandler } from 'better-auth/node';
 import type { Environment } from '../config/environment.js';
-import { keyDirectCaller } from './auth.request.js';
+import { clientAddress, trustClientIpHeader } from './auth.request.js';
 import { AUTH } from './auth.tokens.js';
 import type { RecipeAuth } from './auth.js';
 
@@ -11,16 +11,11 @@ import type { RecipeAuth } from './auth.js';
 export function mountAuth(app: NestExpressApplication): void {
   const express = app.getHttpAdapter().getInstance();
   const config = app.get<ConfigService<Environment, true>>(ConfigService);
-  // Express counts a number from the socket: N trusts the socket peer and the N - 1 rightmost X-Forwarded-For entries, and
-  // the client is the address N hops from the right, so an entry the client added in front never moves it. 0 keeps the
-  // local web server, on loopback, as the one trusted hop; a bare `true` would let any caller name its own address.
-  const hops = config.get('TRUST_PROXY_HOPS', { infer: true });
-  express.set('trust proxy', hops > 0 ? hops : 'loopback');
-  // Only the web server knows the secret; without one configured, every request keeps all the hops, as before.
+  // Without a secret configured, as in local development, every request is keyed on its connecting address.
   const webProxySecret = config.get('RECIPE_WEB_PROXY_SECRET', { infer: true });
   if (webProxySecret) {
     app.use((request: IncomingMessage, _response: ServerResponse, next: () => void) => {
-      keyDirectCaller(request, hops, webProxySecret);
+      trustClientIpHeader(request, webProxySecret);
       next();
     });
   }
@@ -38,7 +33,13 @@ export function mountAuth(app: NestExpressApplication): void {
     response.end(JSON.stringify({ message: 'Not found.' }));
   });
   app.enableCors({ origin: config.get('AUTH_TRUSTED_ORIGINS', { infer: true }), credentials: true });
-  express.get('/api/auth/ok', toNodeHandler(app.get<RecipeAuth>(AUTH)));
+  // Better Auth rate-limits its native route on X-Forwarded-For, so it gets the client address resolved above, as the
+  // wrappers give it in authHeaders, and never one a caller wrote.
+  const health = toNodeHandler(app.get<RecipeAuth>(AUTH));
+  express.get('/api/auth/ok', (request: IncomingMessage, response: ServerResponse) => {
+    request.headers['x-forwarded-for'] = clientAddress(request);
+    return health(request, response);
+  });
   app.useBodyParser('json', { limit: '8kb', type: (request: IncomingMessage) => {
     // Recipe create and update read their own JSON (up to 1 MiB) and photo uploads their multipart body, each only after their guards pass.
     if (request.method === 'POST' && /^\/(?:recipes|pending-photos)\/?(?:\?|$)/.test(request.url ?? '')) return false;

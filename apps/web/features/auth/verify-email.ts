@@ -21,12 +21,11 @@ function logFailure(code: string, status?: number) {
 	console.warn(`Auth: verify-email failed with ${code}${status === undefined ? '' : ` (upstream ${status})`}.`)
 }
 
-async function sendToken(token: string, address: string | null): Promise<VerifyEmailOutcome> {
+async function sendToken(token: string, incoming: Headers): Promise<VerifyEmailOutcome> {
 	const outgoing = new Headers({ 'Content-Type': 'application/json' })
-	if (address) outgoing.set('X-Forwarded-For', address)
 	let response: Response
 	try {
-		response = await authFetch('/auth/verify-email', { method: 'POST', headers: outgoing, body: JSON.stringify({ token }) })
+		response = await authFetch('/auth/verify-email', incoming, { method: 'POST', headers: outgoing, body: JSON.stringify({ token }) })
 	} catch {
 		logFailure('SERVICE_UNAVAILABLE')
 		return 'unavailable'
@@ -48,7 +47,7 @@ export async function verifyEmail(input: unknown): Promise<never> {
 	// Nothing here was typed by a person: a token that cannot be sent is a link that cannot be used.
 	if (!parsed.success) redirect(DESTINATIONS.invalid)
 	const incoming = await headers()
-	const outcome = await sendToken(parsed.data.token, incoming.get('x-forwarded-for'))
+	const outcome = await sendToken(parsed.data.token, incoming)
 	if (outcome === 'verified') (await cookies()).set(PENDING_VERIFICATION_COOKIE, '', pendingVerificationCookie(incoming.get('origin')?.startsWith('https://') ?? false, 0))
 	redirect(DESTINATIONS[outcome])
 }

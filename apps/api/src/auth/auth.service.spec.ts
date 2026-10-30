@@ -27,7 +27,7 @@ function harness() {
   const resilience = { preset: () => ({ execute: (fn: () => unknown) => fn() }) } as unknown as ResilienceService;
   const allows = vi.fn().mockResolvedValue(true);
   const service = new AuthService(auth, db, resilience, { send }, { allows } as unknown as AuthRateLimiter);
-  const request = { headers: {}, ip: '127.0.0.1' } as IncomingMessage & { ip: string };
+  const request = { headers: {}, socket: { remoteAddress: '127.0.0.1' } } as IncomingMessage;
   return { service, request, getSession, signOut, signUpEmail, findSession, findUser, send, allows };
 }
 

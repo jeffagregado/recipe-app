@@ -17,12 +17,13 @@ import { seedRecipes } from '../src/recipes/seed-recipes.js';
 import type { MailKind, MailMessage } from '../src/mail/mail.transport.js';
 import { getDevDatabaseUrl } from './neon-dev.js';
 import type { ConfigureTestingModule, Inbox, RecordingMailTransport } from './recording-mail.js';
+import { clientHeaders, TEST_WEB_SECRET } from './test-web-secret.js';
 
 export const TEST_ORIGIN = 'http://localhost:3000';
 
 const issuedAddresses = new Set<string>();
 
-/** Loopback callers may name a private-range client address; counters stay isolated per suite. */
+/** A private-range client address for a test caller to name; counters stay isolated per suite. */
 export function testAddress(): string {
   // Signup is capped per address, so a repeat would spend another test's allowance. In CI the integration shards and the
   // E2E workers are separate processes on one database, so the address is drawn from all of 10.0.0.0/8, where two
@@ -44,6 +45,7 @@ export async function startApi(configure?: ConfigureTestingModule): Promise<{ ap
   process.env.BETTER_AUTH_URL = 'http://127.0.0.1:4101';
   // Process environment overrides the env file, so the suite never depends on the developer's list.
   process.env.AUTH_TRUSTED_ORIGINS = TEST_ORIGIN;
+  process.env.RECIPE_WEB_PROXY_SECRET = TEST_WEB_SECRET;
   const { AppModule } = await import('../src/app.module.js');
   // Imported here, not at the top: the e2e loader compiles this file alone and resolves no other test module.
   const { createAppWithRecordedMail } = await import('./recording-mail.js');
@@ -59,7 +61,7 @@ type RequestOptions = { cookie?: string; origin?: string | null; address?: strin
 export function apiClient(baseUrl: string, defaultAddress: string, defaultOrigin = TEST_ORIGIN) {
   const headers = ({ cookie, origin = defaultOrigin, address = defaultAddress, headers: extra }: RequestOptions) => ({
     ...extra,
-    'X-Forwarded-For': address,
+    ...clientHeaders(address),
     ...(origin === null ? {} : { Origin: origin }),
     ...(cookie ? { Cookie: cookie } : {}),
   });

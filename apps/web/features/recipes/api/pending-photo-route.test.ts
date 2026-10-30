@@ -59,7 +59,7 @@ it('forwards the photo with only the session cookie, origin and client address, 
 	expect(url).toBe('http://api.example/pending-photos')
 	expect(init).toMatchObject({ method: 'POST', cache: 'no-store', redirect: 'error' })
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9',
 	})
 	const body = init?.body as FormData
 	expect([...body.keys()]).toEqual(['photo'])
@@ -141,7 +141,7 @@ describe('deleting a Pending photo', () => {
 		expect(init).toMatchObject({ method: 'DELETE', cache: 'no-store', redirect: 'error' })
 		expect(init?.body).toBeUndefined()
 		expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-			cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9',
+			cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9',
 		})
 	})
 

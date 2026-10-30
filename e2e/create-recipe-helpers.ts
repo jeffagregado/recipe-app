@@ -4,6 +4,7 @@ import type { Locator, Page } from '@playwright/test';
 import { asc, eq } from '../apps/api/node_modules/drizzle-orm/index.js';
 import type { DrizzleDb } from '../apps/api/src/database/database.service.js';
 import { recipeImages, recipeInstructions } from '../apps/api/src/database/schema.js';
+import { clientHeaders } from '../apps/api/test/test-web-secret.js';
 import { expect, WEB_URL } from './fixtures.js';
 
 const API_URL = 'http://127.0.0.1:4101';
@@ -244,7 +245,7 @@ async function sendToApi(send: () => Promise<Response>, expected: number): Promi
  * `step-<index>`), is uploaded as a Pending photo first and named in that slot, as the form does.
  */
 export async function createRecipeViaApi(creator: Creator, address: string, metadata: CreateMetadata, files: Record<string, Photo> = {}): Promise<string> {
-  const headers = { Cookie: creator.cookie, Origin: WEB_URL, 'X-Forwarded-For': address };
+  const headers = { Cookie: creator.cookie, Origin: WEB_URL, ...clientHeaders(address) };
   const named: CreateMetadata & { cover?: { pendingPhotoId: string } } = { ...metadata, instructions: metadata.instructions.map((step) => ({ ...step })) };
   for (const [slot, file] of Object.entries(files)) {
     const body = new FormData();

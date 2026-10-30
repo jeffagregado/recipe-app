@@ -39,7 +39,7 @@ it.each([
 	expect(url).toBe('http://api.example/auth/google/start')
 	expect(init?.method).toBe('POST')
 	expect(init?.body).toBe('{}')
-	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin, 'x-forwarded-for': '203.0.113.9' })
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', origin, 'x-recipe-client-ip': '203.0.113.9' })
 	expect(next.set).toHaveBeenCalledExactlyOnceWith(name, 'test-state.test-signature', { httpOnly: true, sameSite: 'lax', path: '/', secure, maxAge: 300 })
 })
 

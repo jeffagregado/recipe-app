@@ -17,14 +17,11 @@ const failed = (message: string = CONFIRM_EMAIL_MESSAGES.failed): ConfirmEmailCh
 /** The refusals that leave the link usable and have something more exact to say than "try again". */
 const STATUS_MESSAGES: Partial<Record<number, string>> = { 403: CONFIRM_EMAIL_MESSAGES.unverified, 429: CONFIRM_EMAIL_MESSAGES.rateLimited }
 
-/** Only the request Origin, the client address and the session cookie, when there is one, reach the API. */
-async function upstreamHeaders(): Promise<Headers | undefined> {
-	const incoming = await headers()
+/** Only the request Origin and the session cookie, when there is one, are added here; authFetch adds the client IP. */
+async function upstreamHeaders(incoming: Headers): Promise<Headers | undefined> {
 	const origin = incoming.get('origin')
 	if (!origin || origin === 'null') return undefined
 	const outgoing = new Headers({ 'Content-Type': 'application/json', Origin: origin })
-	const address = incoming.get('x-forwarded-for')
-	if (address) outgoing.set('X-Forwarded-For', address)
 	const cookie = sessionCookieHeader(await cookies())
 	if (cookie) outgoing.set('Cookie', cookie)
 	return outgoing
@@ -48,14 +45,15 @@ export async function confirmEmailChange(input: unknown): Promise<ConfirmEmailCh
 	const parsed = confirmEmailChangeSchema.safeParse(input)
 	// Nothing here was typed by a person: a token that cannot be sent is a link that cannot be used.
 	if (!parsed.success) return { status: 'invalid' }
-	const outgoing = await upstreamHeaders()
+	const incoming = await headers()
+	const outgoing = await upstreamHeaders(incoming)
 	if (!outgoing) {
 		logFailure('ORIGIN_REJECTED')
 		return failed(CONFIRM_EMAIL_MESSAGES.unverified)
 	}
 	let response: Response
 	try {
-		response = await authFetch('/account/email-change/confirm', { method: 'POST', headers: outgoing, body: JSON.stringify(parsed.data) })
+		response = await authFetch('/account/email-change/confirm', incoming, { method: 'POST', headers: outgoing, body: JSON.stringify(parsed.data) })
 	} catch {
 		logFailure('SERVICE_UNAVAILABLE')
 		return failed()

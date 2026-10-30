@@ -43,12 +43,11 @@ function logFailure(code: string, status?: number): GoogleCallbackOutcome {
  * Forwards the code and state with the state cookie, and with the session cookie when the browser has one: the API
  * attaches a connect only for the session that started it. Answers the API's response only when it is a sign-in to apply.
  */
-async function complete(input: GoogleCallbackInput, cookie: string, address: string | null): Promise<Response | GoogleCallbackOutcome> {
+async function complete(input: GoogleCallbackInput, cookie: string, incoming: Headers): Promise<Response | GoogleCallbackOutcome> {
 	const headers = new Headers({ 'Content-Type': 'application/json', Cookie: cookie })
-	if (address) headers.set('X-Forwarded-For', address)
 	let response: Response
 	try {
-		response = await authFetch('/auth/google/callback', { method: 'POST', headers, body: JSON.stringify(input) })
+		response = await authFetch('/auth/google/callback', incoming, { method: 'POST', headers, body: JSON.stringify(input) })
 	} catch {
 		return logFailure('SERVICE_UNAVAILABLE')
 	}
@@ -81,7 +80,7 @@ export async function handleGoogleCallback(request: NextRequest): Promise<Respon
 	const input = googleCallbackSchema.safeParse({ code: query.get('code') ?? undefined, state: query.get('state') ?? undefined })
 	const stateCookie = googleStateCookieHeader(request.cookies)
 	const result = input.success && stateCookie
-		? await complete(input.data, [stateCookie, sessionCookieHeader(request.cookies)].filter(Boolean).join('; '), request.headers.get('x-forwarded-for'))
+		? await complete(input.data, [stateCookie, sessionCookieHeader(request.cookies)].filter(Boolean).join('; '), request.headers)
 		: logFailure('GOOGLE_SIGN_IN_FAILED')
 	// A relative Location: the browser resolves it against the address it asked for, so the redirect cannot change origin.
 	// The callback URL holds the code, so it is neither cached nor sent on as a referrer.

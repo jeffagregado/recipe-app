@@ -3,7 +3,7 @@ import 'server-only'
 import type { RecipeFilters } from '@recipe-app/contracts/types'
 import { dehydrate, QueryClient } from '@tanstack/react-query'
 import { redirect } from 'next/navigation'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { apiHeaders, getApiOrigin } from '@/features/auth/api'
 import { requireSession } from '@/features/auth/queries'
 import { sessionCookieHeader } from '@/features/auth/session-cookie'
@@ -17,11 +17,12 @@ export const RECIPE_BROWSER_ENDPOINT = '/backend/recipes'
 export async function hydrateRecipePage(filters: RecipeFilters) {
 	const { user } = await requireSession()
 	const cookie = sessionCookieHeader(await cookies())
+	const incoming = await headers()
 	const client = new QueryClient()
 	try {
 		await client.fetchInfiniteQuery({
 			...recipeQueryOptions(user.id, RECIPE_BROWSER_ENDPOINT, filters),
-			queryFn: () => fetchRecipePage(`${getApiOrigin()}/recipes`, filters, 1, undefined, apiHeaders(cookie ? { Cookie: cookie } : undefined)),
+			queryFn: () => fetchRecipePage(`${getApiOrigin()}/recipes`, filters, 1, undefined, apiHeaders(incoming, cookie ? { Cookie: cookie } : undefined)),
 		})
 		return dehydrate(client)
 	} catch (error) {

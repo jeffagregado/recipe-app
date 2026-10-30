@@ -32,7 +32,7 @@ it('sends the trimmed name with only the session cookie, origin and client addre
 	expect(url).toBe('http://api.example/account/display-name')
 	expect(init).toMatchObject({ method: 'PUT', cache: 'no-store', redirect: 'error', body: '{"displayName":"Ana María"}' })
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9', 'content-type': 'application/json',
 	})
 	// The sidebar reads the session uncached on every render, so a router refresh is what shows the new name.
 	expect(cache.refresh).toHaveBeenCalledOnce()

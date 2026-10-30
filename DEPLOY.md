@@ -13,7 +13,7 @@ This guide records how production runs and how to set it up from nothing. The li
 
 The web app's old address, https://recapp-recipe-app.vercel.app, still serves it and stays in `AUTH_TRUSTED_ORIGINS` for now.
 
-The API's address is a Render custom domain: in Cloudflare, a CNAME `api` points to `recapp-api-9984.onrender.com` and is set to DNS only. Do not proxy it. A proxied record adds a hop in front of the API and breaks `TRUST_PROXY_HOPS=2`. The `onrender.com` address still answers.
+The API's address is a Render custom domain: in Cloudflare, a CNAME `api` points to `recapp-api-9984.onrender.com` and is set to DNS only. Do not proxy it: proxying through Cloudflare is untested and out of scope (#127). The `onrender.com` address still answers.
 
 The browser talks to the web app only. The web server calls the API server-to-server.
 
@@ -68,13 +68,15 @@ These are the secrets to enter on Render. `render.yaml` sets every other API var
 
 The build inlines `NEXT_PUBLIC_GA_ID`, and the build and the server both read `RECIPE_STORAGE_HOST`, so redeploy the web app after you change either.
 
-### Client addresses and `TRUST_PROXY_HOPS`
+### Client addresses
 
-Rate limits key on the browser's address, which the web app forwards to the API in `X-Forwarded-For`. `TRUST_PROXY_HOPS` is the number of hops in front of the API that are yours: Render's proxy plus the web app, so `2`. The client is the address that many entries from the right of `X-Forwarded-For`, and an entry that a client prepends is ignored. Unset or `0` trusts loopback only, for local development. A count higher than the real hops would let a caller choose its own address.
+Rate limits key on the user's IP. The web app reads it from `X-Forwarded-For` on its own request, which Vercel overwrites with the one address that connected, and sends it to the API in `X-Recipe-Client-IP` next to `X-Recipe-Web-Secret` on every call. The API does not take the client IP from `X-Forwarded-For`: Vercel overwrites it in front of a function too, so it would name the web app, not the user.
+
+The API trusts `X-Recipe-Client-IP` only on a request that carries the [proxy secret](#proxy-secret), and only when it holds one IP address. Any other request is keyed on the address that connected to the API. On Render that is Render's proxy, so every such caller shares one rate-limit bucket. Better Auth's own rate limit keys on the same address.
 
 ### Proxy secret
 
-The API is publicly reachable, so a caller can skip the web app and arrive with one hop fewer. `RECIPE_WEB_PROXY_SECRET` closes that gap. The web server sends it in the `X-Recipe-Web-Secret` header on every API call. The API gives the web app's hop only to requests that carry it, and keys any other request one hop nearer, on the address that Render's proxy saw. Unset on the API keeps every request on `TRUST_PROXY_HOPS`. Set it only with `TRUST_PROXY_HOPS` of 2 or more.
+The API is publicly reachable, so only a request from the web server may name the user's IP. `RECIPE_WEB_PROXY_SECRET` proves where a request came from: the web server sends it in `X-Recipe-Web-Secret` on every API call. While the API has no secret, it ignores `X-Recipe-Client-IP` and keys every request on the connecting address, so all users share one rate-limit bucket.
 
 To set it:
 
@@ -82,7 +84,7 @@ To set it:
 2. Set it on **Vercel** (Production) and redeploy the web app. While the API has no secret, it ignores the header.
 3. Set the same value on **Render** and redeploy the API.
 
-The reverse order would key every user on Vercel's address until the web app is redeployed.
+The reverse order would key every user on the connecting address until the web app is redeployed.
 
 ## Rotating secrets
 
@@ -90,7 +92,7 @@ Rotate a secret by setting the new value on the host, redeploying, and then revo
 
 | Secret | Host | How |
 | --- | --- | --- |
-| `RECIPE_WEB_PROXY_SECRET` | Vercel and Render | Set it on Vercel first, then Render, as in [Proxy secret](#proxy-secret). Redeploy the API right after the web app. Until then the API expects the old value, so users share Vercel's address for rate limits |
+| `RECIPE_WEB_PROXY_SECRET` | Vercel and Render | Set it on Vercel first, then Render, as in [Proxy secret](#proxy-secret). Redeploy the API right after the web app. Until then the API expects the old value, so users share one rate-limit bucket on the connecting address |
 | `DATABASE_URL` | Render | Reset the role's password on the Neon `production` branch, set the new URL, and redeploy |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Render | Create a new Neon storage access key, set both values, redeploy, then revoke the old key |
 | `BETTER_AUTH_SECRET` | Render | Set a new value and redeploy. Every user is signed out |
