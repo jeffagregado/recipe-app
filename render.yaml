@@ -34,8 +34,6 @@ services:
         value: https://recapp.site/api/auth/callback/google
       - key: MAIL_FROM
         value: Recapp <no-reply@mail.recapp.site>
-      - key: TRUST_PROXY_HOPS
-        value: "2"
       - key: DATABASE_URL
         sync: false
       - key: AWS_ACCESS_KEY_ID
