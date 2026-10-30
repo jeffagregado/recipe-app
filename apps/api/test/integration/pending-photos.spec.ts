@@ -100,7 +100,7 @@ describe('Pending photos HTTP', () => {
       const calls = s.upload.mock.calls.length;
       const response = await s.uploadPhoto(jpeg(90));
       expect(response.status).toBe(409);
-      expect(apiErrorEnvelopeSchema.parse(await response.json())).toEqual({ code: 'PENDING_PHOTO_LIMIT', message: 'Too many photos are waiting to be saved. Save the recipe, or try again tomorrow.' });
+      expect(apiErrorEnvelopeSchema.parse(await response.json())).toEqual({ code: 'PENDING_PHOTO_LIMIT', message: 'Too many photos are waiting to be saved. Save the recipe first, or try again tomorrow.' });
       expect([s.upload.mock.calls.length, await toLimit()]).toEqual([calls, 0]);
     }, 30_000);
 

@@ -19,4 +19,6 @@ export const UPLOAD_MESSAGES = {
 	sessionExpired: 'Your session has expired. Sign in again in another tab, then try again.',
 	unverified: 'This request could not be verified. Refresh the page and try again.',
 	rateLimited: 'Too many uploads. Try again in a moment.',
+	/** An Account holds at most 60 unsaved photos; each is discarded 24 hours after upload. */
+	tooManyPending: 'Too many photos are waiting to be saved. Save the recipe first, or try again tomorrow.',
 } as const satisfies SaveMessages & Record<string, string>

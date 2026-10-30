@@ -40,7 +40,7 @@ const PHOTO_UPLOAD: UploadShape = {
   requestBytes: RECIPE_LIMITS.photoRequestBytes, tooLarge: 'Request exceeds one photo.', files: 1, fileField: /^photo$/, field: PHOTO_FIELD,
 };
 
-const pendingPhotoLimit = () => new RecipeError(409, 'PENDING_PHOTO_LIMIT', 'Too many photos are waiting to be saved. Save the recipe, or try again tomorrow.');
+const pendingPhotoLimit = () => new RecipeError(409, 'PENDING_PHOTO_LIMIT', 'Too many photos are waiting to be saved. Save the recipe first, or try again tomorrow.');
 const heldPendingPhotos = (db: Pick<DrizzleDb, '$count'>, userId: string) => db.$count(pendingPhotos, and(eq(pendingPhotos.userId, userId), unexpired));
 
 /** Rate limit, Pending photo limit, declared size and content type are checked before any of the body is read. */

@@ -5,14 +5,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
 import { createEmptyRecipeValues, photoSlotPath, recipeFormSchema, type RecipeFormValues } from '../lib/recipe-form-schema'
 import type { RecipeFormMode } from '../lib/recipe-payload'
-import type { PhotoUploader } from '../lib/upload-pending-photo'
+import type { PhotoDiscarder, PhotoUploader } from '../lib/upload-pending-photo'
 import { createPhotoSlots } from './photo-slots'
 import { useRecipeSubmission, type SaveRecipeAction } from './use-recipe-submission'
 import { useUnsavedChangesWarning } from './use-unsaved-changes-warning'
 
-type UseRecipeFormOptions = { mode: RecipeFormMode; initialValues?: RecipeFormValues; onSave: SaveRecipeAction; onUploadPhoto: PhotoUploader }
+type UseRecipeFormOptions = { mode: RecipeFormMode; initialValues?: RecipeFormValues; onSave: SaveRecipeAction; onUploadPhoto: PhotoUploader; onDiscardPhoto: PhotoDiscarder }
 
-export function useRecipeForm({ mode, initialValues, onSave, onUploadPhoto }: UseRecipeFormOptions) {
+export function useRecipeForm({ mode, initialValues, onSave, onUploadPhoto, onDiscardPhoto }: UseRecipeFormOptions) {
 	const defaultValues = initialValues ?? createEmptyRecipeValues()
 	const form = useForm<RecipeFormValues>({ resolver: zodResolver(recipeFormSchema), defaultValues, shouldFocusError: false })
 	const formRef = useRef<HTMLFormElement>(null)
@@ -28,7 +28,12 @@ export function useRecipeForm({ mode, initialValues, onSave, onUploadPhoto }: Us
 			form.clearErrors(path)
 			form.setValue(path, photo, { shouldDirty: true, shouldTouch: true })
 		},
+		all: () => {
+			const { cover, instructions } = form.getValues()
+			return [cover, ...instructions.flatMap((group) => group.steps.map((step) => step.photo))]
+		},
 		upload: onUploadPhoto,
+		discard: onDiscardPhoto,
 	}))
 	const { busy, alert, focusRequest, submit, resetWhenHidden } = useRecipeSubmission({ form, mode, onSave, photos })
 	// Subscribed state: the form object keeps one identity, so reading form.formState here could be cached by the compiler.
@@ -41,6 +46,15 @@ export function useRecipeForm({ mode, initialValues, onSave, onUploadPhoto }: Us
 	}, [focusRequest, submitCount])
 
 	useUnsavedChangesWarning(isDirty)
+
+	// Closing or reloading the page, past that warning, abandons the form. A save still running may use its Pending photos,
+	// and a page the browser keeps to come back to still needs them.
+	useEffect(() => {
+		if (busy) return
+		const leave = (event: PageTransitionEvent) => { if (!event.persisted) photos.abandon() }
+		window.addEventListener('pagehide', leave)
+		return () => window.removeEventListener('pagehide', leave)
+	}, [busy, photos])
 
 	return { form, formRef, photos, busy, alert, isDirty, submit, resetWhenHidden }
 }
