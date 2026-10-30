@@ -23,8 +23,9 @@ export const PENDING_PHOTO_UPLOAD_LIMIT = 120;
 const PENDING_PHOTO_UPLOAD_WINDOW_MS = 10 * 60_000;
 /** Pending photos expire 24 hours after upload; database time decides. */
 const PENDING_PHOTO_LIFETIME_MS = 24 * 60 * 60_000;
-const unexpired = sql`${pendingPhotos.createdAt} > clock_timestamp() - interval '24 hours'`;
-const expiredAfter = (lifetimeMs: number) => sql`${pendingPhotos.createdAt} <= clock_timestamp() - make_interval(secs => ${lifetimeMs / 1000})`;
+const lifetime = (ms: number) => sql`make_interval(secs => ${ms / 1000})`;
+const unexpired = sql`${pendingPhotos.createdAt} > clock_timestamp() - ${lifetime(PENDING_PHOTO_LIFETIME_MS)}`;
+const expiredAfter = (ms: number) => sql`${pendingPhotos.createdAt} <= clock_timestamp() - ${lifetime(ms)}`;
 /** Expired Pending photos one upload deletes, so the sweep stays quick and needs no cron (ADR 0005). */
 const SWEEP_BATCH = 10;
 /** Unexpired Pending photos one Account may hold, so one Account cannot fill storage with photos it never saves. */
@@ -63,8 +64,11 @@ export class PendingPhotoUploadInterceptor extends RecipeUploadInterceptor {
   protected override read(request: RecipeUploadRequest, response: ServerResponse): Promise<void> { return parsePhotoUpload(request, response); }
 }
 
-/** Which expired Pending photos one upload's sweep may delete: `objectKeys` limits it to those photos, `lifetimeMs` replaces the 24 hours. */
-export type PendingPhotoSweepScope = { objectKeys?: string[]; lifetimeMs?: number };
+/**
+ * Which expired Pending photos a sweep may delete: `objectKeys` limits it to those photos. Only with them may `lifetimeMs`
+ * replace the 24 hours, so a shorter lifetime never reaches another Account's photos.
+ */
+export type PendingPhotoSweepScope = { objectKeys?: string[]; lifetimeMs?: never } | { objectKeys: string[]; lifetimeMs: number };
 
 /**
  * Upload extension point: each upload sweeps every Account's expired Pending photos (ADR 0005). Tests replace it to sweep only
@@ -129,7 +133,7 @@ export class PendingPhotoService {
 /**
  * Deletes up to `limit` expired Pending photos of any Account, oldest first: their rows, then their photos. A save holding a row
  * is skipped, and a row is gone before its photo, so a save can never take a Pending photo whose photo is being deleted.
- * `objectKeys` limits the sweep to those photos.
+ * `scope` may narrow the sweep, as `PendingPhotoSweepScope` describes.
  */
 async function sweepExpiredPendingPhotos(db: DrizzleDb, storage: Pick<StorageService, 'deleteObject'>,
   { limit = SWEEP_BATCH, objectKeys, lifetimeMs = PENDING_PHOTO_LIFETIME_MS }: PendingPhotoSweepScope & { limit?: number } = {}): Promise<{ expired: number; failed: number }> {
@@ -141,20 +145,21 @@ async function sweepExpiredPendingPhotos(db: DrizzleDb, storage: Pick<StorageSer
   return { expired: removed.length, failed: removed.length - deleted };
 }
 
-type ReconcileOptions = { now: Date; ageMs?: number; objectKeys?: string[] };
+type ReconcileOptions = { now: Date; ageMs?: number } & PendingPhotoSweepScope;
 
 /**
  * The `recipes:reconcile` backstop for what the upload sweep misses: every expired Pending photo, then each photo stored under
  * the Pending photo prefix at least `ageMs` before `now` that neither a Pending photo nor a recipe image names. `objectKeys`
- * limits both to those photos.
+ * limits both to those photos, and `lifetimeMs` replaces the 24 hours for those Pending photos.
  */
 export async function reconcilePendingPhotos(db: DrizzleDb, storage: Pick<StorageService, 'deleteObject' | 'listObjects'>,
-  { now, ageMs = ORPHAN_AGE_MS, objectKeys }: ReconcileOptions): Promise<{ expired: number; orphans: number; failed: number }> {
+  { now, ageMs = ORPHAN_AGE_MS, ...scope }: ReconcileOptions): Promise<{ expired: number; orphans: number; failed: number }> {
+  const { objectKeys } = scope;
   if (!Number.isFinite(now.getTime()) || ageMs < 0 || !Number.isFinite(ageMs)) throw new RangeError('Invalid reconciliation age or date.');
   const counts = { expired: 0, orphans: 0, failed: 0 };
   if (objectKeys?.length === 0) return counts;
   for (let batch; !batch || batch.expired === RECONCILE_BATCH;) {
-    batch = await sweepExpiredPendingPhotos(db, storage, { limit: RECONCILE_BATCH, objectKeys });
+    batch = await sweepExpiredPendingPhotos(db, storage, { ...scope, limit: RECONCILE_BATCH });
     counts.expired += batch.expired - batch.failed; counts.failed += batch.failed;
   }
   const storedBefore = now.getTime() - ageMs;

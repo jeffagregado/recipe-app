@@ -145,10 +145,10 @@ describe('Pending photos HTTP', () => {
 
   describe('reconciliation', () => {
     it('deletes expired Pending photos with their stored photos', async () => {
-      const old = await expired(98);
-      expect((await reconcilePendingPhotos(s.db, s.storage, { now: new Date(), objectKeys: [old.objectKey] })).failed).toBe(0);
-      // Another upload's sweep may get there first; either way the Pending photo is gone.
-      expect([await s.pendingRow(old.id), await s.stored(old.objectKey)]).toEqual([undefined, false]);
+      const id = await s.pendingPhoto(jpeg(98)); const { objectKey } = (await s.pendingRow(id))!;
+      // Unexpired in database time, so no upload's sweep in another process can take it first.
+      expect(await reconcilePendingPhotos(s.db, s.storage, { now: new Date(), objectKeys: [objectKey], lifetimeMs: 0 })).toEqual({ expired: 1, orphans: 0, failed: 0 });
+      expect([await s.pendingRow(id), await s.stored(objectKey)]).toEqual([undefined, false]);
     }, 60_000);
 
     it('deletes a stored photo no row names once it is old enough, and keeps Pending and saved photos', async () => {
