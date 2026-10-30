@@ -33,7 +33,7 @@ const PLATE = photo('plate.png', [90, 140, 90]);
 const fourStepFiles: Record<string, Photo> = { cover: COVER, 'step-0': STEP_ONE, 'step-2': STEP_THREE, 'step-3': PLATE };
 const fourStepMetadata = (title: string, categoryIds: string[]): CreateMetadata => ({
   ...richMetadata(title, categoryIds),
-  instructions: FOUR_STEPS.map((description, index) => ({ description, hasImage: index !== 1 })),
+  instructions: FOUR_STEPS.map((description) => ({ description })),
 });
 
 async function openEdit(page: Page, id: string, title: string) {
@@ -285,7 +285,7 @@ test.describe('edit: replacing one step photo', () => {
     const request = page.waitForRequest((sent) => new URL(sent.url()).pathname === `/api/recipes/${id}` && sent.method() === 'PATCH');
     await save(page).click();
     // The save names the one Pending photo and keeps the cover and step 1 without sending them.
-    const metadata = JSON.parse(/name="recipe"\r\n\r\n(.*)\r\n/.exec((await request).postDataBuffer()!.toString())![1]);
+    const { recipe: metadata } = (await request).postDataJSON() as { recipe: { cover: unknown; instructions: { image: unknown }[] } };
     expect([metadata.cover, ...metadata.instructions.map((step: { image: unknown }) => step.image)])
       .toEqual(['keep', 'keep', 'remove', { pendingPhotoId: expect.any(String) }]);
     // The same waits as the other edit saves in this file, for the update and the redirect over the link to Neon.

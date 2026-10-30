@@ -17,7 +17,7 @@ The API's address is a Render custom domain: in Cloudflare, a CNAME `api` points
 
 The browser talks to the web app only. The web server calls the API server-to-server.
 
-The API runs on Render, not Vercel, because Vercel functions refuse request bodies over 4.5 MB, and recipe photo uploads are larger than that.
+The API runs on Render. Every request now fits Vercel's 4.5 MB request body limit: each photo is shrunk in the browser and uploaded on its own, and a recipe save is JSON that names its photos (ADR 0005). Moving the API to Vercel is a separate step.
 
 ## First deployment
 

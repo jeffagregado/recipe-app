@@ -211,38 +211,51 @@ export type CreateMetadata = {
   title: string; description: string | null; categoryIds: string[]; servings: number | null; prepTimeMinutes: number | null; cookTimeMinutes: number | null;
   videoUrl: string | null; notes: string | null;
   ingredients: { name: string; quantity: number | null; unit: string | null }[];
-  instructions: { description: string; hasImage: boolean }[];
+  instructions: { description: string; image?: { pendingPhotoId: string } }[];
 };
 
 export const minimalMetadata = (title: string): CreateMetadata => ({
   title, description: null, categoryIds: [], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
-  ingredients: [{ name: 'Water', quantity: 2, unit: 'cup' }], instructions: [{ description: 'Boil the water.', hasImage: false }],
+  ingredients: [{ name: 'Water', quantity: 2, unit: 'cup' }], instructions: [{ description: 'Boil the water.' }],
 });
 
 export const richMetadata = (title: string, categoryIds: string[], videoUrl: string | null = YOUTUBE_LINK): CreateMetadata => ({
   title, description: RICH.description, categoryIds, servings: 4, prepTimeMinutes: 10, cookTimeMinutes: 20, videoUrl, notes: RICH.notes,
   ingredients: [{ name: 'Spaghetti', quantity: 200, unit: 'g' }, { name: 'Olive oil', quantity: 1.5, unit: 'tbsp' }, { name: 'Salt', quantity: null, unit: null }],
   instructions: [
-    { description: RICH.steps[0], hasImage: true }, { description: RICH.steps[1], hasImage: false }, { description: RICH.steps[2], hasImage: true },
+    { description: RICH.steps[0] }, { description: RICH.steps[1] }, { description: RICH.steps[2] },
   ],
 });
 
-/** Seeds a recipe straight through the API (faster than the form) and returns its id. */
-export async function createRecipeViaApi(creator: Creator, address: string, metadata: CreateMetadata, files: Record<string, Photo> = {}): Promise<string> {
-  const body = new FormData();
-  body.append('recipe', JSON.stringify(metadata));
-  for (const [name, file] of Object.entries(files)) body.append(name, new Blob([new Uint8Array(file.buffer)], { type: file.mimeType }), file.name);
-  // The dev database and storage are remote; a 503 means nothing was saved, so a fresh attempt is safe. Anything else is a real failure.
+/** The dev database and storage are remote; a 503 means nothing was stored, so a fresh attempt is safe. Anything else is a real failure. */
+async function sendToApi(send: () => Promise<Response>, expected: number): Promise<Response> {
   let response!: Response;
   for (let attempt = 0; attempt < 3; attempt++) {
-    response = await fetch(`${API_URL}/recipes`, {
-      method: 'POST', body,
-      headers: { Cookie: creator.cookie, Origin: WEB_URL, 'Idempotency-Key': randomUUID(), 'X-Forwarded-For': address },
-    });
+    response = await send();
     if (response.status !== 503) break;
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
-  expect(response.status).toBe(201);
+  expect(response.status).toBe(expected);
+  return response;
+}
+
+/**
+ * Seeds a recipe straight through the API (faster than the form) and returns its id. Each file, keyed by its slot (`cover` or
+ * `step-<index>`), is uploaded as a Pending photo first and named in that slot, as the form does.
+ */
+export async function createRecipeViaApi(creator: Creator, address: string, metadata: CreateMetadata, files: Record<string, Photo> = {}): Promise<string> {
+  const headers = { Cookie: creator.cookie, Origin: WEB_URL, 'X-Forwarded-For': address };
+  const named: CreateMetadata & { cover?: { pendingPhotoId: string } } = { ...metadata, instructions: metadata.instructions.map((step) => ({ ...step })) };
+  for (const [slot, file] of Object.entries(files)) {
+    const body = new FormData();
+    body.append('photo', new Blob([new Uint8Array(file.buffer)], { type: file.mimeType }), file.name);
+    const uploaded = await sendToApi(() => fetch(`${API_URL}/pending-photos`, { method: 'POST', body, headers }), 201);
+    const image = { pendingPhotoId: (await uploaded.json() as { id: string }).id };
+    if (slot === 'cover') named.cover = image; else named.instructions[Number(slot.slice('step-'.length))].image = image;
+  }
+  const response = await sendToApi(() => fetch(`${API_URL}/recipes`, {
+    method: 'POST', body: JSON.stringify(named), headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
+  }), 201);
   const { id } = await response.json() as { id: string };
   return id;
 }

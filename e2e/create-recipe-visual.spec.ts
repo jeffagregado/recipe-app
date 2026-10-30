@@ -86,10 +86,10 @@ const visualMetadata = (title: string, categoryIds: string[]) => ({
     { name: 'Garlic', quantity: 4, unit: 'clove' as const }, { name: 'Cooking cream', quantity: 200, unit: 'ml' as const }, { name: 'Salt', quantity: null, unit: null },
   ],
   instructions: [
-    { description: 'Bring a pot of salted water to a boil. Cook the pasta according to package directions until al dente. Drain and set aside.', hasImage: true },
-    { description: 'In a large pan, cook the bacon over medium heat until crispy. Remove and set aside.', hasImage: false },
-    { description: 'In the same pan, add a little butter and sauté the garlic until fragrant. Pour in the cooking cream and let it simmer for 2–3 minutes.', hasImage: true },
-    { description: 'Toss the pasta with the sauce, top with the bacon and serve right away.', hasImage: true },
+    { description: 'Bring a pot of salted water to a boil. Cook the pasta according to package directions until al dente. Drain and set aside.' },
+    { description: 'In a large pan, cook the bacon over medium heat until crispy. Remove and set aside.' },
+    { description: 'In the same pan, add a little butter and sauté the garlic until fragrant. Pour in the cooking cream and let it simmer for 2–3 minutes.' },
+    { description: 'Toss the pasta with the sauce, top with the bacon and serve right away.' },
   ],
   notes: 'Swap the bacon for mushrooms to make it vegetarian. Keeps for 2 days in the fridge; loosen with a splash of milk when reheating.',
 });
