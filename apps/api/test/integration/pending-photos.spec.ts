@@ -4,7 +4,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { apiErrorEnvelopeSchema } from '@recipe-app/contracts/schemas';
 import type { CreateRecipeMetadata, RecipeDetail, UpdateRecipeMetadata } from '@recipe-app/contracts/types';
 import { pendingPhotos, recipes, recipeWriteAttempts } from '../../src/database/schema.js';
-import { PENDING_PHOTO_UPLOAD_LIMIT, reconcilePendingPhotos } from '../../src/recipes/pending-photos.js';
+import { PENDING_PHOTO_UPLOAD_LIMIT, PendingPhotoSweep, reconcilePendingPhotos } from '../../src/recipes/pending-photos.js';
 import { RecipeWriteHook } from '../../src/recipes/recipe-write-hook.js';
 import { TEST_ORIGIN } from '../auth-harness.js';
 import { rawRecipeRequest } from '../recipe-http.js';
@@ -123,28 +123,32 @@ describe('Pending photos HTTP', () => {
     it('deletes an expired Pending photo and its stored photo when any photo is uploaded', async () => {
       const old = await expired(94);
       const fresh = await s.pendingPhoto(jpeg(95));
+      // Another process's upload may sweep it first; either way the Pending photo is gone.
       await expect.poll(async () => [await s.pendingRow(old.id), await s.stored(old.objectKey)], { timeout: 20_000 }).toEqual([undefined, false]);
       expect((await s.pendingRow(fresh))?.userId).toBe(s.owner.user.id);
     }, 60_000);
 
     it('still answers the upload when deleting an expired photo fails, and leaves that photo to reconciliation', async () => {
-      const old = await expired(96);
+      const id = await s.pendingPhoto(jpeg(96)); const { objectKey } = (await s.pendingRow(id))!;
+      // Other processes on the shared Neon branch sweep too. The row stays unexpired in database time, so none of them can take
+      // it; only this process's sweep, narrowed to this photo with no lifetime, counts it as expired.
+      const scope = vi.spyOn(s.app.get(PendingPhotoSweep), 'scope').mockReturnValue({ objectKeys: [objectKey], lifetimeMs: 0 });
       const deletion = vi.spyOn(s.storage, 'deleteObject').mockRejectedValue(new Error('storage down'));
       try {
         await s.pendingPhoto(jpeg(97));
-        await expect.poll(() => s.pendingRow(old.id), { timeout: 20_000 }).toBeUndefined();
-        await expect.poll(() => deletion.mock.calls.some(([key]) => key === old.objectKey), { timeout: 20_000 }).toBe(true);
-      } finally { deletion.mockRestore(); }
-      expect(await s.stored(old.objectKey)).toBe(true);
+        // The sweep deletes the row before the photo.
+        await expect.poll(() => deletion.mock.calls.some(([key]) => key === objectKey), { timeout: 20_000 }).toBe(true);
+      } finally { deletion.mockRestore(); scope.mockRestore(); }
+      expect([await s.pendingRow(id), await s.stored(objectKey)]).toEqual([undefined, true]);
     }, 60_000);
   });
 
   describe('reconciliation', () => {
     it('deletes expired Pending photos with their stored photos', async () => {
-      const old = await expired(98);
-      expect((await reconcilePendingPhotos(s.db, s.storage, { now: new Date(), objectKeys: [old.objectKey] })).failed).toBe(0);
-      // Another upload's sweep may get there first; either way the Pending photo is gone.
-      expect([await s.pendingRow(old.id), await s.stored(old.objectKey)]).toEqual([undefined, false]);
+      const id = await s.pendingPhoto(jpeg(98)); const { objectKey } = (await s.pendingRow(id))!;
+      // Unexpired in database time, so no upload's sweep in another process can take it first.
+      expect(await reconcilePendingPhotos(s.db, s.storage, { now: new Date(), objectKeys: [objectKey], lifetimeMs: 0 })).toEqual({ expired: 1, orphans: 0, failed: 0 });
+      expect([await s.pendingRow(id), await s.stored(objectKey)]).toEqual([undefined, false]);
     }, 60_000);
 
     it('deletes a stored photo no row names once it is old enough, and keeps Pending and saved photos', async () => {

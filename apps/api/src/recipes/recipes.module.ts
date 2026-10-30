@@ -18,7 +18,7 @@ import { RecipeDeleteGuard, RecipeFavoriteGuard, RecipeOwnerGuard } from './reci
 import { RecipeMutationController } from './recipe-mutation.controller.js';
 import { RecipeUpdateService } from './recipe-update.service.js';
 import { PendingPhotoController } from './pending-photo.controller.js';
-import { PendingPhotoService, PendingPhotoUploadGuard, PendingPhotoUploadInterceptor } from './pending-photos.js';
+import { PendingPhotoService, PendingPhotoSweep, PendingPhotoUploadGuard, PendingPhotoUploadInterceptor } from './pending-photos.js';
 
 @Module({
   imports: [DatabaseModule, StorageModule, AuthModule],
@@ -26,6 +26,6 @@ import { PendingPhotoService, PendingPhotoUploadGuard, PendingPhotoUploadInterce
   providers: [RecipesService, RecipesResilienceLogger, RecipeCreateService, RecipeDetailService,
     RecipeUploadInterceptor, RecipeUploadSlots, RecipeWriteGuard, RecipeWriteHook,
     RecipeAttempts, RecipeUpdateService, RecipeDeleteService, RecipeFavoriteService,
-    RecipeOwnerGuard, RecipeDeleteGuard, RecipeFavoriteGuard, PendingPhotoService, PendingPhotoUploadGuard, PendingPhotoUploadInterceptor],
+    RecipeOwnerGuard, RecipeDeleteGuard, RecipeFavoriteGuard, PendingPhotoService, PendingPhotoSweep, PendingPhotoUploadGuard, PendingPhotoUploadInterceptor],
 })
 export class RecipesModule {}
