@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { emptyInstructionRow, MAX_ROWS, type RecipeFormValues } from '../lib/recipe-form-schema'
 import { fieldA11y, textareaClass } from '../lib/field-props'
+import { IMAGE_HINT } from '../lib/recipe-files'
 import { newPhoto, noPhoto, photoCaption } from '../lib/recipe-photo'
-import { FieldError } from './form-field'
+import { FieldError, FieldStatus } from './form-field'
 import { PhotoPicker } from './photo-picker'
 import { PhotoPreview } from './photo-preview'
 import { RowControls } from './row-controls'
@@ -114,7 +115,7 @@ function StepPhoto({ group, row, position, disabled }: { group: number; row: num
 	const { errors } = useFormState({ control })
 	const path = `instructions.${group}.steps.${row}.photo` as const
 	const photo = useWatch({ control, name: path })
-	const { pickError, pick, remove } = usePhotoPick((file) => setValue(path, file ? newPhoto(file) : noPhoto(), { shouldDirty: true, shouldTouch: true }))
+	const { pickError, preparing, pick, remove } = usePhotoPick((file) => setValue(path, file ? newPhoto(file) : noPhoto(), { shouldDirty: true, shouldTouch: true }))
 	const error = pickError ?? errors.instructions?.[group]?.steps?.[row]?.photo?.message
 	const fieldId = `recipe-step-${position - 1}-photo`
 	const a11y = fieldA11y(fieldId, error)
@@ -137,9 +138,10 @@ function StepPhoto({ group, row, position, disabled }: { group: number; row: num
 							<ImagePlus aria-hidden="true" className="size-4" /> Add photo
 						</span>
 					</PhotoPicker>
-					<span className="text-xs text-muted-foreground">Optional · JPG, PNG or WebP · up to 5 MB</span>
+					<span className="text-xs text-muted-foreground">Optional · {IMAGE_HINT}</span>
 				</div>
 			)}
+			{preparing && <FieldStatus>Preparing photo…</FieldStatus>}
 			{error && <FieldError id={`${fieldId}-error`}>{error}</FieldError>}
 		</div>
 	)

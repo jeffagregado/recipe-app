@@ -1,4 +1,4 @@
-import { CircleAlert } from 'lucide-react'
+import { CircleAlert, Loader2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -8,6 +8,16 @@ export function FieldError({ id, children, className }: { id: string; children: 
 	return (
 		<p id={id} className={cn('flex items-start gap-1.5 text-sm text-destructive wrap-break-word', className)}>
 			<CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+			<span>{children}</span>
+		</p>
+	)
+}
+
+/** Announces work in progress on a field, laid out like its error. */
+export function FieldStatus({ children }: { children: ReactNode }) {
+	return (
+		<p role="status" className="flex items-start gap-1.5 text-sm text-muted-foreground">
+			<Loader2 aria-hidden="true" className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" />
 			<span>{children}</span>
 		</p>
 	)

@@ -4,6 +4,7 @@ import { Component, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
 import { AppToaster } from '@/components/layout/app-toaster'
+import { installFakeCanvas } from '@/test/fake-canvas'
 import { RecipeForm } from './recipe-form'
 
 const router = vi.hoisted(() => ({ push: vi.fn() }))
@@ -19,15 +20,20 @@ const categories = [
 
 const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
 const revoked: string[] = []
+let canvas: ReturnType<typeof installFakeCanvas>
 
 beforeEach(() => {
 	vi.resetAllMocks()
+	canvas = installFakeCanvas({ unreadable: ['broken.jpg'] })
 	revoked.length = 0
 	let counter = 0
 	URL.createObjectURL = vi.fn(() => `blob:preview-${++counter}`)
 	URL.revokeObjectURL = vi.fn((url: string) => { revoked.push(url) })
 })
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => {
+	vi.restoreAllMocks()
+	vi.unstubAllGlobals()
+})
 
 function renderForm(availableCategories = categories) {
 	return render(<AppToaster><RecipeForm categories={availableCategories} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} /></AppToaster>)
@@ -154,33 +160,64 @@ it('keeps a step photo with its step when the step is moved and revokes replaced
 	await user.click(screen.getByRole('button', { name: 'Add step' }))
 	await user.keyboard('Serve')
 	await user.upload(screen.getByLabelText('Add photo to step 1'), image('boil.jpg'))
-	expect(await screen.findByText(/boil\.jpg · 1 KB/)).toBeInTheDocument()
+	expect(await screen.findByText('boil.webp · 1 KB')).toBeInTheDocument()
 
 	await user.click(screen.getByRole('button', { name: 'Move step 1 down' }))
 	expect(screen.getByLabelText('Step 1 instructions')).toHaveValue('Serve')
 	expect(screen.getByLabelText('Step 2 instructions')).toHaveValue('Boil')
 	expect(screen.getByLabelText('Add photo to step 1')).toBeInTheDocument()
 	expect(screen.getByRole('button', { name: 'Remove photo from step 2' })).toBeInTheDocument()
-	expect(screen.getByAltText('Preview of boil.jpg')).toBeInTheDocument()
+	expect(screen.getByAltText('Preview of boil.webp')).toBeInTheDocument()
 
 	await user.upload(screen.getByLabelText('Replace photo for step 2'), image('boil-2.jpg'))
-	await screen.findByText(/boil-2\.jpg/)
+	await screen.findByText(/boil-2\.webp/)
 	await waitFor(() => expect(revoked).toContain('blob:preview-1'))
 })
 
-it('shows an inline error for oversized or unsupported photos and keeps the current photo', async () => {
+it('hints at the original limit and shows an inline error for oversized, unsupported or unreadable photos, keeping the current photo', async () => {
 	const user = userEvent.setup({ applyAccept: false })
 	renderForm()
-	await user.upload(screen.getByLabelText('Add photo to step 1'), image('bacon-closeup.jpg', 7.8 * 1024 * 1024))
-	expect(await screen.findByText('bacon-closeup.jpg is 7.8 MB. The limit is 5 MB.')).toBeInTheDocument()
+	expect(screen.getByText('JPG, PNG or WebP · up to 25 MB')).toBeInTheDocument()
+	expect(screen.getByText('Optional · JPG, PNG or WebP · up to 25 MB')).toBeInTheDocument()
+	await user.upload(screen.getByLabelText('Add photo to step 1'), image('bacon-closeup.jpg', 30 * 1024 * 1024))
+	expect(await screen.findByText('bacon-closeup.jpg is 30.0 MB. The limit is 25 MB.')).toBeInTheDocument()
+	expect(screen.getByLabelText('Add photo to step 1')).toHaveAttribute('aria-invalid', 'true')
+	await user.upload(screen.getByLabelText('Add photo to step 1'), image('broken.jpg'))
+	expect(await screen.findByText('broken.jpg couldn’t be read as a photo. Choose another one.')).toBeInTheDocument()
 	expect(screen.getByLabelText('Add photo to step 1')).toHaveAttribute('aria-invalid', 'true')
 	await user.upload(screen.getByLabelText('Add cover photo'), image('logo.svg', 100, 'image/svg+xml'))
 	expect(await screen.findByText('logo.svg is not a JPG, PNG or WebP image.')).toBeInTheDocument()
-	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.png', 2 * 1024 * 1024, 'image/png'))
-	expect(await screen.findByText(/cover\.png · 2\.0 MB/)).toBeInTheDocument()
+	// A phone-sized original is accepted and shrunk before it is shown.
+	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.png', 24 * 1024 * 1024, 'image/png'))
+	expect(await screen.findByText('cover.webp · 1 KB')).toBeInTheDocument()
 	expect(screen.queryByText('logo.svg is not a JPG, PNG or WebP image.')).not.toBeInTheDocument()
 	await user.click(screen.getByRole('button', { name: 'Remove cover photo' }))
 	expect(screen.getByLabelText('Add cover photo')).toBeInTheDocument()
+})
+
+it('announces a photo being prepared at its slot until it is ready', async () => {
+	const user = userEvent.setup()
+	renderForm()
+	const release = canvas.hold()
+	await user.upload(screen.getByLabelText('Add photo to step 1'), image('boil.jpg'))
+	expect((await screen.findByText('Preparing photo…')).closest('[role="status"]')).toBeInTheDocument()
+	release()
+	expect(await screen.findByText('boil.webp · 1 KB')).toBeInTheDocument()
+	expect(screen.queryByText('Preparing photo…')).not.toBeInTheDocument()
+})
+
+it('waits for a photo still being prepared before saving, so the save includes it', async () => {
+	const user = userEvent.setup()
+	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
+	renderForm()
+	await fillMinimum(user)
+	const release = canvas.hold()
+	await user.upload(screen.getByLabelText('Add photo to step 1'), image('boil.jpg'))
+	await user.click(save())
+	expect(onSave).not.toHaveBeenCalled()
+	release()
+	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+	expect((onSave.mock.calls[0][0].get('step-0') as File).name).toBe('boil.webp')
 })
 
 it('sends the normalized recipe, announces saving and ignores a second submit while saving', async () => {
@@ -190,6 +227,7 @@ it('sends the normalized recipe, announces saving and ignores a second submit wh
 	renderForm()
 	await fillMinimum(user)
 	await user.upload(screen.getByLabelText('Add photo to step 1'), image('boil.jpg'))
+	await screen.findByText('boil.webp · 1 KB')
 	await user.click(save())
 	await waitFor(() => expect(save()).toBeDisabled())
 	expect(screen.getByRole('status')).toHaveTextContent('Saving recipe…')
@@ -200,7 +238,8 @@ it('sends the normalized recipe, announces saving and ignores a second submit wh
 		title: 'Creamy Garlic Pasta', categoryIds: [], servings: null,
 		ingredients: [{ name: 'Spaghetti', quantity: 200, unit: 'g' }], instructions: [{ description: 'Boil the pasta.', hasImage: true }],
 	})
-	expect((data.get('step-0') as File).name).toBe('boil.jpg')
+	// The shrunk photo is sent, not the picked original.
+	expect([(data.get('step-0') as File).name, (data.get('step-0') as File).type]).toEqual(['boil.webp', 'image/webp'])
 	expect(data.get('idempotencyKey')).toMatch(/^[0-9a-f-]{36}$/)
 	finish({ status: 'failed', message: 'Couldn’t save recipe. Try again.' })
 	await waitFor(() => expect(save()).toBeEnabled())
@@ -229,6 +268,8 @@ it('reuses the same submission key and payload when retrying after an unknown ou
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	renderForm()
 	await fillMinimum(user)
+	await user.upload(screen.getByLabelText('Add photo to step 1'), image('boil.jpg'))
+	await screen.findByText('boil.webp · 1 KB')
 	await user.click(save())
 	const alert = await findFormAlert()
 	await waitFor(() => expect(within(alert).getByRole('button', { name: 'Retry save' })).toBeEnabled())
@@ -237,6 +278,9 @@ it('reuses the same submission key and payload when retrying after an unknown ou
 	const [first, second] = onSave.mock.calls.map(([data]) => data)
 	expect(second.get('idempotencyKey')).toBe(first.get('idempotencyKey'))
 	expect(second.get('recipe')).toBe(first.get('recipe'))
+	// The photo was shrunk once, when it was picked; the retry sends the same file.
+	expect(canvas.encodeCount()).toBe(1)
+	expect((second.get('step-0') as File).name).toBe('boil.webp')
 })
 
 it('asks a new key once the user edits after an unknown outcome', async () => {
@@ -274,6 +318,7 @@ it('maps server field errors onto their rows and fields, focuses the first and s
 	renderForm()
 	await fillMinimum(user)
 	await user.upload(screen.getByLabelText('Add photo to step 1'), image('boil.jpg'))
+	await screen.findByText('boil.webp · 1 KB')
 	await user.click(save())
 	await waitFor(() => expect(screen.getByLabelText('Ingredient 1 amount')).toHaveFocus())
 	expect(screen.getByLabelText('Ingredient 1 amount')).toHaveAccessibleDescription('Too precise.')

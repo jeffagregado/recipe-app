@@ -21,9 +21,15 @@ function chunk(type: string, data: Buffer): Buffer {
 
 /**
  * A small valid PNG that looks like a plated dish from a distance: a gradient tabletop, a rimmed plate and swirls on it.
- * Smooth shapes only, so files stay small, but distinct per colour and never a flat block.
+ * Smooth shapes only, so files stay small, but distinct per colour and never a flat block. `grain` adds repeatable
+ * noise of up to that many levels per channel, which PNG cannot compress, to make a file as large as a phone photo.
  */
-export function photo(name: string, [red, green, blue]: [number, number, number] = [200, 90, 40], width = 320, height = 240): Photo {
+export function photo(name: string, [red, green, blue]: [number, number, number] = [200, 90, 40], width = 320, height = 240, grain = 0): Photo {
+  let seed = 1;
+  const noise = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return grain * (seed / 2 ** 31 - 1);
+  };
   const stride = width * 3 + 1;
   const raw = Buffer.alloc(stride * height);
   const centerX = width / 2;
@@ -41,9 +47,9 @@ export function photo(name: string, [red, green, blue]: [number, number, number]
         const rim = distance > radius * 0.88 ? 0.92 : 0;
         pixel = rim ? [244, 240, 232] : [230 - 70 * swirl + (red - 128) * 0.15, 196 - 60 * swirl, 120 - 50 * swirl + (blue - 128) * 0.1];
       }
-      raw[offset] = Math.max(0, Math.min(255, Math.round(pixel[0])));
-      raw[offset + 1] = Math.max(0, Math.min(255, Math.round(pixel[1])));
-      raw[offset + 2] = Math.max(0, Math.min(255, Math.round(pixel[2])));
+      raw[offset] = Math.max(0, Math.min(255, Math.round(pixel[0] + noise())));
+      raw[offset + 1] = Math.max(0, Math.min(255, Math.round(pixel[1] + noise())));
+      raw[offset + 2] = Math.max(0, Math.min(255, Math.round(pixel[2] + noise())));
     }
   }
   const header = Buffer.alloc(13);

@@ -117,23 +117,48 @@ test.describe('photos', () => {
     await openCreate(page);
     const pick = page.getByLabel('Add cover photo');
     await pick.setInputFiles(COVER);
-    await expect(page.getByText(/^creamy-garlic-pasta\.png · \d+ KB$/)).toBeVisible();
-    await expect(page.getByRole('img', { name: 'Preview of creamy-garlic-pasta.png' })).toBeVisible();
+    // The browser shrinks every pick; WebKit cannot encode WebP and falls back to JPEG.
+    await expect(page.getByText(/^creamy-garlic-pasta\.(webp|jpg) · \d+ KB$/)).toBeVisible();
+    await expect(page.getByRole('img', { name: /^Preview of creamy-garlic-pasta\.(webp|jpg)$/ })).toBeVisible();
     await page.getByLabel('Replace cover photo').setInputFiles(photo('second.png', [20, 120, 200]));
-    await expect(page.getByText(/^second\.png · \d+ KB$/)).toBeVisible();
-    await expect(page.getByRole('img', { name: 'Preview of creamy-garlic-pasta.png' })).toHaveCount(0);
+    await expect(page.getByText(/^second\.(webp|jpg) · \d+ KB$/)).toBeVisible();
+    await expect(page.getByRole('img', { name: /^Preview of creamy-garlic-pasta/ })).toHaveCount(0);
     // A rejected replacement keeps the current photo and explains why.
     await page.getByLabel('Replace cover photo').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('not an image') });
     await expect(page.getByText('notes.txt is not a JPG, PNG or WebP image.')).toBeVisible();
-    await expect(page.getByText(/^second\.png · \d+ KB$/)).toBeVisible();
+    await expect(page.getByText(/^second\.(webp|jpg) · \d+ KB$/)).toBeVisible();
+    // A file with an image type that the browser cannot decode is refused at its slot too.
+    await page.getByLabel('Replace cover photo').setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('not really a png') });
+    await expect(page.getByText('broken.png couldn’t be read as a photo. Choose another one.')).toBeVisible();
+    await expect(page.getByText(/^second\.(webp|jpg) · \d+ KB$/)).toBeVisible();
     await page.getByRole('button', { name: 'Remove cover photo' }).click();
     await expect(page.getByLabel('Add cover photo')).toBeVisible();
     await expect(page.getByText(isMobile ? 'Tap to add a photo' : 'Drag a photo here, or click to browse')).toBeVisible();
     await expect(page.getByText('notes.txt is not a JPG, PNG or WebP image.')).toHaveCount(0);
-    // Over 5 MiB: refused before anything is uploaded.
-    await page.getByLabel('Add cover photo').setInputFiles({ name: 'huge.png', mimeType: 'image/png', buffer: Buffer.alloc(5 * 1024 * 1024 + 1) });
-    await expect(page.getByText(/^huge\.png is \d\.\d MB\. The limit is 5 MB\.$/)).toBeVisible();
+    // An original over 25 MiB: refused before it is decoded.
+    await page.getByLabel('Add cover photo').setInputFiles({ name: 'huge.png', mimeType: 'image/png', buffer: Buffer.alloc(25 * 1024 * 1024 + 1) });
+    await expect(page.getByText(/^huge\.png is \d+\.\d MB\. The limit is 25 MB\.$/)).toBeVisible();
     await expect(page.getByRole('img', { name: /^Preview of/ })).toHaveCount(0);
+  });
+
+  test('a phone-sized photo over 4.5 MB is shrunk in the browser, saves and shows on the recipe', async ({ page, workerData, creator }) => {
+    test.setTimeout(90_000);
+    const original = photo('phone-photo.png', [200, 110, 60], 2400, 1800, 4);
+    // Over Vercel's 4.5 MB request limit, which a save of the original would hit.
+    expect(original.buffer.length).toBeGreaterThan(4.5 * 1000 * 1000);
+    await openCreate(page);
+    await fillMinimal(page, 'Phone photo stew');
+    await page.getByLabel('Add cover photo').setInputFiles(original);
+    await expect(page.getByText(/^phone-photo\.(webp|jpg) · \d+(\.\d)? (KB|MB)$/)).toBeVisible();
+    const request = page.waitForRequest((sent) => new URL(sent.url()).pathname === '/api/recipes' && sent.method() === 'POST');
+    await field.save(page).click();
+    expect((await request).postDataBuffer()!.length).toBeLessThan(4.5 * 1000 * 1000);
+    await expect(page).toHaveURL(SAVED, { timeout: 30_000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'Phone photo stew' })).toBeVisible({ timeout: 20_000 });
+    await expect.poll(async () => (await loaded(page, 'article img')).filter(Boolean).length).toBe(1);
+    await expect(page.getByRole('img', { name: 'Phone photo stew' })).toBeVisible();
+    const saved = await workerData.db.query.recipes.findFirst({ where: eq(recipes.userId, creator.user.id), with: { images: true } });
+    expect(saved?.images).toHaveLength(1);
   });
 });
 
@@ -322,7 +347,7 @@ test.describe('saving', () => {
     await expect(page.getByRole('link', { name: 'Open sign in in a new tab' })).toHaveAttribute('target', '_blank');
     await expect(field.title(page)).toHaveValue('Kept through expiry');
     await expect(field.step(page, 1)).toHaveValue('Boil the water.');
-    await expect(page.getByText(/^creamy-garlic-pasta\.png · \d+ KB$/)).toBeVisible();
+    await expect(page.getByText(/^creamy-garlic-pasta\.(webp|jpg) · \d+ KB$/)).toBeVisible();
     await expect(field.save(page)).toBeEnabled();
     await expect(page).toHaveURL(`${WEB_URL}/recipes/create`);
     const [{ n }] = await workerData.db.select({ n: count() }).from(recipes).where(eq(recipes.userId, creator.user.id));
@@ -342,7 +367,7 @@ test.describe('saving', () => {
     await expect(createForm(page).getByRole('alert').filter({ hasText: 'Too many saves. Try again in a moment.' })).toBeVisible();
     await expect(toast.error(page, 'Couldn’t save recipe. Try again.')).toBeVisible();
     await expect(field.title(page)).toHaveValue('Retry after limit');
-    await expect(page.getByText(/^creamy-garlic-pasta\.png · \d+ KB$/)).toBeVisible();
+    await expect(page.getByText(/^creamy-garlic-pasta\.(webp|jpg) · \d+ KB$/)).toBeVisible();
     await expect(field.save(page)).toBeEnabled();
     await expect(page).toHaveURL(`${WEB_URL}/recipes/create`);
     expect((await workerData.db.select({ n: count() }).from(recipes).where(eq(recipes.userId, creator.user.id)))[0].n).toBe(0);

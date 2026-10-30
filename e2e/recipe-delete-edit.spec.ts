@@ -318,7 +318,7 @@ test.describe('edit: changing everything', () => {
     await page.getByLabel('Add photo to step 4').setInputFiles(added);
     // The cover is replaced.
     await page.getByLabel('Replace cover photo').setInputFiles(photo('new-cover.png', [70, 120, 200]));
-    await expect(page.getByText(/^new-cover\.png · \d+ KB$/)).toBeVisible();
+    await expect(page.getByText(/^new-cover\.(webp|jpg) · \d+ KB$/)).toBeVisible();
 
     await save(page).click();
     await expect(page).toHaveURL(`${WEB_URL}/recipes/${id}`, { timeout: 40_000 });
