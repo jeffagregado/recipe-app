@@ -27,22 +27,22 @@ export async function loadRecipeState(db: Pick<DrizzleDb, 'select'>, id: string,
 /** Resolves every image slot against the stored recipe. A kept photo follows its instruction to the new position;
  * a replaced or removed cover, and the photo of every edited or dropped instruction that is not kept, becomes stale.
  */
-export function planRecipeUpdate(state: RecipeState, metadata: UpdateRecipeMetadata, uploads: UploadedImage[]) {
+export function planRecipeUpdate(state: RecipeState, metadata: UpdateRecipeMetadata, images: UploadedImage[] = []) {
   const photos = new Map(state.instructions.map((step) => [step.id, step.imageId]));
   metadata.instructions.forEach((step, index) => {
     if (step.id !== null && !photos.has(step.id)) throw fieldError(`instructions.${index}.id`, 'Step does not belong to this recipe.');
   });
-  const uploaded = (field: string) => uploads.find((image) => image.field === field);
+  const named = (field: string) => images.find((image) => image.field === field);
   const stepImageIds = metadata.instructions.map((step, index) => {
     if (step.image === 'keep') return step.id !== null ? photos.get(step.id) ?? null : null;
-    // A replacement arrives as a file (`replace`) or as a Pending photo; either is an image for the step's field.
-    return step.image === 'remove' ? null : uploaded(`step-${index}`)?.id ?? null;
+    // A replacement names a Pending photo, which arrives as an image for the step's field.
+    return step.image === 'remove' ? null : named(`step-${index}`)?.id ?? null;
   });
   const kept = new Set(stepImageIds); const linked = new Set(photos.values());
   // The cover is the image at position 0; images that neither slot kind owns are left alone.
   const stale = state.images.filter((image) => image.sortOrder === 0 ? metadata.cover !== 'keep' : linked.has(image.id) && !kept.has(image.id));
   let sortOrder = Math.max(0, ...state.images.filter((image) => !stale.includes(image)).map((image) => image.sortOrder));
-  const added = uploads.toSorted(bySlot).map((image) => ({ id: image.id, objectKey: image.key, sortOrder: image.field === 'cover' ? 0 : ++sortOrder }));
+  const added = images.toSorted(bySlot).map((image) => ({ id: image.id, objectKey: image.key, sortOrder: image.field === 'cover' ? 0 : ++sortOrder }));
   return { stepImageIds, stale, added };
 }
 

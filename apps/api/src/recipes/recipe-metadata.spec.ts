@@ -4,16 +4,6 @@ import { parseRecipeMetadata, recipeRequestHash } from './recipe-metadata.js';
 
 const metadata: CreateRecipeMetadata = { title: 'Soup', description: null, categoryIds: [], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null,
   notes: null, ingredients: [{ name: 'Salt', quantity: null, unit: null }], instructions: [{ description: 'Mix.', image: { pendingPhotoId: '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70' } }] };
-const fieldErrorsOf = (run: () => unknown) => {
-  try { run(); } catch (cause) { return (cause as { getResponse: () => { fieldErrors: Record<string, string[]> } }).getResponse().fieldErrors; }
-  throw new Error('Expected a validation error');
-};
-
-describe('Recipe save body', () => {
-  it.each([['an empty body', ''], ['no body', undefined], ['malformed JSON', '{"title":']])('refuses %s on the recipe field', (_name, json) => {
-    expect(Object.keys(fieldErrorsOf(() => parseRecipeMetadata(json)))).toEqual(['recipe']);
-  });
-});
 
 describe('Recipe request hash', () => {
   it('hashes the metadata alone, so the same save hashes alike and a different Pending photo hashes apart', () => {

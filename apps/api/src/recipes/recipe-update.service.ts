@@ -23,7 +23,7 @@ export class RecipeUpdateService {
       attempt: { id: randomUUID(), userId, idempotencyKey: request.idempotencyKey!, operation: 'update', requestHash: recipeRequestHash(metadata, id), recipeId: id },
       // After the claim, so a replay still answers once its own edit has removed the steps it names; before the transaction.
       prepare: async () => {
-        planRecipeUpdate(await loadRecipeState(this.db, id, userId), metadata, []);
+        planRecipeUpdate(await loadRecipeState(this.db, id, userId), metadata);
         await assertOwnedCategories(this.db, userId, metadata.categoryIds);
         await assertPendingPhotos(this.db, userId, pending);
       },

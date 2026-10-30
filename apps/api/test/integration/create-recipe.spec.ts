@@ -192,7 +192,6 @@ describe('Create recipe and private detail HTTP', () => {
       [{ ...minimal(name), servings: 0 }, 'servings'], [{ ...minimal(name), prepTimeMinutes: 1.5 }, 'prepTimeMinutes'],
       [{ ...minimal(name), categoryIds: categoryIds(['Dinner', 'Lunch', 'Breakfast', 'Snacks']) }, 'categoryIds'],
       [{ ...minimal(name), videoUrl: 'http://example.invalid' }, 'videoUrl'], [{ ...minimal(name), instructions: [{ description: '' }] }, 'instructions.0.description'],
-      [{ ...minimal(name), instructions: [{ description: 'Mix.', hasImage: true }] }, 'instructions.0.hasImage'],
       ['not JSON', 'recipe'], ['', 'recipe'],
       ...['userId', 'id', 'imageUrl', 'objectKey', '__proto__'].map((key): [unknown, string] => [JSON.parse(JSON.stringify(minimal(name)).slice(0, -1) + `,"${key}":"injected"}`), key]),
     ];

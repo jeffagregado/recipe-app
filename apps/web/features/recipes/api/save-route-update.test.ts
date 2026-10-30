@@ -67,9 +67,8 @@ it('PATCHes the recipe with only the session cookie, origin, key and client addr
 })
 
 it.each<[string, unknown, string[]]>([
-	['a reused step id', payload({ recipe: { ...metadata, instructions: [{ id: 's1', description: 'a', image: 'keep' }, { id: 's1', description: 'b', image: 'keep' }] } }), ['instructions']],
+	// The rules themselves are the contracts' tests; one case proves invalid metadata stays local.
 	['a kept photo on a new step', payload({ recipe: { ...metadata, instructions: [{ id: null, description: 'a', image: 'keep' }] } }), ['instructions.0.image']],
-	['a blank title', payload({ recipe: { ...metadata, title: ' ' } }), ['title']],
 	['a key that is not a UUID', payload({ idempotencyKey: 'not-a-uuid' }), ['idempotencyKey']],
 ])('rejects %s locally with dotted field errors and never calls the API', async (_name, body, fields) => {
 	const result = await updateRecipe('r1', body)

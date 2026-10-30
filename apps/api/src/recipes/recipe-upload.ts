@@ -143,7 +143,7 @@ function closeRejectedUpload(request: RecipeUploadRequest, response: ServerRespo
 }
 
 const uploadTimeout = (request: RecipeUploadRequest) => Math.max(1, (request.writeDeadline ?? Date.now() + RECIPE_WRITE_TIMEOUT_MS) - Date.now());
-const notReceived = () => new RecipeError(504, 'TIMEOUT', 'Upload timed out before recipe processing. Nothing was saved.');
+const notReceived = () => new RecipeError(504, 'TIMEOUT', 'The request timed out before it was read. Nothing was saved.');
 
 /** Reads a save's JSON body once the guards have passed, counting bytes as they arrive: more than 1 MiB is refused without reading the rest. */
 export function readRecipeJson(request: RecipeUploadRequest, response: ServerResponse): Promise<void> {
