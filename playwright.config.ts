@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
-import { TEST_WEB_SECRET } from './apps/api/test/test-web-secret.js';
+
+// TEST_WEB_SECRET in apps/api/test/test-web-secret.ts, which the test callers send. It is written out here because this
+// config loads as CommonJS: importing that file here would leave the workers' later imports of it without named exports.
+const TEST_WEB_SECRET = 'test-only-web-secret-not-used-anywhere-real';
 
 const webUrl = 'http://127.0.0.1:4100';
 const apiUrl = 'http://127.0.0.1:4101';
