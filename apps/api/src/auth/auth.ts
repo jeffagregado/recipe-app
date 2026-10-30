@@ -92,6 +92,8 @@ export function createAuth(db: DrizzleDb, config: AuthConfig, endpoints: GoogleE
       disableCSRFCheck: false,
       disableOriginCheck: false,
       database: { generateId: 'uuid' },
+      // The API always sets this one header to the client address it resolved (auth.request.ts); nothing else names it.
+      ipAddress: { ipAddressHeaders: ['x-forwarded-for'] },
       // HTTPS-only trust means a public HTTPS site: keep the Secure cookie even if the API's own URL is internal HTTP.
       ...(config.AUTH_TRUSTED_ORIGINS.every((origin) => origin.startsWith('https://')) ? { useSecureCookies: true } : {}),
     },

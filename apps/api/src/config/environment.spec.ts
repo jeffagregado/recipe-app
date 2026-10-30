@@ -156,33 +156,6 @@ describe('Google sign-in configuration', () => {
   });
 });
 
-describe('TRUST_PROXY_HOPS parsing', () => {
-  const hops = (input: Record<string, unknown>) => validateEnvironment({ ...base, ...input }).TRUST_PROXY_HOPS;
-
-  it.each([
-    [undefined, 0],
-    ['', 0],
-    ['  ', 0],
-    ['0', 0],
-    ['1', 1],
-    ['2', 2],
-    [' 3 ', 3],
-  ])('reads %j as %i trusted hops', (value, expected) => {
-    expect(hops({ TRUST_PROXY_HOPS: value })).toBe(expected);
-  });
-
-  it.each([
-    ['a negative count', '-1'],
-    ['a fraction', '1.5'],
-    ['a word', 'two'],
-    ['a list', '1,2'],
-  ])('rejects %s with a key-only error', (_name, value) => {
-    const message = messageOf({ TRUST_PROXY_HOPS: value });
-    expect(message.startsWith('Invalid API configuration:')).toBe(true);
-    expect(message.includes('TRUST_PROXY_HOPS')).toBe(true);
-  });
-});
-
 describe('RECIPE_WEB_PROXY_SECRET parsing', () => {
   const secret = (input: Record<string, unknown>) => validateEnvironment({ ...base, ...input }).RECIPE_WEB_PROXY_SECRET;
   const value = 'w'.repeat(32);

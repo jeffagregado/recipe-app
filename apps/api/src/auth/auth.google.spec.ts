@@ -25,7 +25,7 @@ describe('Google sign-in without a configured client', () => {
     const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
     // No client id or secret: the provider is absent, so the refusal comes before any database call.
     const auth = createAuth({} as DrizzleDb, { BETTER_AUTH_SECRET: 'unit-test-secret-unit-test-secret-0000', BETTER_AUTH_URL: 'http://127.0.0.1:4101', AUTH_TRUSTED_ORIGINS: ['http://localhost:3000'] });
-    const request = { headers: {}, ip: '127.0.0.1' } as IncomingMessage & { ip: string };
+    const request = { headers: {}, socket: { remoteAddress: '127.0.0.1' } } as IncomingMessage;
     await expect(new GoogleSignInService(auth, {} as DrizzleDb).start(request)).rejects.toMatchObject({ status: 400, response: { code: 'GOOGLE_SIGN_IN_FAILED', message: 'Google sign-in failed. Try again.' } });
     expect(error.mock.calls.map(([line]) => line)).toContain('Auth google-start failed: APIError (code PROVIDER_NOT_FOUND).');
     error.mockRestore();

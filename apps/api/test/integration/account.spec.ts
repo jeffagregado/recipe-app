@@ -6,7 +6,7 @@ import { authErrorResponseSchema, authSessionResponseSchema, authUserResponseSch
 import { DISPLAY_NAME_WRITE_LIMIT } from '../../src/account/account.controller.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authRateLimits, users } from '../../src/database/schema.js';
-import { apiClient, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
+import { apiClient, clientHeaders, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
 
 describe('Account settings HTTP', () => {
   let app: NestExpressApplication;
@@ -45,7 +45,7 @@ describe('Account settings HTTP', () => {
 
   type Options = { cookie?: string | null; origin?: string | null };
   function put(body: unknown, { cookie = owner.cookie, origin = TEST_ORIGIN }: Options = {}) {
-    const headers = new Headers({ 'Content-Type': 'application/json', 'X-Forwarded-For': addresses[0] });
+    const headers = new Headers({ 'Content-Type': 'application/json', ...clientHeaders(addresses[0]) });
     if (cookie !== null) headers.set('Cookie', cookie);
     if (origin !== null) headers.set('Origin', origin);
     return fetch(`${baseUrl}/account/display-name`, { method: 'PUT', headers, body: JSON.stringify(body) });

@@ -12,7 +12,7 @@ import type { DrizzleDb } from '../../src/database/database.service.js';
 import { verificationIdentifier } from '../../src/auth/auth.verification.js';
 import { authAccounts, authRateLimits, authSessions, authVerifications, recipeImages, recipes, users } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
-import { apiClient, cookiePair, insertOwnedRecipes, latestToken, mailedTokens, ownedId, removeTestData, signupUser, startApi, storedVerificationLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { apiClient, clientHeaders, cookiePair, insertOwnedRecipes, latestToken, mailedTokens, ownedId, removeTestData, signupUser, startApi, storedVerificationLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -409,7 +409,7 @@ describe('Wrapper authentication and owner-only recipe HTTP', () => {
     const oversized = await client.post('/auth/signup', { displayName: 'x'.repeat(9 * 1024), email: track(), password: testPassword() });
     expect(oversized.status).toBe(413);
     expect((await errorOf(oversized)).code).toBe('PAYLOAD_TOO_LARGE');
-    const malformed = await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN, 'X-Forwarded-For': addresses[0] }, body: '{"email":' });
+    const malformed = await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN, ...clientHeaders(addresses[0]) }, body: '{"email":' });
     expect(malformed.status).toBe(400);
     expect((await errorOf(malformed)).code).toBe('VALIDATION_FAILED');
   });
