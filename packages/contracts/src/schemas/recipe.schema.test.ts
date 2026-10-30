@@ -223,6 +223,53 @@ describe("Pending photos", () => {
     expect(expectedRecipeUpdateFileFields(edit)).toEqual(["step-0"]);
   });
 
+  const otherId = "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f";
+  const createStep = (image: unknown) => ({ ...instruction, image });
+  const updateStep = (image: unknown) => ({ id: null, description: "New", image });
+
+  it.each([
+    ["create", createRecipeMetadataSchema, metadata, createStep],
+    ["update", updateRecipeMetadataSchema, update, updateStep],
+  ] as const)("lets a %s step name a Pending photo by its UUID", (_name, schema, base, step) => {
+    expect(schema.parse({ ...base, instructions: [step({ pendingPhotoId })] }).instructions[0]).toMatchObject({ image: { pendingPhotoId } });
+    for (const image of [{ pendingPhotoId: "photo-1" }, { pendingPhotoId, extra: true }, {}, pendingPhotoId]) {
+      expect(schema.safeParse({ ...base, instructions: [step(image)] }).success, JSON.stringify(image)).toBe(false);
+    }
+  });
+
+  it("refuses a create step that declares a photo file and names a Pending photo", () => {
+    const result = createRecipeMetadataSchema.safeParse({ ...metadata, instructions: [{ ...instruction, hasImage: true, image: { pendingPhotoId } }] });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues.map((issue) => issue.path.join("."))).toEqual(["instructions.0.image"]);
+  });
+
+  it("expects no file for a step that names a Pending photo", () => {
+    const create = createRecipeMetadataSchema.parse({ ...metadata, instructions: [createStep({ pendingPhotoId }), { ...instruction, hasImage: true }] });
+    expect(expectedRecipeFileFields(create, false)).toEqual(["step-1"]);
+    const edit = updateRecipeMetadataSchema.parse({ ...update, instructions: [updateStep({ pendingPhotoId }), updateStep("replace")] });
+    expect(expectedRecipeUpdateFileFields(edit)).toEqual(["step-1"]);
+  });
+
+  it.each([
+    ["create", createRecipeMetadataSchema, metadata, createStep],
+    ["update", updateRecipeMetadataSchema, update, updateStep],
+  ] as const)("holds a %s save to 51 photo slots: the cover and 50 steps, each its own Pending photo", (_name, schema, base, step) => {
+    const ids = Array.from({ length: 51 }, (_, index) => `0b0f6a3e-4c1d-4d6e-9f1a-${String(index).padStart(12, "0")}`);
+    const steps = ids.slice(1).map((id) => step({ pendingPhotoId: id }));
+    expect(schema.safeParse({ ...base, cover: { pendingPhotoId: ids[0] }, instructions: steps }).success).toBe(true);
+    expect(schema.safeParse({ ...base, cover: { pendingPhotoId: ids[0] }, instructions: [...steps, step({ pendingPhotoId: otherId })] }).success).toBe(false);
+  });
+
+  it.each([
+    ["create", createRecipeMetadataSchema, metadata, createStep],
+    ["update", updateRecipeMetadataSchema, update, updateStep],
+  ] as const)("lets one Pending photo fill only one %s slot", (_name, schema, base, step) => {
+    const twice = schema.safeParse({ ...base, cover: { pendingPhotoId }, instructions: [step({ pendingPhotoId: otherId }), step({ pendingPhotoId })] });
+    expect(twice.success).toBe(false);
+    if (!twice.success) expect(twice.error.issues.map(({ path, message }) => [path.join("."), message])).toEqual([["instructions.1.image", "Each Pending photo can fill one photo slot."]]);
+    expect(schema.safeParse({ ...base, instructions: [step({ pendingPhotoId: otherId }), step({ pendingPhotoId: otherId })] }).success).toBe(false);
+  });
+
   it("answers an upload with the Pending photo's UUID", () => {
     expect(pendingPhotoSchema.parse({ id: pendingPhotoId })).toEqual({ id: pendingPhotoId });
     expect(pendingPhotoSchema.safeParse({ id: "photo-1" }).success).toBe(false);

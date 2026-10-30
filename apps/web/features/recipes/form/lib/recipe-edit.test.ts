@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { recipeDetailFixture } from '@/features/recipes/queries/recipe-detail.fixture'
 import { recipeFormSchema, TO_TASTE, type InstructionFormRow, type RecipeFormValues } from './recipe-form-schema'
 import { toRecipeFormValues, toUpdateRecipeMetadata } from './recipe-edit'
-import { existingPhoto, newPhoto, noPhoto } from './recipe-photo'
+import { existingPhoto, noPhoto, pendingPhoto } from './recipe-photo'
+
+const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
 
 const file = (name: string) => new File(['x'], name, { type: 'image/png' })
 const steps = (...rows: InstructionFormRow[]): RecipeFormValues['instructions'] => [{ heading: null, steps: rows }]
@@ -12,7 +14,7 @@ const base = (overrides: Partial<RecipeFormValues> = {}): RecipeFormValues => ({
 	title: ' Pasta ', description: '', categories: ['category-dinner'], prepTime: '', cookTime: '', servings: '', videoUrl: '', notes: '',
 	cover: noPhoto(),
 	ingredients: [{ heading: null, rows: [{ name: 'Pasta', amount: '200', unit: 'g' }] }],
-	instructions: steps({ id: 's1', description: 'Boil', photo: noPhoto() }),
+	instructions: steps({ key: 's1', id: 's1', description: 'Boil', photo: noPhoto() }),
 	...overrides,
 })
 
@@ -69,8 +71,8 @@ describe('toRecipeFormValues', () => {
 	it('maps steps in step order with their ids and stored photos, and the stored cover', () => {
 		const values = toRecipeFormValues(detail)
 		expect(values.instructions).toEqual(steps(
-			{ id: 's1', description: 'Mix.', photo: { kind: 'none' } },
-			{ id: 's2', description: 'Bake.', photo: { kind: 'existing', url: 'https://storage.example/step2.jpg' } },
+			{ key: 's1', id: 's1', description: 'Mix.', photo: { kind: 'none' } },
+			{ key: 's2', id: 's2', description: 'Bake.', photo: { kind: 'existing', url: 'https://storage.example/step2.jpg' } },
 		))
 		expect(values.cover).toEqual({ kind: 'existing', url: 'https://storage.example/cover.jpg' })
 	})
@@ -82,8 +84,8 @@ describe('toRecipeFormValues', () => {
 			{ heading: 'Sauce', rows: [{ name: 'Butter', amount: '⅓', unit: 'cup' }, { name: 'Cream', amount: '1¼', unit: 'cup' }] },
 		])
 		expect(values.instructions).toEqual([
-			{ heading: 'Prep', steps: [{ id: 's1', description: 'Boil.', photo: noPhoto() }] },
-			{ heading: 'Make the sauce', steps: [{ id: 's2', description: 'Melt.', photo: existingPhoto('https://storage.example/s2.jpg') }] },
+			{ heading: 'Prep', steps: [{ key: 's1', id: 's1', description: 'Boil.', photo: noPhoto() }] },
+			{ heading: 'Make the sauce', steps: [{ key: 's2', id: 's2', description: 'Melt.', photo: existingPhoto('https://storage.example/s2.jpg') }] },
 		])
 	})
 
@@ -123,15 +125,15 @@ describe('toUpdateRecipeMetadata', () => {
 	})
 
 	it('keeps an untouched stored cover and step photo', () => {
-		const metadata = toUpdateRecipeMetadata(base({ cover: existingPhoto('https://storage.example/c.jpg'), instructions: steps({ id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') }) }))
+		const metadata = toUpdateRecipeMetadata(base({ cover: existingPhoto('https://storage.example/c.jpg'), instructions: steps({ key: 's1', id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') }) }))
 		expect(metadata.cover).toBe('keep')
 		expect(metadata.instructions).toEqual([{ id: 's1', description: 'Boil', image: 'keep', heading: null }])
 	})
 
-	it('replaces a slot when a new file was picked, for the cover and for an existing step', () => {
-		const metadata = toUpdateRecipeMetadata(base({ cover: newPhoto(file('new-cover.png')), instructions: steps({ id: 's1', description: 'Boil', photo: newPhoto(file('boil.png')) }) }))
-		expect(metadata.cover).toBe('replace')
-		expect(metadata.instructions[0]).toEqual({ id: 's1', description: 'Boil', image: 'replace', heading: null })
+	it('replaces a slot by naming its Pending photo, for the cover and for an existing step', () => {
+		const metadata = toUpdateRecipeMetadata(base({ cover: pendingPhoto(file('new-cover.png'), PHOTO_ID), instructions: steps({ key: 's1', id: 's1', description: 'Boil', photo: pendingPhoto(file('boil.png'), PHOTO_ID) }) }))
+		expect(metadata.cover).toEqual({ pendingPhotoId: PHOTO_ID })
+		expect(metadata.instructions[0]).toEqual({ id: 's1', description: 'Boil', image: { pendingPhotoId: PHOTO_ID }, heading: null })
 	})
 
 	it('removes a slot that was emptied, and also states "remove" for a slot that never had a photo', () => {
@@ -142,20 +144,20 @@ describe('toUpdateRecipeMetadata', () => {
 
 	it('sends a new step with no id and either its new photo or "remove"', () => {
 		const metadata = toUpdateRecipeMetadata(base({ instructions: steps(
-			{ id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') },
-			{ id: null, description: 'Serve', photo: newPhoto(file('serve.png')) },
-			{ id: null, description: 'Garnish', photo: noPhoto() },
+			{ key: 's1', id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') },
+			{ key: 'new-Serve', id: null, description: 'Serve', photo: pendingPhoto(file('serve.png'), PHOTO_ID) },
+			{ key: 'new-Garnish', id: null, description: 'Garnish', photo: noPhoto() },
 		) }))
 		expect(metadata.instructions.map(({ id, image }) => ({ id, image }))).toEqual([
-			{ id: 's1', image: 'keep' }, { id: null, image: 'replace' }, { id: null, image: 'remove' },
+			{ id: 's1', image: 'keep' }, { id: null, image: { pendingPhotoId: PHOTO_ID } }, { id: null, image: 'remove' },
 		])
 		expect(updateRecipeMetadataSchema.safeParse(metadata).success).toBe(true)
 	})
 
 	it('lets a stored photo follow its step when steps are reordered, also into another group', () => {
 		const metadata = toUpdateRecipeMetadata(base({ instructions: [
-			{ heading: null, steps: [{ id: 's3', description: 'Boil', photo: noPhoto() }] },
-			{ heading: ' Serve ', steps: [{ id: 's2', description: 'Plate', photo: existingPhoto('https://storage.example/s2.jpg') }, { id: 's1', description: 'Top', photo: noPhoto() }] },
+			{ heading: null, steps: [{ key: 's3', id: 's3', description: 'Boil', photo: noPhoto() }] },
+			{ heading: ' Serve ', steps: [{ key: 's2', id: 's2', description: 'Plate', photo: existingPhoto('https://storage.example/s2.jpg') }, { key: 's1', id: 's1', description: 'Top', photo: noPhoto() }] },
 		] }))
 		expect(metadata.instructions).toEqual([
 			{ id: 's3', description: 'Boil', image: 'remove', heading: null },
@@ -165,7 +167,7 @@ describe('toUpdateRecipeMetadata', () => {
 	})
 
 	it('drops a deleted step and its photo by leaving it out', () => {
-		const metadata = toUpdateRecipeMetadata(base({ instructions: steps({ id: 's2', description: 'Serve', photo: existingPhoto('https://storage.example/s2.jpg') }) }))
+		const metadata = toUpdateRecipeMetadata(base({ instructions: steps({ key: 's2', id: 's2', description: 'Serve', photo: existingPhoto('https://storage.example/s2.jpg') }) }))
 		expect(metadata.instructions.map((step) => step.id)).toEqual(['s2'])
 	})
 })

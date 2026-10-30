@@ -15,7 +15,7 @@ import { InstructionsSection } from './instructions-section'
 import { NotesSection } from './notes-section'
 import { RecipeFormAlert } from './recipe-form-alert'
 import { RecipeFormHeader } from './recipe-form-header'
-import { PhotoPreparationsContext } from '../hooks/photo-preparations'
+import { PhotoSlotsContext } from '../hooks/photo-slots'
 import { useRecipeForm } from '../hooks/use-recipe-form'
 import type { SaveRecipeAction } from '../hooks/use-recipe-submission'
 import type { PhotoUploader } from '../lib/upload-pending-photo'
@@ -26,7 +26,7 @@ type RecipeFormProps = {
 	submitLabel: string
 	cancelHref: string
 	onSave: SaveRecipeAction
-	/** Uploads a picked cover as a Pending photo; tests pass a stand-in. */
+	/** Uploads a picked photo as a Pending photo; tests pass a stand-in. */
 	onUploadPhoto: PhotoUploader
 	/** The user's own categories, offered as chips. */
 	categories: Category[]
@@ -39,7 +39,7 @@ type RecipeFormProps = {
  */
 export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, onUploadPhoto, categories, initialValues }: RecipeFormProps) {
 	const router = useRouter()
-	const { form, formRef, preparations, busy, alert, isDirty, submit, resetWhenHidden } = useRecipeForm({ mode, initialValues, onSave })
+	const { form, formRef, photos, busy, alert, isDirty, submit, resetWhenHidden } = useRecipeForm({ mode, initialValues, onSave, onUploadPhoto })
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false)
 
 	function cancel() {
@@ -56,7 +56,7 @@ export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, onUpl
 
 	return (
 		<FormProvider {...form}>
-			<PhotoPreparationsContext value={preparations}>
+			<PhotoSlotsContext value={photos}>
 				<form ref={formRef} noValidate onSubmit={submit} aria-busy={busy} aria-label={title}>
 					<RecipeFormHeader title={title} submitLabel={submitLabel} busy={busy} onCancel={cancel} />
 					<PageContainer className="space-y-4 pb-8 sm:space-y-5">
@@ -65,7 +65,7 @@ export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, onUpl
 						<div className="grid gap-4 sm:gap-5 xl:grid-cols-12 xl:items-start">
 							<div className="space-y-4 sm:space-y-5 xl:col-span-5">
 								<BasicInformationSection categories={categories} />
-								<CoverPhotoSection disabled={busy} onUploadPhoto={onUploadPhoto} />
+								<CoverPhotoSection disabled={busy} />
 							</div>
 							<div className="space-y-4 sm:space-y-5 xl:col-span-7">
 								<IngredientsSection />
@@ -75,7 +75,7 @@ export function RecipeForm({ mode, title, submitLabel, cancelHref, onSave, onUpl
 						<NotesSection />
 					</PageContainer>
 				</form>
-			</PhotoPreparationsContext>
+			</PhotoSlotsContext>
 			<DiscardChangesDialog open={confirmingDiscard} onOpenChange={setConfirmingDiscard} onDiscard={discard} />
 		</FormProvider>
 	)

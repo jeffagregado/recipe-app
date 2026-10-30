@@ -4,7 +4,7 @@ import type { UpdateRecipeMetadata } from '@recipe-app/contracts/types';
 import type { DrizzleDb } from '../database/database.service.js';
 import { recipeCategories, recipeImages, recipeIngredients, recipeInstructions, recipes } from '../database/schema.js';
 import { fieldError, recipeNotFound } from './recipe-errors.js';
-import { insertRecipeCategories, insertRecipeIngredients } from './recipe-persist.js';
+import { bySlot, insertRecipeCategories, insertRecipeIngredients } from './recipe-persist.js';
 import type { PlannedImage } from './recipe-persist.js';
 import type { RecipeTransaction } from './recipe-write-hook.js';
 
@@ -34,14 +34,15 @@ export function planRecipeUpdate(state: RecipeState, metadata: UpdateRecipeMetad
   });
   const uploaded = (field: string) => uploads.find((image) => image.field === field);
   const stepImageIds = metadata.instructions.map((step, index) => {
-    if (step.image === 'replace') return uploaded(`step-${index}`)?.id ?? null;
-    return step.image === 'keep' && step.id !== null ? photos.get(step.id) ?? null : null;
+    if (step.image === 'keep') return step.id !== null ? photos.get(step.id) ?? null : null;
+    // A replacement arrives as a file (`replace`) or as a Pending photo; either is an image for the step's field.
+    return step.image === 'remove' ? null : uploaded(`step-${index}`)?.id ?? null;
   });
   const kept = new Set(stepImageIds); const linked = new Set(photos.values());
   // The cover is the image at position 0; images that neither slot kind owns are left alone.
   const stale = state.images.filter((image) => image.sortOrder === 0 ? metadata.cover !== 'keep' : linked.has(image.id) && !kept.has(image.id));
   let sortOrder = Math.max(0, ...state.images.filter((image) => !stale.includes(image)).map((image) => image.sortOrder));
-  const added = uploads.map((image) => ({ id: image.id, objectKey: image.key, sortOrder: image.field === 'cover' ? 0 : ++sortOrder }));
+  const added = uploads.toSorted(bySlot).map((image) => ({ id: image.id, objectKey: image.key, sortOrder: image.field === 'cover' ? 0 : ++sortOrder }));
   return { stepImageIds, stale, added };
 }
 

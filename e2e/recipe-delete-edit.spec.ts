@@ -270,6 +270,35 @@ test.describe('edit: pre-fill and no-op save', () => {
   });
 });
 
+test.describe('edit: replacing one step photo', () => {
+  test('uploads only the new photo, names it on save and keeps the other stored photos without sending them', async ({ page, creator, workerData }) => {
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('One new photo', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
+    await openEdit(page, id, 'One new photo');
+    await expect.poll(() => imagesLoaded(page, 'form img')).toBe(true);
+
+    const uploads: string[] = [];
+    page.on('request', (sent) => { if (new URL(sent.url()).pathname === '/api/pending-photos') uploads.push(sent.method()); });
+    const upload = page.waitForResponse((answer) => new URL(answer.url()).pathname === '/api/pending-photos' && answer.request().method() === 'POST');
+    await page.getByLabel('Replace photo for step 3').setInputFiles(photo('fresh-step.png', [40, 160, 120]));
+    await expect(page.getByText(/^fresh-step\.(webp|jpg) · \d+ KB$/)).toBeVisible();
+    expect(await (await upload).json()).toMatchObject({ status: 'uploaded' });
+    const request = page.waitForRequest((sent) => new URL(sent.url()).pathname === `/api/recipes/${id}` && sent.method() === 'PATCH');
+    await save(page).click();
+    // The save names the one Pending photo and keeps the cover and step 1 without sending them.
+    const metadata = JSON.parse(/name="recipe"\r\n\r\n(.*)\r\n/.exec((await request).postDataBuffer()!.toString())![1]);
+    expect([metadata.cover, ...metadata.instructions.map((step: { image: unknown }) => step.image)])
+      .toEqual(['keep', 'keep', 'remove', { pendingPhotoId: expect.any(String) }]);
+    // The same waits as the other edit saves in this file, for the update and the redirect over the link to Neon.
+    // Measured locally, this whole test took 9 s.
+    await expect(page).toHaveURL(`${WEB_URL}/recipes/${id}`, { timeout: 30_000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'One new photo' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('button', { name: /^Open step \d+ photo$/ })).toHaveCount(2);
+    await expect(page.getByRole('button', { name: 'Open step 3 photo' })).toBeVisible();
+    // Only the replaced photo was uploaded; the API's integration tests assert the stored rows and the old object's removal.
+    expect(uploads).toEqual(['POST']);
+  });
+});
+
 test.describe('edit: changing everything', () => {
   test('text, categories, ingredients, step order, photos replaced, removed, added and deleted all land exactly as edited', async ({ page, creator, workerData }) => {
     test.setTimeout(240_000);

@@ -1,17 +1,19 @@
 import { ImagePlus, ListOrdered } from 'lucide-react'
+import { useRef } from 'react'
 import { useFormContext, useWatch, useFormState } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { emptyInstructionRow, MAX_ROWS, type RecipeFormValues } from '../lib/recipe-form-schema'
 import { fieldA11y, textareaClass } from '../lib/field-props'
 import { IMAGE_HINT } from '../lib/recipe-files'
-import { newPhoto, noPhoto, photoCaption } from '../lib/recipe-photo'
-import { FieldError, FieldStatus } from './form-field'
+import { photoCaption } from '../lib/recipe-photo'
+import { FieldError } from './form-field'
 import { PhotoPicker } from './photo-picker'
 import { PhotoPreview } from './photo-preview'
+import { PhotoSlotStatus } from './photo-slot-status'
 import { RowControls } from './row-controls'
 import { SectionCard } from './section-card'
-import { usePhotoPick } from '../hooks/use-photo-pick'
+import { usePhotoSlots, usePhotoSlot } from '../hooks/photo-slots'
 import { useRowGroups } from '../hooks/use-row-groups'
 import { AddHeadingLink, AddRowControls, GroupHeading } from './row-group'
 
@@ -28,7 +30,8 @@ type InstructionRowProps = {
 export function InstructionsSection({ disabled }: { disabled: boolean }) {
 	const { control } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
-	// Each row owns its photo, so a photo always travels with its step, across groups too.
+	const photos = usePhotoSlots()
+	// Each row owns its photo, so a photo always travels with its step, across groups too, even while it is still uploading.
 	const { containerRef, ...steps } = useRowGroups({ name: 'instructions', key: 'steps', empty: emptyInstructionRow, control: 'description' })
 	const listError = errors.instructions?.message ?? errors.instructions?.root?.message
 	const atLimit = steps.total >= MAX_ROWS.instructions
@@ -52,7 +55,7 @@ export function InstructionsSection({ disabled }: { disabled: boolean }) {
 							/>
 						)}
 						<ol className="space-y-5">
-							{field.steps.map((_, row) => (
+							{field.steps.map((step, row) => (
 								<InstructionRow
 									key={`${field.id}-${row}`}
 									group={group}
@@ -61,7 +64,11 @@ export function InstructionsSection({ disabled }: { disabled: boolean }) {
 									disabled={disabled}
 									canMove={(direction) => steps.canMoveRow(group, row, direction)}
 									onMove={(direction) => steps.moveRow(group, row, direction)}
-									onRemove={() => steps.removeRow(group, row)}
+									onRemove={() => {
+										// A photo still being shrunk or uploaded for the deleted step stops with it.
+										photos.release(step.key)
+										steps.removeRow(group, row)
+									}}
 								/>
 							))}
 						</ol>
@@ -111,29 +118,36 @@ function InstructionRow({ group, row, position, disabled, canMove, onMove, onRem
 }
 
 function StepPhoto({ group, row, position, disabled }: { group: number; row: number; position: number; disabled: boolean }) {
-	const { control, setValue } = useFormContext<RecipeFormValues>()
+	const { control } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
-	const path = `instructions.${group}.steps.${row}.photo` as const
-	const photo = useWatch({ control, name: path })
-	const { pickError, preparing, pick, remove } = usePhotoPick((file) => setValue(path, file ? newPhoto(file) : noPhoto(), { shouldDirty: true, shouldTouch: true }))
-	const error = pickError ?? errors.instructions?.[group]?.steps?.[row]?.photo?.message
+	const step = `instructions.${group}.steps.${row}` as const
+	const [key, value] = useWatch({ control, name: [`${step}.key`, `${step}.photo`] })
+	const photo = usePhotoSlot(key, value)
+	const error = photo.pickError ?? photo.uploadError ?? errors.instructions?.[group]?.steps?.[row]?.photo?.message
 	const fieldId = `recipe-step-${position - 1}-photo`
 	const a11y = fieldA11y(fieldId, error)
+	const removeButton = useRef<HTMLButtonElement>(null)
+
+	function retryUpload() {
+		photo.retry()
+		// Retry disappears while the upload runs; keep focus on the slot.
+		removeButton.current?.focus()
+	}
 
 	return (
 		<div className="space-y-1.5">
-			{photo.kind !== 'none' ? (
+			{value.kind !== 'none' ? (
 				<div className="flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-3">
-					<PhotoPreview photo={photo} label={`Current photo for step ${position}`} sizes="56px" className="size-14 shrink-0 rounded-lg" />
-					<p className="min-w-0 flex-1 basis-16 text-sm text-muted-foreground wrap-break-word">{photoCaption(photo)}</p>
-					<PhotoPicker label={`Replace photo for step ${position}`} onPick={pick} disabled={disabled} a11y={a11y} className="rounded-lg">
+					<PhotoPreview photo={value} label={`Current photo for step ${position}`} sizes="56px" className="size-14 shrink-0 rounded-lg" />
+					<p className="min-w-0 flex-1 basis-16 text-sm text-muted-foreground wrap-break-word">{photoCaption(value)}</p>
+					<PhotoPicker label={`Replace photo for step ${position}`} onPick={photo.pick} disabled={disabled} a11y={a11y} className="rounded-lg">
 						<span className="inline-flex h-11 items-center rounded-lg border border-border bg-background px-3 text-sm font-medium sm:px-4">Replace</span>
 					</PhotoPicker>
-					<Button type="button" variant="outline" className="h-11 px-3 sm:px-4" aria-label={`Remove photo from step ${position}`} disabled={disabled} onClick={remove}>Remove</Button>
+					<Button ref={removeButton} type="button" variant="outline" className="h-11 px-3 sm:px-4" aria-label={`Remove photo from step ${position}`} disabled={disabled} onClick={photo.remove}>Remove</Button>
 				</div>
 			) : (
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-					<PhotoPicker label={`Add photo to step ${position}`} onPick={pick} disabled={disabled} a11y={a11y} className="w-full rounded-lg sm:w-auto">
+					<PhotoPicker label={`Add photo to step ${position}`} onPick={photo.pick} disabled={disabled} a11y={a11y} className="w-full rounded-lg sm:w-auto">
 						<span className="inline-flex h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-input px-4 text-sm font-medium hover:bg-muted/50 sm:w-auto">
 							<ImagePlus aria-hidden="true" className="size-4" /> Add photo
 						</span>
@@ -141,8 +155,8 @@ function StepPhoto({ group, row, position, disabled }: { group: number; row: num
 					<span className="text-xs text-muted-foreground">Optional · {IMAGE_HINT}</span>
 				</div>
 			)}
-			{preparing && <FieldStatus>Preparing photo…</FieldStatus>}
-			{error && <FieldError id={`${fieldId}-error`}>{error}</FieldError>}
+			<PhotoSlotStatus photo={photo} error={error} errorId={`${fieldId}-error`} progressLabel={`Step ${position} photo upload`} retryLabel={`Retry photo upload for step ${position}`}
+				disabled={disabled} onRetry={retryUpload} retryClassName="px-3 sm:px-4" />
 		</div>
 	)
 }

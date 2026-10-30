@@ -5,17 +5,21 @@ import { AppToaster } from '@/components/layout/app-toaster'
 import { installFakeCanvas } from '@/test/fake-canvas'
 import { createEmptyRecipeValues, type RecipeFormValues } from '../lib/recipe-form-schema'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
+import type { PhotoUploader } from '../lib/upload-pending-photo'
 import { RecipeForm } from './recipe-form'
 
 const router = vi.hoisted(() => ({ push: vi.fn() }))
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => router }))
 
 const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
+const uploadPhoto = vi.fn<PhotoUploader>()
+const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
 
 beforeEach(() => {
 	vi.resetAllMocks()
 	installFakeCanvas()
 	onSave.mockResolvedValue({ status: 'failed', message: 'Couldn’t save recipe. Try again.' })
+	uploadPhoto.mockResolvedValue({ status: 'uploaded', id: PHOTO_ID })
 	URL.createObjectURL = vi.fn(() => 'blob:preview')
 	URL.revokeObjectURL = vi.fn()
 })
@@ -25,14 +29,14 @@ afterEach(() => {
 })
 
 function renderForm(initialValues?: RecipeFormValues) {
-	return render(<AppToaster><RecipeForm categories={[]} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={vi.fn()} initialValues={initialValues} /></AppToaster>)
+	return render(<AppToaster><RecipeForm categories={[]} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} onUploadPhoto={uploadPhoto} initialValues={initialValues} /></AppToaster>)
 }
 const ingredients = () => screen.getByRole('region', { name: /^Ingredients/ })
 const instructions = () => screen.getByRole('region', { name: /^Instructions/ })
 const save = () => screen.getByRole('button', { name: /^Save Recipe$|^Saving/ })
 const sent = () => JSON.parse(onSave.mock.calls[0][0].get('recipe') as string)
 const toTaste = (name: string) => ({ name, amount: '', unit: 'to-taste' as const })
-const step = (description: string) => ({ id: null, description, photo: { kind: 'none' as const } })
+const step = (description: string) => ({ key: description, id: null, description, photo: { kind: 'none' as const } })
 
 /** A filled recipe whose rows can be saved as they are. */
 function filled(overrides: Partial<RecipeFormValues>): RecipeFormValues {
@@ -101,10 +105,9 @@ it('keeps a step photo with its step when it moves into another group', async ()
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	expect(sent().instructions).toEqual([
 		{ description: 'Boil', hasImage: false, heading: null },
-		{ description: 'Drain', hasImage: true, heading: 'Serve' },
+		{ description: 'Drain', hasImage: false, image: { pendingPhotoId: PHOTO_ID }, heading: 'Serve' },
 		{ description: 'Plate', hasImage: false, heading: null },
 	])
-	expect((onSave.mock.calls[0][0].get('step-1') as File).name).toBe('drain.webp')
 })
 
 it('reorders named groups and merges a removed heading’s rows into the group above', async () => {

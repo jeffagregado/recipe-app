@@ -3,7 +3,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { RECIPE_LIMITS } from '@recipe-app/contracts/types';
-import type { PendingPhoto, PendingPhotoSlot } from '@recipe-app/contracts/types';
+import { namedPendingPhotos } from '@recipe-app/contracts/schemas';
+import type { CreateRecipeMetadata, PendingPhoto, UpdateRecipeMetadata } from '@recipe-app/contracts/types';
 import { unauthenticated } from '../auth/auth.errors.js';
 import { AuthRateLimiter, rateLimitKey } from '../auth/auth.rate-limit.js';
 import { DRIZZLE_DB } from '../database/database.module.js';
@@ -77,11 +78,9 @@ export class PendingPhotoService {
 /** A photo slot a save fills with a Pending photo: the slot's field name and the Pending photo's id. */
 export type PendingPhotoUse = { field: string; id: string };
 
-const isPendingSlot = (slot: unknown): slot is PendingPhotoSlot => typeof slot === 'object' && slot !== null && 'pendingPhotoId' in slot;
-
-/** The slots of a save that name Pending photos. Only the cover can, until step photos move off the multipart save. */
-export function pendingPhotoUses(metadata: { cover?: unknown }): PendingPhotoUse[] {
-  return isPendingSlot(metadata.cover) ? [{ field: 'cover', id: metadata.cover.pendingPhotoId }] : [];
+/** The slots of a save that name Pending photos, by their multipart field names: `cover` and `step-<index>`. */
+export function pendingPhotoUses(metadata: CreateRecipeMetadata | UpdateRecipeMetadata): PendingPhotoUse[] {
+  return namedPendingPhotos(metadata).map(({ field, pendingPhotoId }) => ({ field, id: pendingPhotoId }));
 }
 
 /** Pending photos expire 24 hours after upload; database time decides. */

@@ -26,9 +26,11 @@ const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
 /** An upload the test finishes by hand, reporting progress meanwhile. */
 function holdUpload() {
 	const held: { progress: (percent: number) => void; finish: (result: PhotoUploadResult) => void } = { progress: () => {}, finish: () => {} }
-	uploadPhoto.mockImplementationOnce((_file, { onProgress }) => new Promise((resolve) => {
+	uploadPhoto.mockImplementationOnce((_file, { onProgress, signal }) => new Promise((resolve) => {
 		held.progress = onProgress
 		held.finish = resolve
+		// Like the real uploader, an aborted upload settles as failed.
+		signal.addEventListener('abort', () => resolve({ status: 'failed', message: 'Couldn’t upload this photo. Try again.' }))
 	}))
 	return held
 }
@@ -188,6 +190,60 @@ it('keeps a step photo with its step when the step is moved and revokes replaced
 	await waitFor(() => expect(revoked).toContain('blob:preview-1'))
 })
 
+it('keeps a photo still being prepared or uploaded with its step while the steps move', async () => {
+	const user = userEvent.setup()
+	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
+	renderForm()
+	await fillMinimum(user)
+	await user.click(screen.getByRole('button', { name: 'Add step' }))
+	await user.keyboard('Serve')
+	const release = canvas.hold()
+	const upload = holdUpload()
+	await user.upload(screen.getByLabelText('Add photo to step 1'), image('boil.jpg'))
+	await screen.findByText('Preparing photo…')
+	await user.click(screen.getByRole('button', { name: 'Move step 1 down' }))
+	expect(screen.getByLabelText('Step 2 instructions')).toHaveValue('Boil the pasta.')
+	release()
+	// Shrunk after the move, it uploads for the step it was picked for, which is now step 2.
+	expect(await screen.findByRole('progressbar', { name: 'Step 2 photo upload' })).toBeInTheDocument()
+	await user.click(screen.getByRole('button', { name: 'Move step 2 up' }))
+	upload.progress(60)
+	await waitFor(() => expect(screen.getByRole('progressbar', { name: 'Step 1 photo upload' })).toHaveAttribute('aria-valuenow', '60'))
+	upload.finish({ status: 'uploaded', id: PHOTO_ID })
+	expect(await screen.findByText('boil.webp · 1 KB')).toBeInTheDocument()
+	expect(screen.getByRole('button', { name: 'Remove photo from step 1' })).toBeInTheDocument()
+	expect(screen.getByLabelText('Add photo to step 2')).toBeInTheDocument()
+	await user.click(save())
+	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+	expect(sentRecipe().instructions.map((step: { image?: unknown }) => step.image)).toEqual([{ pendingPhotoId: PHOTO_ID }, undefined])
+	expect(uploadPhoto).toHaveBeenCalledOnce()
+})
+
+it.each([
+	['being prepared', 'Preparing photo…', () => canvas.hold(), []],
+	['uploading', 'Uploading photo…', () => { holdUpload(); return () => {} }, [true]],
+])('stops a photo still %s when its step is deleted, so it lands on no other step', async (_name, status, hold, aborted) => {
+	const user = userEvent.setup()
+	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
+	renderForm()
+	await fillMinimum(user)
+	await user.click(screen.getByRole('button', { name: 'Add step' }))
+	await user.keyboard('Serve')
+	const release = hold()
+	await user.upload(screen.getByLabelText('Add photo to step 1'), image('boil.jpg'))
+	await screen.findByText(status)
+	await user.click(screen.getByRole('button', { name: 'Remove step 1' }))
+	expect(screen.getByLabelText('Step 1 instructions')).toHaveValue('Serve')
+	expect(screen.queryByText(status)).not.toBeInTheDocument()
+	release()
+	// Save waits for the deleted step's photo work to settle, so the payload shows where that photo went.
+	await user.click(save())
+	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+	expect(sentRecipe().instructions).toEqual([{ description: 'Serve', hasImage: false, heading: null }])
+	expect(uploadPhoto.mock.calls.map(([, { signal }]) => signal.aborted)).toEqual(aborted)
+	expect(screen.getByLabelText('Add photo to step 1')).toBeInTheDocument()
+})
+
 it('hints at the original limit and shows an inline error for oversized, unsupported or unreadable photos, keeping the current photo', async () => {
 	const user = userEvent.setup({ applyAccept: false })
 	renderForm()
@@ -220,7 +276,7 @@ it('announces a photo being prepared at its slot until it is ready', async () =>
 	expect(screen.queryByText('Preparing photo…')).not.toBeInTheDocument()
 })
 
-it('waits behind its saving state for a photo still being prepared, so the save includes it', async () => {
+it('waits behind its saving state for a photo still being prepared, so the save names it', async () => {
 	const user = userEvent.setup()
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	renderForm()
@@ -233,54 +289,64 @@ it('waits behind its saving state for a photo still being prepared, so the save 
 	expect(onSave).not.toHaveBeenCalled()
 	release()
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
-	expect((onSave.mock.calls[0][0].get('step-0') as File).name).toBe('boil.webp')
+	expect(sentRecipe().instructions[0].image).toEqual({ pendingPhotoId: PHOTO_ID })
 })
 
-it('uploads a picked cover once it is prepared and shows its progress on the slot', async () => {
+/** The cover and a step photo slot behave alike; `sent` reads the slot back out of the saved metadata. */
+const SLOTS = [
+	{ slot: 'the cover', add: 'Add cover photo', replace: 'Replace cover photo', remove: 'Remove cover photo', retry: 'Retry cover photo upload', progress: 'Cover photo upload',
+		sent: (recipe: { cover?: unknown }) => recipe.cover },
+	{ slot: 'a step', add: 'Add photo to step 1', replace: 'Replace photo for step 1', remove: 'Remove photo from step 1', retry: 'Retry photo upload for step 1', progress: 'Step 1 photo upload',
+		sent: (recipe: { instructions: { image?: unknown }[] }) => recipe.instructions[0].image },
+] as const
+const sentRecipe = (call = 0) => JSON.parse(onSave.mock.calls[call][0].get('recipe') as string)
+
+it.each(SLOTS)('uploads a photo picked for $slot once it is prepared and shows its progress on the slot', async ({ add, progress }) => {
 	const user = userEvent.setup()
 	const upload = holdUpload()
 	renderForm()
-	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	await user.upload(screen.getByLabelText(add), image('photo.jpg'))
 	expect(await screen.findByText('Uploading photo…')).toBeInTheDocument()
-	expect(uploadPhoto.mock.calls[0][0].name).toBe('cover.webp')
+	// The shrunk photo uploads, not the picked original.
+	expect([uploadPhoto.mock.calls[0][0].name, uploadPhoto.mock.calls[0][0].type]).toEqual(['photo.webp', 'image/webp'])
 	upload.progress(40)
-	await waitFor(() => expect(screen.getByRole('progressbar', { name: 'Cover photo upload' })).toHaveAttribute('aria-valuenow', '40'))
+	await waitFor(() => expect(screen.getByRole('progressbar', { name: progress })).toHaveAttribute('aria-valuenow', '40'))
 	upload.finish({ status: 'uploaded', id: PHOTO_ID })
 	await waitFor(() => expect(screen.queryByRole('progressbar')).not.toBeInTheDocument())
-	expect(screen.getByText('cover.webp · 1 KB')).toBeInTheDocument()
+	expect(screen.getByText('photo.webp · 1 KB')).toBeInTheDocument()
 	expect(screen.queryByText('Uploading photo…')).not.toBeInTheDocument()
 })
 
-it('shows a failed cover upload inline with Retry, which uploads the same photo again, and Remove', async () => {
+it.each(SLOTS)('shows a failed upload on $slot inline with Retry, which uploads the same photo again, and Remove', async ({ add, replace, remove, retry }) => {
 	const user = userEvent.setup()
 	uploadPhoto.mockResolvedValueOnce({ status: 'failed', message: 'Couldn’t upload this photo. Try again.' })
 	renderForm()
-	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	await user.upload(screen.getByLabelText(add), image('photo.jpg'))
 	expect(await screen.findByText('Couldn’t upload this photo. Try again.')).toBeInTheDocument()
-	expect(screen.getByRole('button', { name: 'Remove cover photo' })).toBeEnabled()
-	await user.click(screen.getByRole('button', { name: 'Retry cover photo upload' }))
+	expect(screen.getByRole('button', { name: remove })).toBeEnabled()
+	await user.click(screen.getByRole('button', { name: retry }))
 	// Retry leaves once it is pressed; focus stays on the slot instead of falling back to the page.
-	expect(screen.getByRole('button', { name: 'Remove cover photo' })).toHaveFocus()
+	expect(screen.getByRole('button', { name: remove })).toHaveFocus()
 	await waitFor(() => expect(uploadPhoto).toHaveBeenCalledTimes(2))
 	expect(uploadPhoto.mock.calls[1][0]).toBe(uploadPhoto.mock.calls[0][0])
 	await waitFor(() => expect(screen.queryByText('Couldn’t upload this photo. Try again.')).not.toBeInTheDocument())
-	expect(screen.queryByRole('button', { name: 'Retry cover photo upload' })).not.toBeInTheDocument()
+	expect(screen.queryByRole('button', { name: retry })).not.toBeInTheDocument()
 
 	uploadPhoto.mockResolvedValueOnce({ status: 'failed', message: 'Couldn’t upload this photo. Try again.' })
-	await user.upload(screen.getByLabelText('Replace cover photo'), image('second.jpg'))
+	await user.upload(screen.getByLabelText(replace), image('second.jpg'))
 	await screen.findByText('Couldn’t upload this photo. Try again.')
-	await user.click(screen.getByRole('button', { name: 'Remove cover photo' }))
-	expect(screen.getByLabelText('Add cover photo')).toBeInTheDocument()
+	await user.click(screen.getByRole('button', { name: remove }))
+	expect(screen.getByLabelText(add)).toBeInTheDocument()
 	expect(screen.queryByText('Couldn’t upload this photo. Try again.')).not.toBeInTheDocument()
 })
 
-it('waits behind its saving state for a cover still uploading, with no other message, then names the Pending photo', async () => {
+it.each(SLOTS)('waits behind its saving state for $slot still uploading, with no other message, then names the Pending photo', async ({ add, sent }) => {
 	const user = userEvent.setup()
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	const upload = holdUpload()
 	renderForm()
 	await fillMinimum(user)
-	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	await user.upload(screen.getByLabelText(add), image('photo.jpg'))
 	await screen.findByText('Uploading photo…')
 	await user.click(save())
 	await waitFor(() => expect(save()).toBeDisabled())
@@ -288,27 +354,52 @@ it('waits behind its saving state for a cover still uploading, with no other mes
 	expect(onSave).not.toHaveBeenCalled()
 	upload.finish({ status: 'uploaded', id: PHOTO_ID })
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
-	const data = onSave.mock.calls[0][0]
-	expect(JSON.parse(data.get('recipe') as string).cover).toEqual({ pendingPhotoId: PHOTO_ID })
-	expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+	expect(sent(sentRecipe())).toEqual({ pendingPhotoId: PHOTO_ID })
+	expect([...onSave.mock.calls[0][0].keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
 })
 
-it('blocks Save while the cover upload has failed, until it is removed', async () => {
+it.each(SLOTS)('blocks Save while the upload on $slot has failed, until it is removed', async ({ add, replace, remove, sent }) => {
 	const user = userEvent.setup()
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	uploadPhoto.mockResolvedValueOnce({ status: 'failed', message: 'Couldn’t upload this photo. Try again.' })
 	renderForm()
 	await fillMinimum(user)
-	await user.upload(screen.getByLabelText('Add cover photo'), image('cover.jpg'))
+	await user.upload(screen.getByLabelText(add), image('photo.jpg'))
 	await screen.findByText('Couldn’t upload this photo. Try again.')
 	await user.click(save())
-	await waitFor(() => expect(screen.getByLabelText('Replace cover photo')).toHaveFocus())
-	expect(screen.getByLabelText('Replace cover photo')).toHaveAttribute('aria-invalid', 'true')
+	await waitFor(() => expect(screen.getByLabelText(replace)).toHaveFocus())
+	expect(screen.getByLabelText(replace)).toHaveAttribute('aria-invalid', 'true')
 	expect(onSave).not.toHaveBeenCalled()
-	await user.click(screen.getByRole('button', { name: 'Remove cover photo' }))
+	await user.click(screen.getByRole('button', { name: remove }))
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
-	expect(JSON.parse(onSave.mock.calls[0][0].get('recipe') as string)).not.toHaveProperty('cover')
+	expect(sent(sentRecipe())).toBeUndefined()
+})
+
+it('saves a recipe with several step photos once, after every upload has finished, naming each step’s own Pending photo', async () => {
+	const user = userEvent.setup()
+	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
+	const ids = [1, 2, 3].map((n) => `0b0f6a3e-4c1d-4d6e-9f1a-00000000000${n}`)
+	const uploads = ids.map(() => holdUpload())
+	renderForm()
+	await fillMinimum(user)
+	for (const step of [2, 3]) {
+		await user.click(screen.getByRole('button', { name: 'Add step' }))
+		await user.keyboard(`Step ${step}`)
+	}
+	for (const step of [1, 2, 3]) await user.upload(screen.getByLabelText(`Add photo to step ${step}`), image(`step-${step}.jpg`))
+	await waitFor(() => expect(uploadPhoto.mock.calls.map(([file]) => file.name)).toEqual(['step-1.webp', 'step-2.webp', 'step-3.webp']))
+	await user.click(save())
+	await waitFor(() => expect(save()).toBeDisabled())
+	// Answered out of order; the save still waits for the last one.
+	uploads[2].finish({ status: 'uploaded', id: ids[2] })
+	uploads[0].finish({ status: 'uploaded', id: ids[0] })
+	await waitFor(() => expect(screen.getAllByRole('progressbar')).toHaveLength(1))
+	expect(onSave).not.toHaveBeenCalled()
+	uploads[1].finish({ status: 'uploaded', id: ids[1] })
+	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+	expect(sentRecipe().instructions.map((step: { image?: unknown }) => step.image)).toEqual(ids.map((pendingPhotoId) => ({ pendingPhotoId })))
+	expect([...onSave.mock.calls[0][0].keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
 })
 
 it('keeps the uploaded cover after a failed save, so the next attempt names it without uploading again', async () => {
@@ -343,10 +434,10 @@ it('sends the normalized recipe, announces saving and ignores a second submit wh
 	const data = onSave.mock.calls[0][0]
 	expect(JSON.parse(data.get('recipe') as string)).toMatchObject({
 		title: 'Creamy Garlic Pasta', categoryIds: [], servings: null,
-		ingredients: [{ name: 'Spaghetti', quantity: 200, unit: 'g' }], instructions: [{ description: 'Boil the pasta.', hasImage: true }],
+		ingredients: [{ name: 'Spaghetti', quantity: 200, unit: 'g' }], instructions: [{ description: 'Boil the pasta.', hasImage: false, image: { pendingPhotoId: PHOTO_ID } }],
 	})
-	// The shrunk photo is sent, not the picked original.
-	expect([(data.get('step-0') as File).name, (data.get('step-0') as File).type]).toEqual(['boil.webp', 'image/webp'])
+	// The photo was uploaded on its own; the save only names it.
+	expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
 	expect(data.get('idempotencyKey')).toMatch(/^[0-9a-f-]{36}$/)
 	finish({ status: 'failed', message: 'Couldn’t save recipe. Try again.' })
 	await waitFor(() => expect(save()).toBeEnabled())
@@ -385,9 +476,9 @@ it('reuses the same submission key and payload when retrying after an unknown ou
 	const [first, second] = onSave.mock.calls.map(([data]) => data)
 	expect(second.get('idempotencyKey')).toBe(first.get('idempotencyKey'))
 	expect(second.get('recipe')).toBe(first.get('recipe'))
-	// The photo was shrunk once, when it was picked; the retry sends the same file.
+	// The photo was shrunk and uploaded once, when it was picked; the retry names the same Pending photo.
 	expect(canvas.encodeCount()).toBe(1)
-	expect((second.get('step-0') as File).name).toBe('boil.webp')
+	expect(uploadPhoto).toHaveBeenCalledOnce()
 })
 
 it('asks a new key once the user edits after an unknown outcome', async () => {
