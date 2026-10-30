@@ -7,7 +7,7 @@ import type { ApiErrorEnvelope } from '@recipe-app/contracts/types';
 import { AuthError } from '../auth/auth.errors.js';
 
 type RecipeErrorCode = 'VALIDATION_FAILED' | 'NOT_FOUND' | 'IDEMPOTENCY_CONFLICT' | 'IDEMPOTENCY_IN_PROGRESS'
-  | 'PAYLOAD_TOO_LARGE' | 'UNSUPPORTED_MEDIA_TYPE' | 'RATE_LIMITED' | 'SERVICE_UNAVAILABLE' | 'TIMEOUT';
+  | 'PAYLOAD_TOO_LARGE' | 'UNSUPPORTED_MEDIA_TYPE' | 'RATE_LIMITED' | 'SERVICE_UNAVAILABLE' | 'TIMEOUT' | 'PENDING_PHOTO_LIMIT';
 
 export class RecipeError extends HttpException {
   constructor(status: number, code: RecipeErrorCode, message: string, options: { cause?: unknown; fieldErrors?: Record<string, string[]> } = {}) {

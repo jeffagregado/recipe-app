@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq, sql } from 'drizzle-orm';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { apiErrorEnvelopeSchema } from '@recipe-app/contracts/schemas';
 import type { CreateRecipeMetadata, RecipeDetail, UpdateRecipeMetadata } from '@recipe-app/contracts/types';
 import { pendingPhotos, recipes, recipeWriteAttempts } from '../../src/database/schema.js';
-import { PENDING_PHOTO_UPLOAD_LIMIT } from '../../src/recipes/pending-photos.js';
+import { PENDING_PHOTO_UPLOAD_LIMIT, reconcilePendingPhotos } from '../../src/recipes/pending-photos.js';
 import { RecipeWriteHook } from '../../src/recipes/recipe-write-hook.js';
 import { TEST_ORIGIN } from '../auth-harness.js';
 import { rawRecipeRequest } from '../recipe-http.js';
@@ -24,6 +24,13 @@ describe('Pending photos HTTP', () => {
     servings: value.servings, prepTimeMinutes: value.prepTimeMinutes, cookTimeMinutes: value.cookTimeMinutes, videoUrl: value.videoUrl, notes: value.notes,
     ingredients: value.ingredients.map(({ name, quantity, unit, heading }) => ({ name, quantity, unit, heading })), cover: 'keep',
     instructions: value.instructions.map(({ id, description, heading }) => ({ id, description, heading, image: 'keep' })) });
+
+  /** Older than any other Pending photo, so the next sweep, which takes the oldest first, includes it. */
+  async function expired(marker: number) {
+    const id = await s.pendingPhoto(jpeg(marker));
+    const [row] = await s.db.update(pendingPhotos).set({ createdAt: sql`timestamptz '2000-01-01 00:00:00+00'` }).where(eq(pendingPhotos.id, id)).returning();
+    return row;
+  }
 
   describe('upload', () => {
     it('stores the photo re-encoded as WebP, as a Pending photo owned by the uploader', async () => {
@@ -73,6 +80,120 @@ describe('Pending photos HTTP', () => {
       const two = new FormData();
       for (const marker of [44, 45]) two.append('photo', new Blob([new Uint8Array(jpeg(marker))], { type: 'image/jpeg' }), 'client-name.jpg');
       await s.expectError(await fetch(`${s.baseUrl}/pending-photos`, { method: 'POST', body: two, headers: { Cookie: s.owner.cookie, Origin: TEST_ORIGIN } }), 400, 'VALIDATION_FAILED');
+    }, 30_000);
+  });
+
+  describe('the 60 unexpired Pending photos an Account may hold', () => {
+    const unexpired = sql`${pendingPhotos.createdAt} > now() - interval '24 hours'`;
+    /** Rows only, standing in for photos uploaded earlier; `age` back-dates them. Removed again after each test. */
+    let filler: string[] = [];
+    async function fill(count: number, age = sql`interval '0 seconds'`) {
+      const rows = Array.from({ length: count }, () => { const id = randomUUID(); return { id, userId: s.owner.user.id, objectKey: `photos/${id}.webp`, createdAt: sql`now() - ${age}` }; });
+      if (rows.length) await s.db.insert(pendingPhotos).values(rows);
+      filler.push(...rows.map(({ id }) => id));
+    }
+    const toLimit = async () => 60 - await s.db.$count(pendingPhotos, and(eq(pendingPhotos.userId, s.owner.user.id), unexpired));
+    afterEach(async () => { if (filler.length) await s.db.delete(pendingPhotos).where(inArray(pendingPhotos.id, filler)); filler = []; });
+
+    it('refuses an upload beyond 60 before reading it, asking to save or wait, and stores nothing', async () => {
+      await fill(await toLimit());
+      const calls = s.upload.mock.calls.length;
+      const response = await s.uploadPhoto(jpeg(90));
+      expect(response.status).toBe(409);
+      expect(apiErrorEnvelopeSchema.parse(await response.json())).toEqual({ code: 'PENDING_PHOTO_LIMIT', message: 'Too many photos are waiting to be saved. Save the recipe, or try again tomorrow.' });
+      expect([s.upload.mock.calls.length, await toLimit()]).toEqual([calls, 0]);
+    }, 30_000);
+
+    it('does not count expired Pending photos', async () => {
+      await fill(1, sql`interval '24 hours 1 minute'`);
+      await fill(await toLimit() - 1);
+      await s.pendingPhoto(jpeg(91));
+      expect(await toLimit()).toBe(0);
+    }, 30_000);
+
+    it('lets only one of two uploads through when one place is left', async () => {
+      await fill(await toLimit() - 1);
+      const responses = await Promise.all([s.uploadPhoto(jpeg(92)), s.uploadPhoto(jpeg(93))]);
+      expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
+      expect(await toLimit()).toBe(0);
+    }, 30_000);
+  });
+
+  describe('expiry', () => {
+    it('deletes an expired Pending photo and its stored photo when any photo is uploaded', async () => {
+      const old = await expired(94);
+      const fresh = await s.pendingPhoto(jpeg(95));
+      await expect.poll(async () => [await s.pendingRow(old.id), await s.stored(old.objectKey)], { timeout: 20_000 }).toEqual([undefined, false]);
+      expect((await s.pendingRow(fresh))?.userId).toBe(s.owner.user.id);
+    }, 60_000);
+
+    it('still answers the upload when deleting an expired photo fails, and leaves that photo to reconciliation', async () => {
+      const old = await expired(96);
+      const deletion = vi.spyOn(s.storage, 'deleteObject').mockRejectedValue(new Error('storage down'));
+      try {
+        await s.pendingPhoto(jpeg(97));
+        await expect.poll(() => s.pendingRow(old.id), { timeout: 20_000 }).toBeUndefined();
+        await expect.poll(() => deletion.mock.calls.some(([key]) => key === old.objectKey), { timeout: 20_000 }).toBe(true);
+      } finally { deletion.mockRestore(); }
+      expect(await s.stored(old.objectKey)).toBe(true);
+    }, 60_000);
+  });
+
+  describe('reconciliation', () => {
+    it('deletes expired Pending photos with their stored photos', async () => {
+      const old = await expired(98);
+      expect((await reconcilePendingPhotos(s.db, s.storage, { now: new Date(), objectKeys: [old.objectKey] })).failed).toBe(0);
+      // Another upload's sweep may get there first; either way the Pending photo is gone.
+      expect([await s.pendingRow(old.id), await s.stored(old.objectKey)]).toEqual([undefined, false]);
+    }, 60_000);
+
+    it('deletes a stored photo no row names once it is old enough, and keeps Pending and saved photos', async () => {
+      const orphan = await s.pendingPhoto(jpeg(99)); const { objectKey: orphanKey } = (await s.pendingRow(orphan))!;
+      // As after a failed row insert, or a deleted Account.
+      await s.db.delete(pendingPhotos).where(eq(pendingPhotos.id, orphan));
+      const kept = await s.pendingPhoto(jpeg(100)); const { objectKey: keptKey } = (await s.pendingRow(kept))!;
+      const used = await s.pendingPhoto(jpeg(101)); const { objectKey: savedKey } = (await s.pendingRow(used))!;
+      await s.savedId(await s.send('/recipes', withCover(used)), 201);
+      const objectKeys = [orphanKey, keptKey, savedKey];
+      // An upload may still be writing the row of a photo stored moments ago.
+      expect(await reconcilePendingPhotos(s.db, s.storage, { now: new Date(), objectKeys })).toEqual({ expired: 0, orphans: 0, failed: 0 });
+      expect(await reconcilePendingPhotos(s.db, s.storage, { now: new Date(), ageMs: 0, objectKeys })).toEqual({ expired: 0, orphans: 1, failed: 0 });
+      expect(await Promise.all(objectKeys.map(s.stored))).toEqual([false, true, true]);
+    }, 60_000);
+  });
+
+  describe('delete', () => {
+    it('deletes the uploader\'s own Pending photo and its stored photo', async () => {
+      const id = await s.pendingPhoto(jpeg(46)); const { objectKey } = (await s.pendingRow(id))!;
+      await s.expectEmpty(await s.call('DELETE', `/pending-photos/${id}`));
+      expect([await s.pendingRow(id), await s.stored(objectKey)]).toEqual([undefined, false]);
+    }, 30_000);
+
+    it.each([
+      ['another Account\'s', async () => s.pendingPhoto(jpeg(47), s.other.cookie)],
+      ['an unknown', async () => randomUUID()],
+      ['a malformed', async () => 'not-a-pending-photo'],
+    ])('answers %s Pending photo the same way and deletes nothing', async (_name, prepare) => {
+      const id = await prepare(); const row = await s.pendingRow(id);
+      await s.expectEmpty(await s.call('DELETE', `/pending-photos/${id}`));
+      expect(await s.pendingRow(id)).toEqual(row);
+      if (row) expect(await s.stored(row.objectKey)).toBe(true);
+    }, 30_000);
+
+    it('keeps a Pending photo a save has already used', async () => {
+      const id = await s.pendingPhoto(jpeg(48));
+      const recipeId = await s.savedId(await s.send('/recipes', withCover(id)), 201);
+      await s.expectEmpty(await s.call('DELETE', `/pending-photos/${id}`));
+      expect(await s.photoAt((await s.detail(recipeId)).imageUrl)).toEqual(storedPhoto(48));
+    }, 60_000);
+
+    it.each([
+      ['no session', { cookie: null }, 401, 'UNAUTHENTICATED'],
+      ['an untrusted origin', { origin: 'https://hostile.example.invalid' }, 403, 'ORIGIN_REJECTED'],
+    ] as const)('refuses a delete with %s and keeps the Pending photo', async (_name, options, status, code) => {
+      const id = await s.pendingPhoto(jpeg(49));
+      await s.expectError(await s.call('DELETE', `/pending-photos/${id}`, options), status, code);
+      expect((await s.pendingRow(id))?.userId).toBe(s.owner.user.id);
     }, 30_000);
   });
 

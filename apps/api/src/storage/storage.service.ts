@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { z } from 'zod';
 import type { Environment } from '../config/environment.js';
@@ -62,6 +62,22 @@ export class StorageService implements OnApplicationShutdown {
     } catch (cause) {
       throw new StorageError('Storage delete failed. Check storage configuration, bucket access, and network availability.', { cause });
     }
+  }
+
+  /** The objects under `prefix`, one page of up to 1000 at a time. */
+  async *listObjects(prefix: string): AsyncGenerator<{ key: string; lastModified: Date }[]> {
+    validateKey(prefix);
+    let token: string | undefined;
+    do {
+      let page;
+      try {
+        page = await this.client.send(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, ContinuationToken: token }), { abortSignal: AbortSignal.timeout(10_000) });
+      } catch (cause) {
+        throw new StorageError('Storage listing failed. Check storage configuration, bucket access, and network availability.', { cause });
+      }
+      yield (page.Contents ?? []).flatMap(({ Key, LastModified }) => (Key && LastModified ? [{ key: Key, lastModified: LastModified }] : []));
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
   }
 
   async signedDownloadUrl(key: string, expiresIn = 900): Promise<string> {
