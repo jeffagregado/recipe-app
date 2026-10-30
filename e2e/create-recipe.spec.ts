@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type { Page } from '@playwright/test';
+import type { Page, Response as PageResponse } from '@playwright/test';
 import { count, eq } from '../apps/api/node_modules/drizzle-orm/index.js';
 import { authRateLimits, pendingPhotos, recipes, recipeWriteAttempts } from '../apps/api/src/database/schema.js';
 import { seedRecipes } from '../apps/api/src/recipes/seed-recipes.js';
 import { creatorTest as test, expect, WEB_URL } from './fixtures.js';
 import {
   COVER, PLAIN_LINK, RICH, RICH_FILES, WIDTHS,
-  chooseUnit, categoryIdsFor, createRecipeViaApi, field, fillIngredient, fillMinimal, fillRich, ingredientRows, noOverflow, openCreate, photo, richMetadata, stepTexts, stubVideoHosts, toast, watchConsole,
+  chooseUnit, categoryIdsFor, createRecipeViaApi, field, fillIngredient, fillMinimal, fillRich, ingredientRows, noOverflow, openCreate, photo, photoButtons, richMetadata, stepTexts, stubVideoHosts, toast, watchConsole,
 } from './create-recipe-helpers.js';
 
 // The one-time notice is removed from the URL once the toast shows, so the saved page is just /recipes/<id>.
@@ -169,6 +169,42 @@ test.describe('photos', () => {
     const saved = await workerData.db.query.recipes.findFirst({ where: eq(recipes.userId, creator.user.id), with: { images: true } });
     expect(saved?.images).toHaveLength(1);
     // Saved onto the recipe, the photo is no longer pending.
+    expect((await workerData.db.select({ n: count() }).from(pendingPhotos).where(eq(pendingPhotos.userId, creator.user.id)))[0].n).toBe(0);
+  });
+
+  test('several phone-sized step photos, far over 4.5 MB together, each upload on their own and the recipe saves with all of them', async ({ page, workerData, creator }) => {
+    const originals = [[200, 110, 60], [60, 140, 90], [90, 80, 190]].map((colour, index) => photo(`step-${index + 1}.png`, colour as [number, number, number], 2400, 1800, 4));
+    // Together well over Vercel's 4.5 MB request limit, which a save carrying them all would hit.
+    expect(originals.reduce((total, { buffer }) => total + buffer.length, 0)).toBeGreaterThan(3 * 4.5 * 1000 * 1000);
+    await openCreate(page);
+    await fillMinimal(page, 'Three photo stew');
+    for (const step of [2, 3]) {
+      await page.getByRole('button', { name: 'Add step' }).click();
+      await field.step(page, step).fill(`Step ${step}.`);
+    }
+    const uploads: PageResponse[] = [];
+    page.on('response', (answer) => {
+      if (new URL(answer.url()).pathname === '/api/pending-photos' && answer.request().method() === 'POST') uploads.push(answer);
+    });
+    for (const [index, original] of originals.entries()) await page.getByLabel(`Add photo to step ${index + 1}`).setInputFiles(original);
+    for (const step of [1, 2, 3]) await expect(page.getByText(new RegExp(`^step-${step}\\.(webp|jpg) · \\d+(\\.\\d)? (KB|MB)$`))).toBeVisible();
+    // Each photo uploads on its own, every request well under the limit.
+    await expect.poll(() => uploads.length).toBe(3);
+    for (const uploaded of uploads) {
+      expect(uploaded.request().postDataBuffer()!.length).toBeLessThan(4.5 * 1000 * 1000);
+      expect(await uploaded.json()).toMatchObject({ status: 'uploaded' });
+    }
+    const request = page.waitForRequest((sent) => new URL(sent.url()).pathname === '/api/recipes' && sent.method() === 'POST');
+    await field.save(page).click();
+    // The save names the three Pending photos and carries no photo.
+    const saveBody = (await request).postDataBuffer()!;
+    expect(saveBody.length).toBeLessThan(64 * 1024);
+    expect(saveBody.toString().match(/"pendingPhotoId"/g)).toHaveLength(3);
+    await expect(page).toHaveURL(SAVED, { timeout: 30_000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'Three photo stew' })).toBeVisible({ timeout: 20_000 });
+    await expect(photoButtons(page)).toHaveCount(3);
+    const saved = await workerData.db.query.recipes.findFirst({ where: eq(recipes.userId, creator.user.id), with: { images: true } });
+    expect(saved?.images).toHaveLength(3);
     expect((await workerData.db.select({ n: count() }).from(pendingPhotos).where(eq(pendingPhotos.userId, creator.user.id)))[0].n).toBe(0);
   });
 });

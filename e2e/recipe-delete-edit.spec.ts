@@ -270,6 +270,41 @@ test.describe('edit: pre-fill and no-op save', () => {
   });
 });
 
+test.describe('edit: replacing one step photo', () => {
+  test('uploads only the new photo, keeps the other stored photos as they were and removes the replaced one', async ({ page, creator, workerData }) => {
+    test.setTimeout(150_000);
+    const id = await createRecipeViaApi(creator, workerData.address, richMetadata('One new photo', await categoryIdsFor(creator, RICH.categories)), RICH_FILES);
+    const before = await imageState(workerData.db, id);
+    const [cover, stepOne, stepThree] = before.images; // positions: cover, step 1, step 3
+    await openEdit(page, id, 'One new photo');
+    await expect.poll(() => imagesLoaded(page, 'form img')).toBe(true);
+
+    const uploads: string[] = [];
+    page.on('request', (sent) => { if (new URL(sent.url()).pathname === '/api/pending-photos') uploads.push(sent.method()); });
+    const upload = page.waitForResponse((answer) => new URL(answer.url()).pathname === '/api/pending-photos' && answer.request().method() === 'POST');
+    await page.getByLabel('Replace photo for step 3').setInputFiles(photo('fresh-step.png', [40, 160, 120]));
+    await expect(page.getByText(/^fresh-step\.(webp|jpg) · \d+ KB$/)).toBeVisible();
+    expect(await (await upload).json()).toMatchObject({ status: 'uploaded' });
+    const request = page.waitForRequest((sent) => new URL(sent.url()).pathname === `/api/recipes/${id}` && sent.method() === 'PATCH');
+    await save(page).click();
+    // The save names the one Pending photo and keeps the cover and step 1 without sending them.
+    const metadata = JSON.parse(/name="recipe"\r\n\r\n(.*)\r\n/.exec((await request).postDataBuffer()!.toString())![1]);
+    expect([metadata.cover, ...metadata.instructions.map((step: { image: unknown }) => step.image)])
+      .toEqual(['keep', 'keep', 'remove', { pendingPhotoId: expect.any(String) }]);
+    await expect(page).toHaveURL(`${WEB_URL}/recipes/${id}`, { timeout: 30_000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'One new photo' })).toBeVisible({ timeout: 20_000 });
+    expect(uploads).toEqual(['POST']);
+
+    const after = await imageState(workerData.db, id);
+    expect(after.images.slice(0, 2)).toEqual([cover, stepOne]);
+    expect(after.images).toHaveLength(3);
+    expect(after.images[2].id).not.toBe(stepThree.id);
+    expect(after.steps.map(({ imageId }) => imageId)).toEqual([stepOne.id, null, after.images[2].id]);
+    await expect.poll(() => workerData.countStoredObjects([stepThree.key]), { timeout: 20_000 }).toBe(0);
+    expect(await workerData.countStoredObjects(after.images.map(({ key }) => key))).toBe(3);
+  });
+});
+
 test.describe('edit: changing everything', () => {
   test('text, categories, ingredients, step order, photos replaced, removed, added and deleted all land exactly as edited', async ({ page, creator, workerData }) => {
     test.setTimeout(240_000);
