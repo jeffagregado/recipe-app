@@ -1,10 +1,11 @@
 'use client'
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
 import { createEmptyRecipeValues, recipeFormSchema, type RecipeFormValues } from '../lib/recipe-form-schema'
 import type { RecipeFormMode } from '../lib/recipe-payload'
+import { createPhotoPreparations } from './photo-preparations'
 import { useRecipeSubmission, type SaveRecipeAction } from './use-recipe-submission'
 import { useUnsavedChangesWarning } from './use-unsaved-changes-warning'
 
@@ -14,7 +15,8 @@ export function useRecipeForm({ mode, initialValues, onSave }: UseRecipeFormOpti
 	const defaultValues = initialValues ?? createEmptyRecipeValues()
 	const form = useForm<RecipeFormValues>({ resolver: zodResolver(recipeFormSchema), defaultValues, shouldFocusError: false })
 	const formRef = useRef<HTMLFormElement>(null)
-	const { busy, alert, focusRequest, submit, resetWhenHidden } = useRecipeSubmission({ form, mode, onSave })
+	const [preparations] = useState(createPhotoPreparations)
+	const { busy, alert, focusRequest, submit, resetWhenHidden } = useRecipeSubmission({ form, mode, onSave, preparations })
 	// Subscribed state: the form object keeps one identity, so reading form.formState here could be cached by the compiler.
 	// React Hook Form publishes client validation errors, and bumps submitCount with them, only after the invalid callback returns.
 	const { isDirty, submitCount } = useFormState({ control: form.control })
@@ -26,5 +28,5 @@ export function useRecipeForm({ mode, initialValues, onSave }: UseRecipeFormOpti
 
 	useUnsavedChangesWarning(isDirty)
 
-	return { form, formRef, busy, alert, isDirty, submit, resetWhenHidden }
+	return { form, formRef, preparations, busy, alert, isDirty, submit, resetWhenHidden }
 }

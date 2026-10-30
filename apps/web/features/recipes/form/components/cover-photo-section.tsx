@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { IMAGE_HINT } from '../lib/recipe-files'
 import type { RecipeFormValues } from '../lib/recipe-form-schema'
 import { fieldA11y } from '../lib/field-props'
-import { FieldError } from './form-field'
+import { FieldError, FieldStatus } from './form-field'
 import { PhotoPicker } from './photo-picker'
 import { newPhoto, noPhoto, photoCaption } from '../lib/recipe-photo'
 import { PhotoPreview } from './photo-preview'
@@ -17,7 +17,7 @@ export function CoverPhotoSection({ disabled }: { disabled: boolean }) {
 	const { control, setValue } = useFormContext<RecipeFormValues>()
 	const { errors } = useFormState({ control })
 	const cover = useWatch({ control, name: 'cover' })
-	const { pickError, pick, remove } = usePhotoPick((file) => setValue('cover', file ? newPhoto(file) : noPhoto(), { shouldDirty: true, shouldTouch: true }))
+	const { pickError, preparing, pick, remove } = usePhotoPick((file) => setValue('cover', file ? newPhoto(file) : noPhoto(), { shouldDirty: true, shouldTouch: true }))
 	const error = pickError ?? errors.cover?.message
 	const a11y = fieldA11y(FIELD_ID, error)
 
@@ -48,6 +48,7 @@ export function CoverPhotoSection({ disabled }: { disabled: boolean }) {
 					</div>
 				</PhotoPicker>
 			)}
+			{preparing && <FieldStatus>Preparing photo…</FieldStatus>}
 			{error && <FieldError id={`${FIELD_ID}-error`}>{error}</FieldError>}
 		</SectionCard>
 	)

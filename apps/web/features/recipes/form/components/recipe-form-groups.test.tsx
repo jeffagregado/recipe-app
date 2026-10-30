@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AppToaster } from '@/components/layout/app-toaster'
+import { installFakeCanvas } from '@/test/fake-canvas'
 import { createEmptyRecipeValues, type RecipeFormValues } from '../lib/recipe-form-schema'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
 import { RecipeForm } from './recipe-form'
@@ -13,11 +14,15 @@ const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
 
 beforeEach(() => {
 	vi.resetAllMocks()
+	installFakeCanvas()
 	onSave.mockResolvedValue({ status: 'failed', message: 'Couldn’t save recipe. Try again.' })
 	URL.createObjectURL = vi.fn(() => 'blob:preview')
 	URL.revokeObjectURL = vi.fn()
 })
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => {
+	vi.restoreAllMocks()
+	vi.unstubAllGlobals()
+})
 
 function renderForm(initialValues?: RecipeFormValues) {
 	return render(<AppToaster><RecipeForm categories={[]} mode="create" title="Create Recipe" submitLabel="Save Recipe" cancelHref="/recipes" onSave={onSave} initialValues={initialValues} /></AppToaster>)
@@ -90,6 +95,7 @@ it('keeps a step photo with its step when it moves into another group', async ()
 	const user = userEvent.setup()
 	renderForm(filled({ instructions: [{ heading: null, steps: [step('Boil'), step('Drain')] }, { heading: 'Serve', steps: [step('Plate')] }] }))
 	await user.upload(screen.getByLabelText('Add photo to step 2'), new File(['x'], 'drain.jpg', { type: 'image/jpeg' }))
+	await screen.findByText('drain.webp · 1 KB')
 	await user.click(screen.getByRole('button', { name: 'Move step 2 down' }))
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
@@ -98,7 +104,7 @@ it('keeps a step photo with its step when it moves into another group', async ()
 		{ description: 'Drain', hasImage: true, heading: 'Serve' },
 		{ description: 'Plate', hasImage: false, heading: null },
 	])
-	expect((onSave.mock.calls[0][0].get('step-1') as File).name).toBe('drain.jpg')
+	expect((onSave.mock.calls[0][0].get('step-1') as File).name).toBe('drain.webp')
 })
 
 it('reorders named groups and merges a removed heading’s rows into the group above', async () => {

@@ -7,20 +7,23 @@ import { attemptSave } from '../lib/attempt-save'
 import { mapSaveFieldErrors } from '../lib/map-save-errors'
 import type { RecipeFormValues } from '../lib/recipe-form-schema'
 import { prepareRecipePayload, type RecipeFormMode } from '../lib/recipe-payload'
+import type { PhotoPreparations } from './photo-preparations'
 import { SAVE_MESSAGES, toastMessage, UPDATE_MESSAGES, type SaveMessages, type SaveRecipeResult } from '../lib/save-recipe-result'
 
 export type SaveRecipeAction = (formData: FormData) => Promise<SaveRecipeResult>
 export type FormAlert = { status: SaveRecipeResult['status']; message: string; details: string[] }
 
-type UseRecipeSubmissionOptions = { form: UseFormReturn<RecipeFormValues>; mode: RecipeFormMode; onSave: SaveRecipeAction }
+type UseRecipeSubmissionOptions = { form: UseFormReturn<RecipeFormValues>; mode: RecipeFormMode; onSave: SaveRecipeAction; preparations: PhotoPreparations }
 
 /** Saving: one submission key per attempt, the in-flight guard, the outcome alert and toast, and the reset once the user has left. */
-export function useRecipeSubmission({ form, mode, onSave }: UseRecipeSubmissionOptions) {
+export function useRecipeSubmission({ form, mode, onSave, preparations }: UseRecipeSubmissionOptions) {
 	const messages: SaveMessages = mode === 'edit' ? UPDATE_MESSAGES : SAVE_MESSAGES
 	const toast = useAppToast()
 	const [pending, startTransition] = useTransition()
 	// The redirect after a confirmed save ends the transition slightly before the new page appears; stay disabled until then.
 	const [leaving, setLeaving] = useState(false)
+	// Save pressed while a picked photo is still being shrunk waits for it behind the same saving state.
+	const [waitingForPhotos, setWaitingForPhotos] = useState(false)
 	const [alert, setAlert] = useState<FormAlert>()
 	const [focusRequest, setFocusRequest] = useState(0)
 	// One submission key per attempt: reused only for the same payload after an unknown outcome.
@@ -79,9 +82,20 @@ export function useRecipeSubmission({ form, mode, onSave }: UseRecipeSubmissionO
 		})
 	}
 
-	function submit(event?: BaseSyntheticEvent) {
-		return form.handleSubmit(save, () => setAlert(undefined))(event)
+	async function submit(event?: BaseSyntheticEvent) {
+		const submitForm = form.handleSubmit(save, () => setAlert(undefined))
+		if (!preparations.isPreparing()) return submitForm(event)
+		// The event is used after the wait, so its default (a page reload) must be stopped first.
+		event?.preventDefault()
+		setWaitingForPhotos(true)
+		try {
+			await preparations.settled()
+			await submitForm(event)
+		} finally {
+			// Cleared only after save() has started its transition, so Save never flickers back on in between.
+			setWaitingForPhotos(false)
+		}
 	}
 
-	return { busy: pending || leaving, alert, focusRequest, submit, resetWhenHidden: () => { resetOnHide.current = true } }
+	return { busy: pending || leaving || waitingForPhotos, alert, focusRequest, submit, resetWhenHidden: () => { resetOnHide.current = true } }
 }

@@ -4,6 +4,7 @@ import { Activity, type ImgHTMLAttributes } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AppToaster } from '@/components/layout/app-toaster'
 import { recipeDetailFixture } from '@/features/recipes/queries/recipe-detail.fixture'
+import { installFakeCanvas } from '@/test/fake-canvas'
 import { toRecipeFormValues } from '../lib/recipe-edit'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
 import { RecipeForm } from './recipe-form'
@@ -30,11 +31,15 @@ const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
 
 beforeEach(() => {
 	vi.resetAllMocks()
+	installFakeCanvas()
 	let counter = 0
 	URL.createObjectURL = vi.fn(() => `blob:preview-${++counter}`)
 	URL.revokeObjectURL = vi.fn()
 })
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => {
+	vi.restoreAllMocks()
+	vi.unstubAllGlobals()
+})
 
 const recipe = recipeDetailFixture({
 	id: 'recipe-1',
@@ -151,7 +156,7 @@ it('replaces a stored step photo with a picked file and uploads only that file',
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	renderEdit()
 	await user.upload(screen.getByLabelText('Replace photo for step 1'), image('fresh.png', 2048))
-	expect(await screen.findByText('fresh.png · 2 KB')).toBeInTheDocument()
+	expect(await screen.findByText('fresh.webp · 1 KB')).toBeInTheDocument()
 	expect(screen.queryByAltText('Current photo for step 1')).not.toBeInTheDocument()
 
 	await user.click(save())
@@ -159,7 +164,7 @@ it('replaces a stored step photo with a picked file and uploads only that file',
 	const data = onSave.mock.calls[0][0]
 	expect(metadataOf(data).instructions.map((step: { image: string }) => step.image)).toEqual(['replace', 'remove', 'keep'])
 	expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe', 'step-0'])
-	expect((data.get('step-0') as File).name).toBe('fresh.png')
+	expect((data.get('step-0') as File).name).toBe('fresh.webp')
 })
 
 it('removes the stored cover and a stored step photo', async () => {
@@ -182,7 +187,7 @@ it('replaces the stored cover and keeps the rest', async () => {
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	renderEdit()
 	await user.upload(screen.getByLabelText('Replace cover photo'), image('new-cover.png'))
-	await screen.findByText(/new-cover\.png/)
+	await screen.findByText('new-cover.webp · 1 KB')
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	expect(metadataOf(onSave.mock.calls[0][0]).cover).toBe('replace')
@@ -209,6 +214,7 @@ it('notices a replaced photo as a change too', async () => {
 	const user = userEvent.setup()
 	renderEdit()
 	await user.upload(screen.getByLabelText('Replace photo for step 3'), image('again.png'))
+	await screen.findByText('again.webp · 1 KB')
 	await user.click(screen.getAllByRole('button', { name: 'Cancel' })[0])
 	expect(await screen.findByRole('alertdialog', { name: 'Discard changes?' })).toBeInTheDocument()
 })
@@ -236,7 +242,7 @@ it('keeps a stored photo with its step when steps are reordered and numbers a re
 	expect(screen.getByAltText('Current photo for step 2')).toHaveAttribute('src', 'https://storage.example/s3.jpg')
 	expect(screen.getByLabelText('Add photo to step 3')).toBeInTheDocument()
 	await user.upload(screen.getByLabelText('Replace photo for step 1'), image('mix.png'))
-	await screen.findByText(/mix\.png/)
+	await screen.findByText('mix.webp · 1 KB')
 
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
@@ -257,7 +263,7 @@ it('sends a new step without an id and with its new photo, and drops a deleted s
 	await user.click(screen.getByRole('button', { name: 'Add step' }))
 	await user.keyboard('Decorate.')
 	await user.upload(screen.getByLabelText('Add photo to step 3'), image('decorate.png'))
-	await screen.findByText(/decorate\.png/)
+	await screen.findByText('decorate.webp · 1 KB')
 
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
@@ -267,7 +273,7 @@ it('sends a new step without an id and with its new photo, and drops a deleted s
 		{ id: 's3', description: 'Cool.', image: 'keep', heading: null },
 		{ id: null, description: 'Decorate.', image: 'replace', heading: null },
 	])
-	expect((data.get('step-2') as File).name).toBe('decorate.png')
+	expect((data.get('step-2') as File).name).toBe('decorate.webp')
 })
 
 it('keeps the slot as kept and shows a placeholder when a stored preview can no longer load', async () => {

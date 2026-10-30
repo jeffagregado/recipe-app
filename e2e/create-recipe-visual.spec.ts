@@ -36,7 +36,7 @@ test('captures the Create page and the detail page at every width', async ({ pag
 
   await openCreate(page);
   await fillRich(page, 'Creamy Garlic Pasta');
-  await expect(page.getByText(/^boiling-pasta\.png · \d+ KB$/)).toBeVisible();
+  await expect(page.getByText(/^boiling-pasta\.(webp|jpg) · \d+ KB$/)).toBeVisible();
   for (const width of WIDTHS) await capture(page, 'create-filled', width);
 
   // Mobile "scrolled down" state: the sticky header stays put while Instructions scroll underneath.
