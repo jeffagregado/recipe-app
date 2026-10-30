@@ -44,7 +44,7 @@ it('forwards the code, the state and only the state cookie, copies the session c
 	expect(init?.method).toBe('POST')
 	expect(init?.body).toBe(`{"code":"${CODE}","state":"${STATE}"}`)
 	// The state cookie and the session cookie travel, and no other: the API attaches a connect only for the session that started it.
-	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', cookie: `better-auth.state=${encodeURIComponent(STATE_VALUE)}; better-auth.session_token=stale`, 'x-forwarded-for': '203.0.113.9' })
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ 'content-type': 'application/json', cookie: `better-auth.state=${encodeURIComponent(STATE_VALUE)}; better-auth.session_token=stale`, 'x-recipe-client-ip': '203.0.113.9' })
 	expect(warn).not.toHaveBeenCalled()
 })
 

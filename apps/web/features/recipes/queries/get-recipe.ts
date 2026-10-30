@@ -2,7 +2,7 @@ import 'server-only'
 
 import { recipeDetailSchema } from '@recipe-app/contracts/schemas'
 import type { RecipeDetail } from '@recipe-app/contracts/types'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { apiHeaders, getApiOrigin } from '@/features/auth/api'
 import { requireSession } from '@/features/auth/queries'
@@ -18,14 +18,14 @@ class RecipeDetailError extends Error {
 	}
 }
 
-async function fetchRecipe(id: string, cookie: string): Promise<Response> {
+async function fetchRecipe(id: string, cookie: string, incoming: Headers): Promise<Response> {
 	const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
 	try {
 		return await fetch(`${getApiOrigin()}/recipes/${encodeURIComponent(id)}`, {
 			cache: 'no-store',
 			redirect: 'error',
 			signal,
-			headers: apiHeaders({ Cookie: cookie }),
+			headers: apiHeaders(incoming, { Cookie: cookie }),
 		})
 	} catch (cause) {
 		if (signal.aborted) throw new RecipeDetailError(`GET /recipes/:id timed out after ${REQUEST_TIMEOUT_MS / 1_000} seconds. Check recipe API availability.`, { cause })
@@ -46,7 +46,7 @@ async function parseRecipe(response: Response): Promise<RecipeDetail> {
 export async function getRecipe(id: string): Promise<RecipeDetail | null> {
 	if (!isValidRecipeId(id)) return null
 	await requireSession()
-	const response = await fetchRecipe(id, sessionCookieHeader(await cookies()))
+	const response = await fetchRecipe(id, sessionCookieHeader(await cookies()), await headers())
 	if (response.status === 401) redirect('/auth/login')
 	if (response.status === 404) return null
 	if (!response.ok) throw new RecipeDetailError(`GET /recipes/:id failed (${response.status}). Check the recipe API response.`)

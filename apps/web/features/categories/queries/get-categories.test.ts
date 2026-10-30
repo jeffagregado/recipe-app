@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 
 const next = vi.hoisted(() => ({ cookies: new Map<string, string>() }))
 vi.mock('next/headers', () => ({
+	headers: async () => new Headers({ 'x-forwarded-for': '203.0.113.9' }),
 	cookies: async () => ({ get: (name: string) => next.cookies.has(name) ? { value: next.cookies.get(name)! } : undefined }),
 }))
 vi.mock('next/navigation', () => ({ redirect: (path: string) => { throw new Error(`NEXT_REDIRECT:${path}`) } }))
@@ -20,14 +21,14 @@ beforeEach(() => {
 	next.cookies = new Map([['better-auth.session_token', 'tok en'], ['analytics', '1']])
 })
 
-it('forwards only the session cookie, uncached, and returns the validated list in order', async () => {
+it('forwards only the session cookie and client IP, uncached, and returns the validated list in order', async () => {
 	const categories = [{ id: 'c2', name: 'Dinner', recipeCount: 3 }, { id: 'c1', name: 'Soup', recipeCount: 0 }]
 	fetchMock.mockResolvedValue(json(categories))
 	await expect(getCategories()).resolves.toEqual(categories)
 	const [url, init] = fetchMock.mock.calls[0]
 	expect(url).toBe('http://api.test/categories')
 	expect(init).toMatchObject({ cache: 'no-store', redirect: 'error' })
-	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ cookie: 'better-auth.session_token=tok%20en' })
+	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({ cookie: 'better-auth.session_token=tok%20en', 'x-recipe-client-ip': '203.0.113.9' })
 	expect(init?.signal).toBeInstanceOf(AbortSignal)
 })
 

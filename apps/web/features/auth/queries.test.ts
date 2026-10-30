@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const next = vi.hoisted(() => ({ cookies: new Map<string, string>() }))
-vi.mock('next/headers', () => ({ cookies: async () => ({ get: (name: string) => next.cookies.has(name) ? { value: next.cookies.get(name)! } : undefined }) }))
+vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'x-forwarded-for': '203.0.113.9' }), cookies: async () => ({ get: (name: string) => next.cookies.has(name) ? { value: next.cookies.get(name)! } : undefined }) }))
 vi.mock('next/navigation', () => ({ redirect: (path: string) => { throw new Error(`NEXT_REDIRECT:${path}`) } }))
 
 import { getSession, requireSession } from './queries'
@@ -22,14 +22,14 @@ it('is anonymous without a session cookie and does not call the API', async () =
 	expect(fetchMock).not.toHaveBeenCalled()
 })
 
-it('forwards only the session cookie and returns the authenticated user', async () => {
+it('forwards only the session cookie and client IP and returns the authenticated user', async () => {
 	next.cookies.set('better-auth.session_token', 'abc')
 	next.cookies.set('analytics', 'private')
 	fetchMock.mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }))
 	expect(await getSession()).toEqual({ status: 'authenticated', ...body })
 	expect(fetchMock.mock.calls[0][0]).toBe('http://api.example/auth/session')
 	expect(fetchMock.mock.calls[0][1]).toMatchObject({ cache: 'no-store' })
-	expect(Object.fromEntries(new Headers(fetchMock.mock.calls[0][1]?.headers))).toEqual({ cookie: 'better-auth.session_token=abc' })
+	expect(Object.fromEntries(new Headers(fetchMock.mock.calls[0][1]?.headers))).toEqual({ cookie: 'better-auth.session_token=abc', 'x-recipe-client-ip': '203.0.113.9' })
 })
 
 it('treats 401 as signed out and redirects private routes to login', async () => {

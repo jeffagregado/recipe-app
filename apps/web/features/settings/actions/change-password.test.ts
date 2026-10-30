@@ -31,7 +31,7 @@ it('sends both passwords untrimmed with only the session cookie, origin and clie
 	expect(url).toBe('http://api.example/account/password')
 	expect(init).toMatchObject({ method: 'PUT', cache: 'no-store', redirect: 'error', body: '{"currentPassword":" old password ","newPassword":" new password 123 "}' })
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9', 'content-type': 'application/json',
 	})
 	// This session is kept and nothing the page shows has changed, so there is nothing to refresh.
 	expect(cache.refresh).not.toHaveBeenCalled()

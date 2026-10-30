@@ -12,7 +12,7 @@ function rewriteBackendRead(request: NextRequest, path: string) {
 	if (request.method !== 'GET') return new NextResponse(null, { status: 405, headers: { Allow: 'GET' } })
 	const url = new URL(target, getApiOrigin())
 	url.search = request.nextUrl.search
-	const forwarded = apiHeaders({ Accept: 'application/json' })
+	const forwarded = apiHeaders(request.headers, { Accept: 'application/json' })
 	const cookie = sessionCookieHeader(request.cookies)
 	if (cookie) forwarded.set('Cookie', cookie)
 	return NextResponse.rewrite(url, { request: { headers: forwarded }, headers: { 'Cache-Control': 'private, no-store' } })

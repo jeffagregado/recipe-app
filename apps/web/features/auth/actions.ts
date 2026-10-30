@@ -22,10 +22,9 @@ function validationFailure(error: ZodError): AuthFailure {
 const EXPECTED_STATUS: Record<AuthMutation, number> = { signup: 201, login: 200, logout: 204, 'resend-verification': 204, 'forgot-password': 204, 'reset-password': 204 }
 const ORIGIN_REJECTED: AuthFailure = { ok: false, code: 'ORIGIN_REJECTED', message: 'This request could not be verified. Refresh the page and try again.' }
 
-/** Only the request Origin, client address and (logout) session cookie reach the API. */
-function upstreamHeaders(origin: string, address: string | null, cookie: string) {
+/** Only the request Origin, client IP and (logout) session cookie reach the API. */
+function upstreamHeaders(origin: string, cookie: string) {
 	const outgoing = new Headers({ 'Content-Type': 'application/json', Origin: origin })
-	if (address) outgoing.set('X-Forwarded-For', address)
 	if (cookie) outgoing.set('Cookie', cookie)
 	return outgoing
 }
@@ -57,7 +56,7 @@ async function mutate(operation: AuthMutation, body: unknown): Promise<AuthFailu
 	const cookie = operation === 'logout' ? sessionCookieHeader(store) : ''
 	if (operation === 'logout' && !cookie) { clearSessionCookies(store); return }
 	try {
-		const response = await authFetch(`/auth/${operation}`, { method: 'POST', headers: upstreamHeaders(origin, incoming.get('x-forwarded-for'), cookie), body: JSON.stringify(body) })
+		const response = await authFetch(`/auth/${operation}`, incoming, { method: 'POST', headers: upstreamHeaders(origin, cookie), body: JSON.stringify(body) })
 		if (response.status !== EXPECTED_STATUS[operation]) return logFailure(operation, mapAuthError(response.status, await response.json().catch(() => undefined), operation), response.status)
 		return await applySuccess(operation, response, store)
 	} catch {

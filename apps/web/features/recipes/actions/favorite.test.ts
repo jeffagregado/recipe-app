@@ -31,7 +31,7 @@ it.each([
 	expect(init?.signal).toBeInstanceOf(AbortSignal)
 	expect(init?.body).toBeUndefined()
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9',
 	})
 })
 

@@ -33,7 +33,7 @@ it('sends the whole set as JSON with only the session cookie, origin and client 
 	expect(url).toBe('http://api.example/categories')
 	expect(init).toMatchObject({ method: 'PUT', cache: 'no-store', redirect: 'error', body: JSON.stringify(rows) })
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9', 'content-type': 'application/json',
 	})
 	expect(cache.refresh).toHaveBeenCalledOnce()
 })

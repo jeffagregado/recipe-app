@@ -32,7 +32,7 @@ it('sends the normalized email and the untrimmed password with only the session 
 	expect(url).toBe('http://api.example/account/email-change')
 	expect(init).toMatchObject({ method: 'POST', cache: 'no-store', redirect: 'error', body: '{"newEmail":"ana.new@example.com","currentPassword":" old password "}' })
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9', 'content-type': 'application/json',
 	})
 	// The session read is never cached: the refresh is what makes the card show the pending address.
 	expect(cache.refresh).toHaveBeenCalledOnce()

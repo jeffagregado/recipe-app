@@ -2,7 +2,7 @@ import 'server-only'
 
 import { categoryListSchema } from '@recipe-app/contracts/schemas'
 import type { CategoryWithUsage } from '@recipe-app/contracts/types'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { apiHeaders, getApiOrigin } from '@/features/auth/api'
 import { requireSession } from '@/features/auth/queries'
@@ -17,10 +17,10 @@ class CategoryReadError extends Error {
 	}
 }
 
-async function fetchCategories(cookie: string): Promise<Response> {
+async function fetchCategories(cookie: string, incoming: Headers): Promise<Response> {
 	const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
 	try {
-		return await fetch(`${getApiOrigin()}/categories`, { cache: 'no-store', redirect: 'error', signal, headers: apiHeaders({ Cookie: cookie }) })
+		return await fetch(`${getApiOrigin()}/categories`, { cache: 'no-store', redirect: 'error', signal, headers: apiHeaders(incoming, { Cookie: cookie }) })
 	} catch (cause) {
 		if (signal.aborted) throw new CategoryReadError(`GET /categories timed out after ${REQUEST_TIMEOUT_MS / 1_000} seconds. Check recipe API availability.`, { cause })
 		if (cause instanceof TypeError || cause instanceof DOMException) throw new CategoryReadError('GET /categories failed during transport. Check recipe API availability.', { cause })
@@ -31,7 +31,7 @@ async function fetchCategories(cookie: string): Promise<Response> {
 /** Uncached owner-scoped read: the signed-in user's categories in their order, each with its recipe count. */
 export async function getCategories(): Promise<CategoryWithUsage[]> {
 	await requireSession()
-	const response = await fetchCategories(sessionCookieHeader(await cookies()))
+	const response = await fetchCategories(sessionCookieHeader(await cookies()), await headers())
 	if (response.status === 401) redirect('/auth/login')
 	if (!response.ok) throw new CategoryReadError(`GET /categories failed (${response.status}). Check the recipe API response.`)
 	let payload: unknown

@@ -40,7 +40,7 @@ it('asks with the session cookie, origin and client address, copies only the sta
 	expect(url).toBe('http://api.example/account/google/connect')
 	expect(init).toMatchObject({ method: 'POST', cache: 'no-store', redirect: 'error', body: '{}' })
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9', 'content-type': 'application/json',
 	})
 	expect(next.set).toHaveBeenCalledExactlyOnceWith('better-auth.state', 'test-state.test-signature', { httpOnly: true, sameSite: 'lax', path: '/', secure: false, maxAge: 300 })
 	// Nothing about the Account has changed yet.

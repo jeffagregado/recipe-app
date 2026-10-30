@@ -24,11 +24,9 @@ export async function startGoogleSignIn(): Promise<AuthFailure> {
 	const origin = incoming.get('origin')
 	if (!origin || origin === 'null') return logFailure('ORIGIN_REJECTED')
 	const outgoing = new Headers({ 'Content-Type': 'application/json', Origin: origin })
-	const address = incoming.get('x-forwarded-for')
-	if (address) outgoing.set('X-Forwarded-For', address)
 	let url: string
 	try {
-		const response = await authFetch('/auth/google/start', { method: 'POST', headers: outgoing, body: '{}' })
+		const response = await authFetch('/auth/google/start', incoming, { method: 'POST', headers: outgoing, body: '{}' })
 		const body: unknown = await response.json().catch(() => undefined)
 		if (response.status !== 200) {
 			const error = authErrorResponseSchema.safeParse(body)

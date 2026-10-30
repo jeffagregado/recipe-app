@@ -32,7 +32,7 @@ it('posts the token with only the session cookie, origin and client address, and
 	expect(url).toBe('http://api.example/account/email-change/confirm')
 	expect(init).toMatchObject({ method: 'POST', cache: 'no-store', redirect: 'error', body: JSON.stringify({ token }) })
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9', 'content-type': 'application/json',
 	})
 	// The session the browser holds is kept as it is: nothing the API sets is passed on.
 	expect(next.set).not.toHaveBeenCalled()

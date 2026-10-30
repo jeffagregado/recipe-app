@@ -31,7 +31,7 @@ it('deletes with only the session cookie, origin and client address, refreshes t
 	expect(init).toMatchObject({ method: 'DELETE', cache: 'no-store', redirect: 'error' })
 	expect(init?.signal).toBeInstanceOf(AbortSignal)
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9',
 	})
 	expect(cache.refresh).toHaveBeenCalledOnce()
 })

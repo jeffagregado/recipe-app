@@ -65,7 +65,7 @@ it('forwards the metadata as JSON with only the session cookie, origin, key and 
 	expect(init).toMatchObject({ method: 'POST', cache: 'no-store', redirect: 'error' })
 	expect(init?.signal).toBeInstanceOf(AbortSignal)
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'idempotency-key': KEY, 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'idempotency-key': KEY, 'x-recipe-client-ip': '203.0.113.9', 'content-type': 'application/json',
 	})
 	expect(typeof init?.body).toBe('string')
 	expect(JSON.parse(init?.body as string)).toEqual(metadata)

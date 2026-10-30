@@ -2,7 +2,7 @@ import 'server-only'
 
 import { authSessionResponseSchema } from '@recipe-app/contracts/schemas'
 import type { AuthSessionResponse } from '@recipe-app/contracts/types'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { cache } from 'react'
 import { authFetch } from './api'
@@ -15,7 +15,7 @@ type Session = ({ status: 'authenticated' } & AuthSessionResponse) | { status: '
 export const getSession = cache(async (): Promise<Session> => {
 	const cookie = sessionCookieHeader(await cookies())
 	if (!cookie) return { status: 'anonymous' }
-	const response = await authFetch('/auth/session', { headers: { Cookie: cookie } })
+	const response = await authFetch('/auth/session', await headers(), { headers: { Cookie: cookie } })
 	if (response.status === 401) return { status: 'anonymous' }
 	if (response.status !== 200) throw new AuthServiceError(`Session service failed with HTTP ${response.status}.`)
 	let payload: unknown

@@ -29,7 +29,7 @@ it('asks with an empty body and only the session cookie, origin and client addre
 	expect(url).toBe('http://api.example/account/google/disconnect')
 	expect(init).toMatchObject({ method: 'POST', cache: 'no-store', redirect: 'error', body: '{}' })
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'x-recipe-client-ip': '203.0.113.9', 'content-type': 'application/json',
 	})
 	expect(cache.refresh).toHaveBeenCalledOnce()
 })
