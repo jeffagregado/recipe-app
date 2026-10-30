@@ -126,6 +126,21 @@ export const recipeImages = pgTable('recipe_images', {
   check('recipe_images_sort_order_check', sql`${t.sortOrder} >= 0`),
 ]);
 
+/** A photo an Account has uploaded but not yet saved onto a recipe. Saving it moves its object key onto a recipe image and deletes this row. */
+export const pendingPhotos = pgTable('pending_photos', {
+  id: textId(),
+  userId: text('user_id').notNull(),
+  objectKey: text('object_key').notNull(),
+  createdAt: time('created_at').defaultNow().notNull(),
+}, (t) => [
+  primaryKey({ name: 'pending_photos_pkey', columns: [t.id] }),
+  foreignKey({ name: 'pending_photos_user_id_fkey', columns: [t.userId], foreignColumns: [users.id] }).onDelete('cascade'),
+  unique('pending_photos_object_key_key').on(t.objectKey),
+  index('pending_photos_user_id_created_at_idx').on(t.userId, t.createdAt),
+  index('pending_photos_created_at_idx').on(t.createdAt),
+  check('pending_photos_object_key_check', sql`length(btrim(${t.objectKey})) > 0`),
+]);
+
 export const recipeWriteAttempts = pgTable('recipe_write_attempts', {
   id: textId(),
   userId: text('user_id').notNull(),

@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { once } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import { RECIPE_LIMITS } from '@recipe-app/contracts/types';
-import { parseRecipeUpload, recipeBodyCounter, RecipeUploadSlots, RecipeUploadInterceptor } from './recipe-upload.js';
+import { parseRecipeUpload, RECIPE_UPLOAD, recipeBodyCounter, RecipeUploadSlots, RecipeUploadInterceptor } from './recipe-upload.js';
 import type { RecipeUploadRequest } from './recipe-upload.js';
 import { RecipeError } from './recipe-errors.js';
 import { rawRecipeRequest } from './testing/recipe-http.js';
@@ -22,7 +22,7 @@ async function parserServer(test: (url: string, received: () => number, first: F
     res.once('finish', markAnswered); req.socket.once('close', markClosed);
     req.on('data', (chunk: Buffer) => { received += chunk.length; });
     const request = req as RecipeUploadRequest; request.writeDeadline = Date.now() + 150;
-    void parseRecipeUpload(request, res, limit).then(() => { res.end('{}'); }, (cause: unknown) => {
+    void parseRecipeUpload(request, res, { ...RECIPE_UPLOAD, requestBytes: limit }).then(() => { res.end('{}'); }, (cause: unknown) => {
       res.statusCode = cause instanceof RecipeError ? cause.getStatus() : 500;
       res.end(JSON.stringify(cause instanceof RecipeError ? cause.getResponse() : { code: 'UNKNOWN' }));
     });

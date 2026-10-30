@@ -21,6 +21,16 @@ const RECIPE_BACKGROUND_TIMEOUT_MS = 30_000;
 export const consumeRecipeWrite = (rateLimiter: AuthRateLimiter, userId: string) =>
   rateLimiter.consume(rateLimitKey('recipe-write:user', userId), { limit: RECIPE_WRITE_LIMIT, windowMs: RECIPE_WRITE_WINDOW_MS });
 
+/** What one multipart write may carry: its byte limit, the file fields it accepts and its one text field, if any.
+ * `field` names the part that request-level problems are reported on.
+ */
+export type UploadShape = { requestBytes: number; tooLarge: string; files: number; fileField: RegExp; textField?: string; field: string };
+
+export const RECIPE_UPLOAD: UploadShape = {
+  requestBytes: RECIPE_LIMITS.requestBytes, tooLarge: 'Request exceeds 128 MiB.', files: RECIPE_LIMITS.maxFiles,
+  fileField: /^(cover|step-(?:[0-9]|[1-9][0-9]))$/, textField: 'recipe', field: 'recipe',
+};
+
 export type RecipeUploadRequest = AuthRequest & {
   body?: Record<string, unknown>; files?: RecipeFile[]; idempotencyKey?: string;
   writeDeadline?: number; writeSettled?: Promise<unknown>;
@@ -38,17 +48,22 @@ export class RecipeWriteGuard implements CanActivate {
       throw fieldError('idempotencyKey', 'Provide a canonical UUID Idempotency-Key.');
     }
     request.idempotencyKey = key.toLowerCase();
-    const size = request.headers['content-length'];
-    if (size !== undefined && (!/^\d+$/.test(size) || Number(size) > RECIPE_LIMITS.requestBytes)) {
-      throw new RecipeError(413, 'PAYLOAD_TOO_LARGE', 'Request exceeds 128 MiB.');
-    }
-    if (!/^multipart\/form-data(?:\s*;|$)/i.test(request.headers['content-type'] ?? '')) {
-      throw new RecipeError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Use multipart/form-data.');
-    }
-    request.writeDeadline = Date.now() + RECIPE_WRITE_TIMEOUT_MS;
+    checkMultipartHeaders(request, RECIPE_UPLOAD);
     await consumeRecipeWrite(this.rateLimiter, request.user.id);
     return true;
   }
+}
+
+/** Refuses a declared size over the shape's limit and any body that is not multipart before a byte of it is read; starts the write deadline. */
+export function checkMultipartHeaders(request: RecipeUploadRequest, shape: UploadShape): void {
+  const size = request.headers['content-length'];
+  if (size !== undefined && (!/^\d+$/.test(size) || Number(size) > shape.requestBytes)) {
+    throw new RecipeError(413, 'PAYLOAD_TOO_LARGE', shape.tooLarge);
+  }
+  if (!/^multipart\/form-data(?:\s*;|$)/i.test(request.headers['content-type'] ?? '')) {
+    throw new RecipeError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Use multipart/form-data.');
+  }
+  request.writeDeadline = Date.now() + RECIPE_WRITE_TIMEOUT_MS;
 }
 
 /** Throws the write timeout once the request's write deadline has passed. */
@@ -59,23 +74,29 @@ export function writeDeadlineCheck(deadline: number): () => void {
 @Injectable()
 export class RecipeUploadSlots {
   private active = 0;
-  private readonly owners = new Set<string>();
-  /** A second upload from this owner returns 409 IDEMPOTENCY_IN_PROGRESS, including during bounded cleanup. */
-  acquire(userId: string): () => void {
-    if (this.owners.has(userId)) throw new RecipeError(409, 'IDEMPOTENCY_IN_PROGRESS', 'An upload for this account is still in progress. Retry when it settles.');
+  private readonly owners = new Map<string, number>();
+  /** An upload beyond `perOwner` running for this owner returns 409 IDEMPOTENCY_IN_PROGRESS, including during bounded cleanup. */
+  acquire(userId: string, perOwner = 1): () => void {
+    const held = this.owners.get(userId) ?? 0;
+    if (held >= perOwner) throw new RecipeError(409, 'IDEMPOTENCY_IN_PROGRESS', 'An upload for this account is still in progress. Retry when it settles.');
     if (this.active >= RECIPE_UPLOAD_CONCURRENCY) throw new RecipeError(503, 'SERVICE_UNAVAILABLE', 'Upload capacity reached. Try again.');
-    this.active++; this.owners.add(userId);
+    this.active++; this.owners.set(userId, held + 1);
     let released = false;
-    return () => { if (!released) { released = true; this.active--; this.owners.delete(userId); } };
+    return () => {
+      if (released) return;
+      released = true; this.active--;
+      const left = (this.owners.get(userId) ?? 1) - 1;
+      if (left > 0) this.owners.set(userId, left); else this.owners.delete(userId);
+    };
   }
 }
 
 /** Counts raw request bytes even when Multer has unpiped its parser and is draining. */
-export function recipeBodyCounter(limit = RECIPE_LIMITS.requestBytes): (chunk: Buffer) => void {
+export function recipeBodyCounter({ requestBytes, tooLarge }: Pick<UploadShape, 'requestBytes' | 'tooLarge'> = RECIPE_UPLOAD): (chunk: Buffer) => void {
   let received = 0;
   return (chunk) => {
     received += chunk.length;
-    if (received > limit) throw new RecipeError(413, 'PAYLOAD_TOO_LARGE', 'Request exceeds 128 MiB.');
+    if (received > requestBytes) throw new RecipeError(413, 'PAYLOAD_TOO_LARGE', tooLarge);
   };
 }
 
@@ -89,11 +110,11 @@ type Multer = (options: MulterOptions) => { any(): (request: RecipeUploadRequest
 const require = createRequire(import.meta.url);
 const multer: Multer = require(require.resolve('multer', { paths: [require.resolve('@nestjs/platform-express')] }));
 
-function parserError(cause: unknown): RecipeError {
+function parserError(cause: unknown, fallbackField: string): RecipeError {
   if (cause instanceof RecipeError) return cause;
   const error = cause as { code?: unknown; field?: unknown } | null | undefined;
   const code = error?.code;
-  const field = typeof error?.field === 'string' ? error.field : 'recipe';
+  const field = typeof error?.field === 'string' ? error.field : fallbackField;
   if (code === 'LIMIT_FILE_SIZE') return fieldError(field, IMAGE_TOO_LARGE, 413, 'PAYLOAD_TOO_LARGE');
   return new RecipeError(400, 'VALIDATION_FAILED', 'Invalid multipart recipe request.', {
     cause, fieldErrors: Object.assign(Object.create(null), { [field]: [code === 'LIMIT_FIELD_VALUE' ? 'Metadata exceeds 1 MiB.' : 'Invalid or excessive multipart parts.'] }),
@@ -116,12 +137,12 @@ function closeRejectedUpload(request: RecipeUploadRequest, response: ServerRespo
   response.once('finish', close);
 }
 
-export async function parseRecipeUpload(request: RecipeUploadRequest, response: ServerResponse, limit = RECIPE_LIMITS.requestBytes): Promise<void> {
+export async function parseRecipeUpload(request: RecipeUploadRequest, response: ServerResponse, shape: UploadShape = RECIPE_UPLOAD): Promise<void> {
   const seen = new Set<string>();
   await new Promise<void>((resolve, reject) => {
     let parser: Writable | undefined; let settled = false;
     const previousReadableListeners = new Set(request.listeners('readable'));
-    const count = recipeBodyCounter(limit);
+    const count = recipeBodyCounter(shape);
     const haltReading = () => {
       // A late Busboy error must not pause a keep-alive socket whose HTTP request has already finished.
       if (request.readableEnded || request.destroyed) return;
@@ -143,17 +164,17 @@ export async function parseRecipeUpload(request: RecipeUploadRequest, response: 
       if (!request.readableEnded && !request.destroyed) {
         closeRejectedUpload(request, response);
       }
-      reject(parserError(cause));
+      reject(parserError(cause, shape.field));
     };
     const timer = setTimeout(() => finish(new RecipeError(504, 'TIMEOUT', 'Upload timed out before recipe processing. Nothing was saved.')),
       Math.max(1, (request.writeDeadline ?? Date.now() + RECIPE_WRITE_TIMEOUT_MS) - Date.now()));
     request.on('data', onData);
     request.once('close', () => { request.off('data', onData); request.off('resume', haltReading); });
     const upload = multer({
-    limits: { fieldSize: RECIPE_LIMITS.metadataBytes + 1, fileSize: RECIPE_LIMITS.imageBytes, files: RECIPE_LIMITS.maxFiles,
-      fields: 1, parts: RECIPE_LIMITS.maxFiles + 1, fieldNameSize: 100, fieldNestingDepth: 0 },
+    limits: { fieldSize: RECIPE_LIMITS.metadataBytes + 1, fileSize: RECIPE_LIMITS.imageBytes, files: shape.files,
+      fields: shape.textField ? 1 : 0, parts: shape.files + (shape.textField ? 1 : 0), fieldNameSize: 100, fieldNestingDepth: 0 },
     fileFilter: (_request, file, callback) => {
-      if (!/^(cover|step-(?:[0-9]|[1-9][0-9]))$/.test(file.fieldname) || seen.has(file.fieldname)) {
+      if (!shape.fileField.test(file.fieldname) || seen.has(file.fieldname)) {
         const error = fieldError(file.fieldname, 'Unexpected or repeated image field.'); callback(error, false); finish(error); return;
       }
       seen.add(file.fieldname);
@@ -164,9 +185,11 @@ export async function parseRecipeUpload(request: RecipeUploadRequest, response: 
     },
     streamHandler: (_request, busboy) => {
       parser = busboy;
-      busboy.on('field', (field: string) => { if (field !== 'recipe') finish(fieldError('recipe', 'Only the recipe metadata field is allowed.')); });
+      busboy.on('field', (field: string) => {
+        if (field !== shape.textField) finish(fieldError(shape.field, shape.textField ? 'Only the recipe metadata field is allowed.' : 'Send only the photo.'));
+      });
       busboy.on('error', finish);
-      for (const event of ['partsLimit', 'filesLimit', 'fieldsLimit']) busboy.on(event, () => finish(fieldError('recipe', 'Invalid or excessive multipart parts.')));
+      for (const event of ['partsLimit', 'filesLimit', 'fieldsLimit']) busboy.on(event, () => finish(fieldError(shape.field, 'Invalid or excessive multipart parts.')));
       busboy.on('file', (field: string, file: Writable) => file.once('limit', () => finish(fieldError(field, IMAGE_TOO_LARGE, 413, 'PAYLOAD_TOO_LARGE'))));
       // Preserve Multer's default pipe topology so req.unpipe(busboy) works on every abort path.
       request.pipe(busboy);
@@ -178,11 +201,14 @@ export async function parseRecipeUpload(request: RecipeUploadRequest, response: 
 
 @Injectable()
 export class RecipeUploadInterceptor implements NestInterceptor {
+  protected readonly shape: UploadShape = RECIPE_UPLOAD;
+  /** Uploads one owner may run at once. */
+  protected readonly perOwner: number = 1;
   constructor(private readonly slots: RecipeUploadSlots) {}
   async intercept(context: ExecutionContext, next: CallHandler) {
     const request = context.switchToHttp().getRequest<RecipeUploadRequest>();
-    const release = this.slots.acquire(request.user!.id);
-    try { await parseRecipeUpload(request, context.switchToHttp().getResponse<ServerResponse>()); }
+    const release = this.slots.acquire(request.user!.id, this.perOwner);
+    try { await parseRecipeUpload(request, context.switchToHttp().getResponse<ServerResponse>(), this.shape); }
     catch (error) { release(); throw error; }
     return next.handle().pipe(finalize(() => {
       if (!request.writeSettled) { release(); return; }

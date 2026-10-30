@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { expect, vi } from 'vitest';
 import { asc, eq, inArray, like, sql } from 'drizzle-orm';
-import { apiErrorEnvelopeSchema, categoryListSchema, createRecipeResultSchema, recipeDetailSchema, recipeListResponseSchema } from '@recipe-app/contracts/schemas';
+import { apiErrorEnvelopeSchema, categoryListSchema, createRecipeResultSchema, pendingPhotoSchema, recipeDetailSchema, recipeListResponseSchema } from '@recipe-app/contracts/schemas';
 import type { DefaultCategoryName } from '../src/categories/default-categories.js';
 import type { ApiErrorEnvelope, CreateRecipeMetadata } from '@recipe-app/contracts/types';
-import { authRateLimits, favorites, ingredients, recipeImages, recipes, recipeWriteAttempts, users } from '../src/database/schema.js';
+import { authRateLimits, favorites, ingredients, pendingPhotos, recipeImages, recipes, recipeWriteAttempts, users } from '../src/database/schema.js';
 import { StorageService } from '../src/storage/storage.service.js';
 import { apiClient, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from './auth-harness.js';
 
@@ -20,6 +20,7 @@ export const CI_LATENCY_MS = process.env.CI ? 15_000 : 0;
 export type Photo = { field: string; bytes: Buffer; mime?: string };
 type CallOptions = { cookie?: string | null; origin?: string | null };
 type SendOptions = CallOptions & { method?: 'POST' | 'PATCH'; key?: string | null };
+type UploadOptions = CallOptions & { mime?: string; field?: string };
 export type RecipeSuite = Awaited<ReturnType<typeof openRecipeSuite>>;
 
 export const minimalRecipe = (name: string): CreateRecipeMetadata => ({
@@ -51,7 +52,7 @@ export async function openRecipeSuite() {
     }
   } catch (cause) { await removeTestData(db, { emails, addresses }); await app.close(); throw cause; }
   const userIds = [owner.user.id, other.user.id];
-  const limitKeys = userIds.flatMap((id) => [`wrapper:recipe-write:user:${id}`, `wrapper:recipe-favorite:user:${id}`, `wrapper:category-write:user:${id}`]);
+  const limitKeys = userIds.flatMap((id) => [`wrapper:recipe-write:user:${id}`, `wrapper:recipe-favorite:user:${id}`, `wrapper:category-write:user:${id}`, `wrapper:recipe-photo:user:${id}`]);
   const categoryIds = (names: DefaultCategoryName[], who: 'owner' | 'other' = 'owner'): string[] => names.map((name) => {
     const category = categories[who].find((category) => category.name === name);
     if (!category) throw new Error(`Missing default category: ${name}`);
@@ -72,6 +73,18 @@ export async function openRecipeSuite() {
     return fetch(`${baseUrl}${path}`, { method, body, headers: headers(options, key) });
   }
   const call = (method: 'GET' | 'PUT' | 'DELETE', path: string, options: CallOptions = {}) => fetch(`${baseUrl}${path}`, { method, headers: headers(options) });
+  /** One photo upload: POST /pending-photos with a single `photo` part. */
+  function uploadPhoto(bytes: Buffer, { mime = 'image/jpeg', field = 'photo', ...options }: UploadOptions = {}) {
+    const body = new FormData(); body.append(field, new Blob([new Uint8Array(bytes)], { type: mime }), 'client-name.jpg');
+    return fetch(`${baseUrl}/pending-photos`, { method: 'POST', body, headers: headers(options) });
+  }
+  /** Uploads a photo that must be accepted and returns its Pending photo id. */
+  async function pendingPhoto(bytes: Buffer, cookie = owner.cookie): Promise<string> {
+    const response = await uploadPhoto(bytes, { cookie });
+    expect(response.status).toBe(201); expect(response.headers.get('cache-control')).toBe('private, no-store');
+    return pendingPhotoSchema.parse(await response.json()).id;
+  }
+  const pendingRow = async (id: string) => (await db.select().from(pendingPhotos).where(eq(pendingPhotos.id, id)))[0];
 
   async function expectError(response: Response, status: number, code: string, field?: string) {
     expect(response.status).toBe(status); expect(response.headers.get('cache-control')).toBe('private, no-store');
@@ -116,7 +129,7 @@ export async function openRecipeSuite() {
   const imageRows = (recipeId: string) => db.select().from(recipeImages).where(eq(recipeImages.recipeId, recipeId)).orderBy(asc(recipeImages.sortOrder));
   /** Each scenario owns fresh write and favorite windows; rate-limit scenarios set their counters explicitly. */
   const resetLimits = async () => { await db.delete(authRateLimits).where(inArray(authRateLimits.key, limitKeys)); };
-  async function fillLimit(scope: 'recipe-write' | 'recipe-favorite', userId: string, limit: number) {
+  async function fillLimit(scope: 'recipe-write' | 'recipe-favorite' | 'recipe-photo', userId: string, limit: number) {
     const key = `wrapper:${scope}:user:${userId}`;
     await db.insert(authRateLimits).values({ id: randomUUID(), key, count: limit, lastRequest: Date.now() })
       .onConflictDoUpdate({ target: authRateLimits.key, set: { count: limit, lastRequest: Date.now() } });
@@ -181,6 +194,7 @@ export async function openRecipeSuite() {
       expect(await db.$count(recipes, inArray(recipes.userId, userIds))).toBe(0);
       expect(await db.$count(recipeWriteAttempts, inArray(recipeWriteAttempts.userId, userIds))).toBe(0);
       expect(await db.$count(favorites, inArray(favorites.userId, userIds))).toBe(0);
+      expect(await db.$count(pendingPhotos, inArray(pendingPhotos.userId, userIds))).toBe(0);
       expect(await db.$count(ingredients, like(sql`lower(${ingredients.name})`, `${name}%`))).toBe(0);
     });
     if (failures.length) throw failures[0];
@@ -190,6 +204,6 @@ export async function openRecipeSuite() {
     try { await cleanup(); } finally { vi.restoreAllMocks(); await app.close(); }
   }
 
-  return { app, db, baseUrl, storage, name, owner, other, categories, categoryIds, upload, send, call, expectError, expectEmpty, savedId, detail, list, stored, photoAt,
+  return { app, db, baseUrl, storage, name, owner, other, categories, categoryIds, upload, send, call, uploadPhoto, pendingPhoto, pendingRow, expectError, expectEmpty, savedId, detail, list, stored, photoAt,
     imageRows, resetLimits, fillLimit, orphans, recordCleanup, uploadedKeys: () => new Set(objectKeys), cleanup, close };
 }

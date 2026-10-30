@@ -40,8 +40,8 @@ export function mountAuth(app: NestExpressApplication): void {
   app.enableCors({ origin: config.get('AUTH_TRUSTED_ORIGINS', { infer: true }), credentials: true });
   express.get('/api/auth/ok', toNodeHandler(app.get<RecipeAuth>(AUTH)));
   app.useBodyParser('json', { limit: '8kb', type: (request: IncomingMessage) => {
-    // Recipe create and update own their multipart boundary; even malformed/large JSON must reach their guards and 415 response.
-    if (request.method === 'POST' && /^\/recipes\/?(?:\?|$)/.test(request.url ?? '')) return false;
+    // Recipe create and update and photo uploads own their multipart boundary; even malformed/large JSON must reach their guards and 415 response.
+    if (request.method === 'POST' && /^\/(?:recipes|pending-photos)\/?(?:\?|$)/.test(request.url ?? '')) return false;
     if (request.method === 'PATCH' && /^\/recipes\/[^/?]+\/?(?:\?|$)/.test(request.url ?? '')) return false;
     return /^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] ?? '');
   } });
