@@ -22,8 +22,9 @@ import type { RecipeUploadRequest } from './recipe-upload.js';
 export const PENDING_PHOTO_UPLOAD_LIMIT = 120;
 const PENDING_PHOTO_UPLOAD_WINDOW_MS = 10 * 60_000;
 /** Pending photos expire 24 hours after upload; database time decides. */
+const PENDING_PHOTO_LIFETIME_MS = 24 * 60 * 60_000;
 const unexpired = sql`${pendingPhotos.createdAt} > clock_timestamp() - interval '24 hours'`;
-const expired = sql`${pendingPhotos.createdAt} <= clock_timestamp() - interval '24 hours'`;
+const expiredAfter = (lifetimeMs: number) => sql`${pendingPhotos.createdAt} <= clock_timestamp() - make_interval(secs => ${lifetimeMs / 1000})`;
 /** Expired Pending photos one upload deletes, so the sweep stays quick and needs no cron (ADR 0005). */
 const SWEEP_BATCH = 10;
 /** Unexpired Pending photos one Account may hold, so one Account cannot fill storage with photos it never saves. */
@@ -62,9 +63,21 @@ export class PendingPhotoUploadInterceptor extends RecipeUploadInterceptor {
   protected override read(request: RecipeUploadRequest, response: ServerResponse): Promise<void> { return parsePhotoUpload(request, response); }
 }
 
+/** Which expired Pending photos one upload's sweep may delete: `objectKeys` limits it to those photos, `lifetimeMs` replaces the 24 hours. */
+export type PendingPhotoSweepScope = { objectKeys?: string[]; lifetimeMs?: number };
+
+/**
+ * Upload extension point: each upload sweeps every Account's expired Pending photos (ADR 0005). Tests replace it to sweep only
+ * their own photos, which no other process on a shared Neon branch counts as expired.
+ */
+@Injectable()
+export class PendingPhotoSweep {
+  scope(): PendingPhotoSweepScope { return {}; }
+}
+
 @Injectable()
 export class PendingPhotoService {
-  constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb, private readonly storage: StorageService) {}
+  constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb, private readonly storage: StorageService, private readonly sweep: PendingPhotoSweep) {}
 
   /** Checks and re-encodes the photo as every stored photo is (ADR 0002), stores it and records it as a Pending photo of `userId`. */
   async upload(userId: string, files: RecipeFile[], deadline: number): Promise<PendingPhoto> {
@@ -90,7 +103,7 @@ export class PendingPhotoService {
       throw pendingPhotoLimit();
     }
     // Started after the row is written and never awaited: the sweep neither slows nor fails the upload.
-    void sweepExpiredPendingPhotos(this.db, this.storage).catch((cause: unknown) => { logRecipeFailure('cleanup', cause); });
+    void sweepExpiredPendingPhotos(this.db, this.storage, this.sweep.scope()).catch((cause: unknown) => { logRecipeFailure('cleanup', cause); });
     return { id };
   }
 
@@ -119,9 +132,9 @@ export class PendingPhotoService {
  * `objectKeys` limits the sweep to those photos.
  */
 async function sweepExpiredPendingPhotos(db: DrizzleDb, storage: Pick<StorageService, 'deleteObject'>,
-  { limit = SWEEP_BATCH, objectKeys }: { limit?: number; objectKeys?: string[] } = {}): Promise<{ expired: number; failed: number }> {
+  { limit = SWEEP_BATCH, objectKeys, lifetimeMs = PENDING_PHOTO_LIFETIME_MS }: PendingPhotoSweepScope & { limit?: number } = {}): Promise<{ expired: number; failed: number }> {
   const oldest = db.select({ id: pendingPhotos.id }).from(pendingPhotos)
-    .where(and(expired, objectKeys ? inArray(pendingPhotos.objectKey, objectKeys) : undefined))
+    .where(and(expiredAfter(lifetimeMs), objectKeys ? inArray(pendingPhotos.objectKey, objectKeys) : undefined))
     .orderBy(asc(pendingPhotos.createdAt)).limit(limit).for('update', { skipLocked: true });
   const removed = await db.delete(pendingPhotos).where(inArray(pendingPhotos.id, oldest)).returning({ objectKey: pendingPhotos.objectKey });
   const deleted = await deleteStoredPhotos(storage, removed.map(({ objectKey }) => objectKey));
