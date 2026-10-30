@@ -164,7 +164,7 @@ For the `*.vercel.app` run, only the production web origins are trusted and Goog
 
 | Check | How | `*.vercel.app` | `api.recapp.site` |
 | --- | --- | --- | --- |
-| Deployment starts | The build log shows the install, the Turborepo build and no sharp or libvips error; the first request's runtime log shows `Nest application successfully started` | | |
+| Deployment starts | The build log shows the install with `pnpm v12.9.1`, the Turborepo build and no sharp or libvips error; the first request's runtime log shows `Nest application successfully started` | | |
 | Health | `GET /api/auth/ok` answers `{"ok":true}` | | |
 | Password sign-in | Sign in with an existing Account and open the recipe list | | |
 | Google sign-in | Sign in with Google | | |

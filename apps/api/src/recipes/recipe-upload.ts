@@ -242,8 +242,8 @@ export class RecipeUploadInterceptor implements NestInterceptor {
       if (!writeSettled) { release(); return; }
       // Released once the write settles, which may be after the response. Bound retention even if a driver or cleanup
       // promise never settles. Durable attempts fence later writes.
-      runAfterResponse(new Promise<void>((released) => {
-        const settled = () => { clearTimeout(timer); release(); released(); };
+      runAfterResponse(new Promise<void>((done) => {
+        const settled = () => { clearTimeout(timer); release(); done(); };
         const timer = setTimeout(settled, Math.max(1, request.writeDeadline! + RECIPE_BACKGROUND_TIMEOUT_MS - Date.now()));
         timer.unref();
         void writeSettled.then(settled, settled);

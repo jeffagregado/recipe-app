@@ -46,7 +46,7 @@ export class RecipeAttempts {
     const checkDeadline = writeDeadlineCheck(deadline);
     const work = this.write(plan, checkDeadline, budget);
     request.writeSettled = work;
-    // A write that outlives its deadline settles behind the timed-out response; the promise below answers its failure.
+    // A write that outlives its deadline settles behind the timed-out response. The returned promise reports its failure.
     runAfterResponse(work, () => undefined);
     return new Promise<RecipeWriteResult>((resolve, reject) => {
       const timer = setTimeout(() => {
