@@ -123,7 +123,7 @@ export class PendingPhotoService {
  * is skipped, and a row is gone before its photo, so a save can never take a Pending photo whose photo is being deleted.
  * `objectKeys` limits the sweep to those photos.
  */
-export async function sweepExpiredPendingPhotos(db: DrizzleDb, storage: Pick<StorageService, 'deleteObject'>,
+async function sweepExpiredPendingPhotos(db: DrizzleDb, storage: Pick<StorageService, 'deleteObject'>,
   { limit = SWEEP_BATCH, objectKeys }: { limit?: number; objectKeys?: string[] } = {}): Promise<{ expired: number; failed: number }> {
   const oldest = db.select({ id: pendingPhotos.id }).from(pendingPhotos)
     .where(and(expired, objectKeys ? inArray(pendingPhotos.objectKey, objectKeys) : undefined))
