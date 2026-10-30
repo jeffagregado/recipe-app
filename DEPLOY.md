@@ -13,7 +13,7 @@ This guide records how production runs and how to set it up from nothing. The li
 
 The web app's old address, https://recapp-recipe-app.vercel.app, still serves it and stays in `AUTH_TRUSTED_ORIGINS` for now.
 
-The API's address is a Render custom domain: in Cloudflare, a CNAME `api` points to `recapp-api-9984.onrender.com` and is set to DNS only. Do not proxy it. The `onrender.com` address still answers.
+The API's address is a Render custom domain: in Cloudflare, a CNAME `api` points to `recapp-api-9984.onrender.com` and is set to DNS only. Do not proxy it: proxying through Cloudflare is untested and out of scope (#127). The `onrender.com` address still answers.
 
 The browser talks to the web app only. The web server calls the API server-to-server.
 
@@ -70,7 +70,7 @@ The build inlines `NEXT_PUBLIC_GA_ID`, and the build and the server both read `R
 
 ### Client addresses
 
-Rate limits key on the user's IP. The web app reads it from `X-Forwarded-For` on its own request, which Vercel overwrites with the one address that connected, and sends it to the API in `X-Recipe-Client-IP` next to `X-Recipe-Web-Secret` on every call. The API never reads `X-Forwarded-For` itself: Vercel overwrites it in front of a function too, so it would name the web app, not the user.
+Rate limits key on the user's IP. The web app reads it from `X-Forwarded-For` on its own request, which Vercel overwrites with the one address that connected, and sends it to the API in `X-Recipe-Client-IP` next to `X-Recipe-Web-Secret` on every call. The API does not take the client IP from `X-Forwarded-For`: Vercel overwrites it in front of a function too, so it would name the web app, not the user.
 
 The API trusts `X-Recipe-Client-IP` only on a request that carries the [proxy secret](#proxy-secret), and only when it holds one IP address. Any other request is keyed on the address that connected to the API. On Render that is Render's proxy, so every such caller shares one rate-limit bucket. Better Auth's own rate limit keys on the same address.
 

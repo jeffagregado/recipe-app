@@ -17,9 +17,8 @@ import { seedRecipes } from '../src/recipes/seed-recipes.js';
 import type { MailKind, MailMessage } from '../src/mail/mail.transport.js';
 import { getDevDatabaseUrl } from './neon-dev.js';
 import type { ConfigureTestingModule, Inbox, RecordingMailTransport } from './recording-mail.js';
-import { TEST_WEB_SECRET } from './test-web-secret.js';
+import { clientHeaders, TEST_WEB_SECRET } from './test-web-secret.js';
 
-export { TEST_WEB_SECRET };
 export const TEST_ORIGIN = 'http://localhost:3000';
 
 const issuedAddresses = new Set<string>();
@@ -56,9 +55,6 @@ export async function startApi(configure?: ConfigureTestingModule): Promise<{ ap
   const baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
   return { app, baseUrl, db: app.get(DatabaseService).db, mail };
 }
-
-/** How the web app names the user's IP to the API: the client IP header, trusted only next to the web secret. */
-export const clientHeaders = (address: string) => ({ 'X-Recipe-Web-Secret': TEST_WEB_SECRET, 'X-Recipe-Client-IP': address });
 
 type RequestOptions = { cookie?: string; origin?: string | null; address?: string; headers?: Record<string, string> };
 

@@ -6,7 +6,8 @@ import { authErrorResponseSchema, authSessionResponseSchema, authUserResponseSch
 import { DISPLAY_NAME_WRITE_LIMIT } from '../../src/account/account.controller.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authRateLimits, users } from '../../src/database/schema.js';
-import { apiClient, clientHeaders, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
+import { apiClient, removeTestData, signupUser, startApi, TEST_ORIGIN, testAddress, testEmail } from '../auth-harness.js';
+import { clientHeaders } from '../test-web-secret.js';
 
 describe('Account settings HTTP', () => {
   let app: NestExpressApplication;

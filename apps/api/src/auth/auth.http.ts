@@ -3,7 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import { toNodeHandler } from 'better-auth/node';
 import type { Environment } from '../config/environment.js';
-import { clientAddress, readForwardedClient } from './auth.request.js';
+import { clientAddress, trustClientIpHeader } from './auth.request.js';
 import { AUTH } from './auth.tokens.js';
 import type { RecipeAuth } from './auth.js';
 
@@ -15,7 +15,7 @@ export function mountAuth(app: NestExpressApplication): void {
   const webProxySecret = config.get('RECIPE_WEB_PROXY_SECRET', { infer: true });
   if (webProxySecret) {
     app.use((request: IncomingMessage, _response: ServerResponse, next: () => void) => {
-      readForwardedClient(request, webProxySecret);
+      trustClientIpHeader(request, webProxySecret);
       next();
     });
   }

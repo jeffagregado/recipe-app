@@ -12,7 +12,8 @@ import type { DrizzleDb } from '../../src/database/database.service.js';
 import { verificationIdentifier } from '../../src/auth/auth.verification.js';
 import { authAccounts, authRateLimits, authSessions, authVerifications, recipeImages, recipes, users } from '../../src/database/schema.js';
 import { seedRecipes } from '../../src/recipes/seed-recipes.js';
-import { apiClient, clientHeaders, cookiePair, insertOwnedRecipes, latestToken, mailedTokens, ownedId, removeTestData, signupUser, startApi, storedVerificationLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { apiClient, cookiePair, insertOwnedRecipes, latestToken, mailedTokens, ownedId, removeTestData, signupUser, startApi, storedVerificationLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { clientHeaders } from '../test-web-secret.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -8,7 +8,8 @@ import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import { resetIdentifier } from '../../src/auth/auth.reset.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authRateLimits, authSessions, users } from '../../src/database/schema.js';
-import { apiClient, clientHeaders, cookiePair, latestToken, removeTestData, signupUser, startApi, storedResetLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { apiClient, cookiePair, latestToken, removeTestData, signupUser, startApi, storedResetLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { clientHeaders } from '../test-web-secret.js';
 import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
 

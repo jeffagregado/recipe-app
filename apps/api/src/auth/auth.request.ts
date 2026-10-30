@@ -11,17 +11,17 @@ const WEB_PROXY_SECRET_HEADER = 'x-recipe-web-secret';
 /** Next to the secret, the web server sends the user's IP in this header. */
 const CLIENT_IP_HEADER = 'x-recipe-client-ip';
 
-/** The user's IP named by the web server, for requests that carried its secret. Set by readForwardedClient. */
+/** The user's IP named by the web server, for requests that carried its secret. Set by trustClientIpHeader. */
 const forwardedClients = new WeakMap<IncomingMessage, string>();
 
 const digest = (value: string) => createHash('sha256').update(value).digest();
 
 /**
- * Only the web server knows the secret, so only its requests may name the client; X-Forwarded-For is never read, because
- * a host such as Vercel overwrites it. Hashing both sides gives them one length, so the comparison is constant time
+ * Records the client IP header of a request that carries the web server's secret: only the web server knows it, so only
+ * its requests may name the client. X-Forwarded-For is not read, because a host such as Vercel overwrites it. Hashing both sides gives them one length, so the comparison is constant time
  * whatever was sent. A missing or malformed IP leaves the request on its connecting address, as does any other caller.
  */
-export function readForwardedClient(request: IncomingMessage, secret: string): void {
+export function trustClientIpHeader(request: IncomingMessage, secret: string): void {
   const presented = request.headers[WEB_PROXY_SECRET_HEADER];
   const client = request.headers[CLIENT_IP_HEADER];
   if (typeof presented !== 'string' || !timingSafeEqual(digest(presented), digest(secret))) return;

@@ -95,7 +95,6 @@ it('sends the web proxy secret with the client IP to the API only, never back to
 
 it.each([
 	['the one address Vercel gives', '198.51.100.7', '198.51.100.7'],
-	['the leftmost of several addresses', '198.51.100.7, 10.0.0.1', '198.51.100.7'],
 	['no address', undefined, null],
 ])('names the client IP from %s', async (_source, forwarded, expected) => {
 	next.headers = new Headers({ origin: 'http://localhost:3000', ...(forwarded ? { 'x-forwarded-for': forwarded } : {}) })

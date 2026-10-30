@@ -17,7 +17,7 @@ const failed = (message: string = CONFIRM_EMAIL_MESSAGES.failed): ConfirmEmailCh
 /** The refusals that leave the link usable and have something more exact to say than "try again". */
 const STATUS_MESSAGES: Partial<Record<number, string>> = { 403: CONFIRM_EMAIL_MESSAGES.unverified, 429: CONFIRM_EMAIL_MESSAGES.rateLimited }
 
-/** Only the request Origin, the client IP and the session cookie, when there is one, reach the API. */
+/** Only the request Origin and the session cookie, when there is one, are added here; authFetch adds the client IP. */
 async function upstreamHeaders(incoming: Headers): Promise<Headers | undefined> {
 	const origin = incoming.get('origin')
 	if (!origin || origin === 'null') return undefined

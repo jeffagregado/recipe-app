@@ -8,7 +8,8 @@ import { GOOGLE_ENDPOINTS } from '../../src/auth/auth.google.js';
 import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authAccounts, authRateLimits, authSessions, authVerifications, users } from '../../src/database/schema.js';
-import { apiClient, clientHeaders, cookiePair, latestToken, linkToken, removeTestData, signupUser, startApi, storedEmailChangeLinks, storedResetLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { apiClient, cookiePair, latestToken, linkToken, removeTestData, signupUser, startApi, storedEmailChangeLinks, storedResetLinks, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { clientHeaders } from '../test-web-secret.js';
 import { STAND_IN_CLIENT, startGoogleStandIn } from '../google-stand-in.js';
 import type { RecordingMailTransport } from '../recording-mail.js';
 

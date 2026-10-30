@@ -7,10 +7,16 @@ vi.mock('@/features/auth/queries', () => ({ requireSession: async () => ({ statu
 
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
-it('redirects to login when the session expires while fetching the recipe list, having sent the client IP', async () => {
+it('redirects to login when the session expires while fetching the recipe list', async () => {
+	vi.stubEnv('RECIPE_API_URL', 'http://api.test')
+	vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 401 })))
+	await expect(hydrateRecipePage({ sortBy: 'createdAt', order: 'desc' })).rejects.toThrow('NEXT_REDIRECT:/auth/login')
+})
+
+it('sends the client IP with the first page request', async () => {
 	vi.stubEnv('RECIPE_API_URL', 'http://api.test')
 	const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 401 }))
 	vi.stubGlobal('fetch', fetchMock)
-	await expect(hydrateRecipePage({ sortBy: 'createdAt', order: 'desc' })).rejects.toThrow('NEXT_REDIRECT:/auth/login')
+	await hydrateRecipePage({ sortBy: 'createdAt', order: 'desc' }).catch(() => {})
 	expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('x-recipe-client-ip')).toBe('203.0.113.9')
 })

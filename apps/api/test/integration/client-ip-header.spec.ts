@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rateLimitKey } from '../../src/auth/auth.rate-limit.js';
 import type { DrizzleDb } from '../../src/database/database.service.js';
 import { authRateLimits } from '../../src/database/schema.js';
-import { removeTestData, startApi, TEST_ORIGIN, TEST_WEB_SECRET, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { removeTestData, startApi, TEST_ORIGIN, testAddress, testEmail, testPassword } from '../auth-harness.js';
+import { clientHeaders, TEST_WEB_SECRET } from '../test-web-secret.js';
 
 /** A loopback address of the test's own, so the connecting IP the API falls back to is never shared with another run. */
 const loopbackAddress = () => {
@@ -27,16 +28,13 @@ describe('Rate limits keyed on the client IP header', () => {
   const address = () => { const issued = testAddress(); addresses.push(issued); return issued; };
   const connecting = () => { const issued = loopbackAddress(); addresses.push(issued); return issued; };
 
-  const attempts = async (key: string) => {
-    const [row] = await db.select({ count: authRateLimits.count }).from(authRateLimits).where(eq(authRateLimits.key, rateLimitKey('login:address', key)));
+  const counted = async (key: string) => {
+    const [row] = await db.select({ count: authRateLimits.count }).from(authRateLimits).where(eq(authRateLimits.key, key));
     return row?.count ?? 0;
   };
-
+  const attempts = (address: string) => counted(rateLimitKey('login:address', address));
   /** Better Auth's own counter for its one native route, keyed `<address>|<path>`. */
-  const healthChecks = async (address: string) => {
-    const [row] = await db.select({ count: authRateLimits.count }).from(authRateLimits).where(eq(authRateLimits.key, `${address}|/ok`));
-    return row?.count ?? 0;
-  };
+  const healthChecks = (address: string) => counted(`${address}|/ok`);
 
   const send = (source: string, method: 'GET' | 'POST', path: string, headers: Record<string, string>, body?: string) => new Promise<number>((resolve, reject) => {
     const outgoing = httpRequest(`${baseUrl}${path}`, { method, localAddress: source, headers: { Origin: TEST_ORIGIN, ...headers } }, (response) => {
@@ -60,7 +58,7 @@ describe('Rate limits keyed on the client IP header', () => {
 
   it('keys a request carrying the web secret on the IP in its client IP header', async () => {
     const [source, client] = [connecting(), address()];
-    expect(await loginFrom(source, { 'X-Recipe-Web-Secret': TEST_WEB_SECRET, 'X-Recipe-Client-IP': client })).toBe(401);
+    expect(await loginFrom(source, clientHeaders(client))).toBe(401);
     expect(await attempts(client)).toBe(1);
     expect(await attempts(source)).toBe(0);
   }, 30_000);
@@ -68,7 +66,7 @@ describe('Rate limits keyed on the client IP header', () => {
   it('gives two users behind the web app separate buckets', async () => {
     const [webFunction, first, second] = [connecting(), address(), address()];
     for (const client of [first, second, first]) {
-      expect(await loginFrom(webFunction, { 'X-Recipe-Web-Secret': TEST_WEB_SECRET, 'X-Recipe-Client-IP': client })).toBe(401);
+      expect(await loginFrom(webFunction, clientHeaders(client))).toBe(401);
     }
     expect(await attempts(first)).toBe(2);
     expect(await attempts(second)).toBe(1);
@@ -98,7 +96,7 @@ describe('Rate limits keyed on the client IP header', () => {
 
   it('keys Better Auth\'s own rate limit on the same client IP, never on an X-Forwarded-For a caller wrote', async () => {
     const [webFunction, client, direct, spoofed] = [connecting(), address(), connecting(), address()];
-    expect(await send(webFunction, 'GET', '/api/auth/ok', { 'X-Recipe-Web-Secret': TEST_WEB_SECRET, 'X-Recipe-Client-IP': client, 'X-Forwarded-For': spoofed })).toBe(200);
+    expect(await send(webFunction, 'GET', '/api/auth/ok', { ...clientHeaders(client), 'X-Forwarded-For': spoofed })).toBe(200);
     expect(await send(direct, 'GET', '/api/auth/ok', { 'X-Recipe-Client-IP': spoofed, 'X-Forwarded-For': spoofed })).toBe(200);
     expect(await healthChecks(client)).toBe(1);
     expect(await healthChecks(direct)).toBe(1);

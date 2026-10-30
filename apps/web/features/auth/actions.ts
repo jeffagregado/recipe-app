@@ -22,7 +22,7 @@ function validationFailure(error: ZodError): AuthFailure {
 const EXPECTED_STATUS: Record<AuthMutation, number> = { signup: 201, login: 200, logout: 204, 'resend-verification': 204, 'forgot-password': 204, 'reset-password': 204 }
 const ORIGIN_REJECTED: AuthFailure = { ok: false, code: 'ORIGIN_REJECTED', message: 'This request could not be verified. Refresh the page and try again.' }
 
-/** Only the request Origin, client IP and (logout) session cookie reach the API. */
+/** Only the request Origin and (logout) session cookie are added here; authFetch adds the client IP. */
 function upstreamHeaders(origin: string, cookie: string) {
 	const outgoing = new Headers({ 'Content-Type': 'application/json', Origin: origin })
 	if (cookie) outgoing.set('Cookie', cookie)

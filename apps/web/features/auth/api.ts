@@ -16,15 +16,16 @@ export function getApiOrigin(): string {
 
 /**
  * Headers for a server-side API request, given the headers of the user's request to this web server. They carry the
- * secret that proves the request came from here and the user's IP, which the API trusts only next to the secret. Vercel
- * overwrites X-Forwarded-For with the one address that connected, and locally Next fills it from the socket.
+ * secret that proves the request came from here and the user's IP, which the API trusts only next to the secret and only
+ * when it is one IP address. Vercel overwrites X-Forwarded-For with the one address that connected, and locally Next
+ * fills it from the socket; any other value, such as a list a proxy appended to, leaves the API on the connecting IP.
  * Server-only: the browser must never hold the secret.
  */
 export function apiHeaders(incoming: Headers, init?: HeadersInit): Headers {
 	const headers = new Headers(init)
 	const secret = process.env.RECIPE_WEB_PROXY_SECRET
 	if (secret) headers.set('X-Recipe-Web-Secret', secret)
-	const clientIp = incoming.get('x-forwarded-for')?.split(',')[0].trim()
+	const clientIp = incoming.get('x-forwarded-for')?.trim()
 	if (clientIp) headers.set('X-Recipe-Client-IP', clientIp)
 	return headers
 }
