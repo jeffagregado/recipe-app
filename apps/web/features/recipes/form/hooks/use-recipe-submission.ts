@@ -22,6 +22,8 @@ export function useRecipeSubmission({ form, mode, onSave, preparations }: UseRec
 	const [pending, startTransition] = useTransition()
 	// The redirect after a confirmed save ends the transition slightly before the new page appears; stay disabled until then.
 	const [leaving, setLeaving] = useState(false)
+	// Save pressed while a picked photo is still being shrunk waits for it behind the same saving state.
+	const [waitingForPhotos, setWaitingForPhotos] = useState(false)
 	const [alert, setAlert] = useState<FormAlert>()
 	const [focusRequest, setFocusRequest] = useState(0)
 	// One submission key per attempt: reused only for the same payload after an unknown outcome.
@@ -81,11 +83,19 @@ export function useRecipeSubmission({ form, mode, onSave, preparations }: UseRec
 	}
 
 	async function submit(event?: BaseSyntheticEvent) {
+		const submitForm = form.handleSubmit(save, () => setAlert(undefined))
+		if (!preparations.isPreparing()) return submitForm(event)
 		// The event is used after the wait, so its default (a page reload) must be stopped first.
 		event?.preventDefault()
-		await preparations.settled()
-		return form.handleSubmit(save, () => setAlert(undefined))(event)
+		setWaitingForPhotos(true)
+		try {
+			await preparations.settled()
+			await submitForm(event)
+		} finally {
+			// Cleared only after save() has started its transition, so Save never flickers back on in between.
+			setWaitingForPhotos(false)
+		}
 	}
 
-	return { busy: pending || leaving, alert, focusRequest, submit, resetWhenHidden: () => { resetOnHide.current = true } }
+	return { busy: pending || leaving || waitingForPhotos, alert, focusRequest, submit, resetWhenHidden: () => { resetOnHide.current = true } }
 }

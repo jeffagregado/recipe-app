@@ -7,7 +7,7 @@ const QUALITY_STEPS = [0.85, 0.75, 0.65, 0.55, 0.45]
 
 type Size = { width: number; height: number }
 
-/** A picture decoded with its orientation applied, which can be drawn at a size and encoded. */
+/** A photo decoded with its orientation applied, which can be drawn at a size and encoded. */
 export type DecodedPhoto = Size & {
 	encode: (size: Size, type: string, quality: number) => Promise<Blob>
 	close: () => void

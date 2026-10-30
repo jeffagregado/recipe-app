@@ -27,7 +27,7 @@ export function usePhotoPick(onChange: (file: File | null) => void) {
 		setPickError(problem ?? undefined)
 		setPreparing(!problem)
 		// Tracked until the photo is in the form, so a Save pressed meanwhile sends it.
-		if (!problem) void preparations.track(prepare(pickId, file))
+		if (!problem) preparations.track(prepare(pickId, file))
 	}
 
 	async function prepare(pickId: number, file: File) {

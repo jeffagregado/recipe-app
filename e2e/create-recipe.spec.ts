@@ -142,7 +142,6 @@ test.describe('photos', () => {
   });
 
   test('a phone-sized photo over 4.5 MB is shrunk in the browser, saves and shows on the recipe', async ({ page, workerData, creator }) => {
-    test.setTimeout(90_000);
     const original = photo('phone-photo.png', [200, 110, 60], 2400, 1800, 4);
     // Over Vercel's 4.5 MB request limit, which a save of the original would hit.
     expect(original.buffer.length).toBeGreaterThan(4.5 * 1000 * 1000);
@@ -153,6 +152,8 @@ test.describe('photos', () => {
     const request = page.waitForRequest((sent) => new URL(sent.url()).pathname === '/api/recipes' && sent.method() === 'POST');
     await field.save(page).click();
     expect((await request).postDataBuffer()!.length).toBeLessThan(4.5 * 1000 * 1000);
+    // The same save waits as every other save in this file. Measured locally: the whole test took 33 to 55 s, most of it
+    // the save and the redirect to the saved recipe over the link to Neon.
     await expect(page).toHaveURL(SAVED, { timeout: 30_000 });
     await expect(page.getByRole('heading', { level: 1, name: 'Phone photo stew' })).toBeVisible({ timeout: 20_000 });
     await expect.poll(async () => (await loaded(page, 'article img')).filter(Boolean).length).toBe(1);

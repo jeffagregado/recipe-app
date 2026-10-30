@@ -4,7 +4,8 @@ import { createContext, useContext } from 'react'
 
 /** The photos of one form still being shrunk. Save waits for them, so it never sends the form without a photo just picked. */
 export type PhotoPreparations = {
-	track: <T>(work: Promise<T>) => Promise<T>
+	track: (work: Promise<unknown>) => void
+	isPreparing: () => boolean
 	settled: () => Promise<void>
 }
 
@@ -15,8 +16,8 @@ export function createPhotoPreparations(): PhotoPreparations {
 			pending.add(work)
 			const done = () => { pending.delete(work) }
 			work.then(done, done)
-			return work
 		},
+		isPreparing: () => pending.size > 0,
 		async settled() {
 			// A photo picked while waiting joins the set; wait for that one too.
 			while (pending.size > 0) await Promise.allSettled([...pending])

@@ -206,7 +206,7 @@ it('announces a photo being prepared at its slot until it is ready', async () =>
 	expect(screen.queryByText('Preparing photo…')).not.toBeInTheDocument()
 })
 
-it('waits for a photo still being prepared before saving, so the save includes it', async () => {
+it('waits behind its saving state for a photo still being prepared, so the save includes it', async () => {
 	const user = userEvent.setup()
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	renderForm()
@@ -214,6 +214,8 @@ it('waits for a photo still being prepared before saving, so the save includes i
 	const release = canvas.hold()
 	await user.upload(screen.getByLabelText('Add photo to step 1'), image('boil.jpg'))
 	await user.click(save())
+	await waitFor(() => expect(save()).toBeDisabled())
+	expect(screen.getByText('Saving recipe…')).toBeInTheDocument()
 	expect(onSave).not.toHaveBeenCalled()
 	release()
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())

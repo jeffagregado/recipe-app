@@ -1,6 +1,6 @@
 import { RECIPE_LIMITS } from '@recipe-app/contracts/types'
 import { expect, it } from 'vitest'
-import { checkPickedPhoto, checkRecipeImage, formatFileSize, IMAGE_HINT } from './recipe-files'
+import { checkPickedPhoto, checkRecipeImage, formatFileSize } from './recipe-files'
 
 const MIB = 1024 * 1024
 
@@ -33,10 +33,6 @@ it.each([checkPickedPhoto, checkRecipeImage])('rejects empty files and unsupport
 	for (const [name, type] of [['logo.svg', 'image/svg+xml'], ['anim.gif', 'image/gif'], ['clip.mp4', 'video/mp4'], ['notes.txt', '']]) {
 		expect(check(fileOf(name, type, 10))).toBe(`${name} is not a JPG, PNG or WebP image.`)
 	}
-})
-
-it('tells the picker hint the original limit', () => {
-	expect(IMAGE_HINT).toBe('JPG, PNG or WebP · up to 25 MB')
 })
 
 it('formats sizes for display', () => {

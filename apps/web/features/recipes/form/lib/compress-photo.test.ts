@@ -5,7 +5,7 @@ const MIB = 1024 * 1024
 
 type Encode = { width: number; height: number; type: string; quality: number }
 
-/** A decoded picture of the given size whose encoder answers with `output(request)`, recording every request. */
+/** A decoded photo of the given size whose encoder answers with `output(request)`, recording every request. */
 function fakeDecoder(width: number, height: number, output: (request: Encode) => { type: string; bytes: number } = ({ type }) => ({ type, bytes: 1000 })) {
 	const encodes: Encode[] = []
 	let closed = 0
