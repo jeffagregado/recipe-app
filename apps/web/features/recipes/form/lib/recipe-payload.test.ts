@@ -5,6 +5,7 @@ import { existingPhoto, noPhoto, pendingPhoto } from './recipe-photo'
 
 const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
 const OTHER_ID = '1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f'
+const KEY = '11111111-1111-4111-8111-111111111111'
 const file = (name: string) => new File(['x'], name, { type: 'image/webp', lastModified: 1 })
 
 const values = (overrides: Partial<RecipeFormValues> = {}): RecipeFormValues => ({
@@ -18,11 +19,12 @@ const values = (overrides: Partial<RecipeFormValues> = {}): RecipeFormValues => 
 const withStepPhoto = (photo: RecipeFormValues['cover']) => ({ instructions: [{ heading: null, steps: [{ key: 's1', id: 's1', description: 'Boil', photo }] }] })
 
 describe('create mode', () => {
-	it('names each step’s Pending photo and sends no photo files', () => {
+	it('names each step’s Pending photo beside the submission key', () => {
 		const prepared = prepareRecipePayload('create', values({ cover: noPhoto(), instructions: [{ heading: null, steps: [{ key: 'k1', id: null, description: 'Boil', photo: pendingPhoto(file('boil.webp'), PHOTO_ID) }] }] }))
-		const data = prepared!.build('11111111-1111-4111-8111-111111111111')
-		expect(JSON.parse(data.get('recipe') as string).instructions).toEqual([{ description: 'Boil', hasImage: false, image: { pendingPhotoId: PHOTO_ID }, heading: null }])
-		expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+		const body = prepared!.build(KEY)
+		expect(body.idempotencyKey).toBe(KEY)
+		expect(body.recipe.instructions).toEqual([{ description: 'Boil', image: { pendingPhotoId: PHOTO_ID }, heading: null }])
+		expect(Object.keys(body).sort()).toEqual(['idempotencyKey', 'recipe'])
 	})
 
 	it('returns null for values the shared schema rejects', () => {
@@ -31,16 +33,14 @@ describe('create mode', () => {
 })
 
 describe('edit mode', () => {
-	it('builds the update payload with image slots and no files for kept photos', () => {
-		const data = prepareRecipePayload('edit', values())!.build('11111111-1111-4111-8111-111111111111')
-		expect(JSON.parse(data.get('recipe') as string)).toMatchObject({ cover: 'keep', instructions: [{ id: 's1', description: 'Boil', image: 'keep', heading: null }] })
-		expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+	it('keeps saved photos by their image slots', () => {
+		const body = prepareRecipePayload('edit', values())!.build(KEY)
+		expect(body).toEqual({ recipe: expect.objectContaining({ cover: 'keep', instructions: [{ id: 's1', description: 'Boil', image: 'keep', heading: null }] }), idempotencyKey: KEY })
 	})
 
-	it('names a replaced slot’s Pending photo and sends no photo files', () => {
-		const data = prepareRecipePayload('edit', values({ cover: pendingPhoto(file('cover.webp'), PHOTO_ID) }))!.build('11111111-1111-4111-8111-111111111111')
-		expect(JSON.parse(data.get('recipe') as string).cover).toEqual({ pendingPhotoId: PHOTO_ID })
-		expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+	it('names a replaced slot’s Pending photo', () => {
+		const body = prepareRecipePayload('edit', values({ cover: pendingPhoto(file('cover.webp'), PHOTO_ID) }))!.build(KEY)
+		expect(body.recipe.cover).toEqual({ pendingPhotoId: PHOTO_ID })
 	})
 
 	it('returns null for values the shared schema rejects', () => {

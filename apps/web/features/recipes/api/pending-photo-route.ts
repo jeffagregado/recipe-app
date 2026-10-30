@@ -5,7 +5,7 @@ import { RECIPE_LIMITS } from '@recipe-app/contracts/types'
 import { z } from 'zod'
 import { checkRecipeImage } from '@/features/recipes/form/lib/recipe-files'
 import { UPLOAD_MESSAGES, type PhotoUploadResult } from '@/features/recipes/form/lib/photo-upload-result'
-import { isSameOrigin, readMultipart } from './multipart-request'
+import { isSameOrigin, readMultipart } from './request-body'
 import { authorizeSave } from './save-recipe'
 import { readErrorEnvelope, sendWrite, type WriteContext } from './write-request'
 

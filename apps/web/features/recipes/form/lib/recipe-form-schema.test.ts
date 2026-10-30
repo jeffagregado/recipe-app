@@ -60,9 +60,9 @@ describe('toCreateRecipeMetadata', () => {
 			{ name: 'Cream', quantity: 0.5, unit: 'cup', heading: null },
 		])
 		expect(metadata.instructions).toEqual([
-			{ description: 'Boil', hasImage: false, heading: null },
-			{ description: 'Melt', hasImage: false, heading: 'Make the sauce' },
-			{ description: 'Stir', hasImage: false, heading: null },
+			{ description: 'Boil', heading: null },
+			{ description: 'Melt', heading: 'Make the sauce' },
+			{ description: 'Stir', heading: null },
 		])
 		expect(createRecipeMetadataSchema.safeParse(metadata).success).toBe(true)
 	})
@@ -70,7 +70,7 @@ describe('toCreateRecipeMetadata', () => {
 	it('names a step’s Pending photo, never a file, and its output satisfies the shared schema', () => {
 		const photo = new File(['x'], 'boil.jpg', { type: 'image/jpeg' })
 		const metadata = toCreateRecipeMetadata(valid({ instructions: [{ heading: null, steps: [{ key: 'new-Boil', id: null, description: 'Boil', photo: pendingPhoto(photo, PHOTO_ID) }, { key: 'new-Drain', id: null, description: 'Drain', photo: noPhoto() }] }], videoUrl: 'https://youtu.be/abc' }))
-		expect(metadata.instructions.map(({ hasImage, image }) => ({ hasImage, image }))).toEqual([{ hasImage: false, image: { pendingPhotoId: PHOTO_ID } }, { hasImage: false, image: undefined }])
+		expect(metadata.instructions.map(({ image }) => image)).toEqual([{ pendingPhotoId: PHOTO_ID }, undefined])
 		expect(createRecipeMetadataSchema.safeParse(metadata).success).toBe(true)
 	})
 })

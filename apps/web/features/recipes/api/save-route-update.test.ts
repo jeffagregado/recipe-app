@@ -19,33 +19,27 @@ import { UPDATE_MESSAGES, type SaveRecipeResponse } from '@/features/recipes/for
 import { handleUpdateRecipe } from './save-route'
 
 let lastStatus = 0
-/** Sends the payload the way the browser does: same-site Origin, the page's Host, and whatever the test put in the headers. */
-async function updateRecipe(recipeId: string, formData: FormData) {
+/** Sends the save the way the browser does: same-site Origin, the page's Host, a JSON body, and whatever the test put in the headers. */
+async function updateRecipe(recipeId: string, body: unknown) {
 	const headers = new Headers(next.headers)
 	headers.set('host', 'localhost:3000')
-	const response = await handleUpdateRecipe(new Request(`http://localhost:3000/api/recipes/${encodeURIComponent(recipeId)}`, { method: 'PATCH', headers, body: formData }), recipeId)
+	headers.set('content-type', 'application/json')
+	const response = await handleUpdateRecipe(new Request(`http://localhost:3000/api/recipes/${encodeURIComponent(recipeId)}`, { method: 'PATCH', headers, body: JSON.stringify(body) }), recipeId)
 	lastStatus = response.status
 	expect(response.headers.get('cache-control')).toBe('private, no-store')
 	return await response.json() as SaveRecipeResponse & { message?: string }
 }
 
 const KEY = '2c1d3c2e-8a9b-4f6a-9d1f-0a7f6a1b2c3d'
+const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
 const fetchMock = vi.fn<typeof fetch>()
 const metadata = {
 	title: 'Pasta', description: null, categoryIds: ['category-dinner'], servings: null, prepTimeMinutes: null, cookTimeMinutes: null, videoUrl: null, notes: null,
 	ingredients: [{ name: 'Pasta', quantity: 200, unit: 'g' }],
 	cover: 'keep',
-	instructions: [{ id: 's1', description: 'Boil', image: 'keep' }, { id: null, description: 'Serve', image: 'replace' }],
+	instructions: [{ id: 's1', description: 'Boil', image: 'keep' }, { id: null, description: 'Serve', image: { pendingPhotoId: PHOTO_ID } }],
 }
-const image = (name: string, size = 4) => new File([new Uint8Array(size)], name, { type: 'image/png' })
-
-function payload(overrides: { recipe?: unknown; key?: string | null; files?: Record<string, File> } = {}) {
-	const data = new FormData()
-	data.append('recipe', typeof overrides.recipe === 'string' ? overrides.recipe : JSON.stringify(overrides.recipe ?? metadata))
-	if (overrides.key !== null) data.append('idempotencyKey', overrides.key ?? KEY)
-	for (const [name, file] of Object.entries(overrides.files ?? { 'step-1': image('serve.png') })) data.append(name, file, file.name)
-	return data
-}
+const payload = (overrides: Record<string, unknown> = {}) => ({ recipe: metadata, idempotencyKey: KEY, ...overrides })
 const json = (body: unknown, status: number) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
 beforeEach(() => {
@@ -66,38 +60,21 @@ it('PATCHes the recipe with only the session cookie, origin, key and client addr
 	expect(init).toMatchObject({ method: 'PATCH', cache: 'no-store', redirect: 'error' })
 	expect(init?.signal).toBeInstanceOf(AbortSignal)
 	expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
-		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'idempotency-key': KEY, 'x-forwarded-for': '203.0.113.9',
+		cookie: 'better-auth.session_token=abc', origin: 'http://localhost:3000', 'idempotency-key': KEY, 'x-forwarded-for': '203.0.113.9', 'content-type': 'application/json',
 	})
-	const body = init?.body as FormData
-	expect([...body.keys()].sort()).toEqual(['recipe', 'step-1'])
-	expect(JSON.parse(body.get('recipe') as string)).toEqual(metadata)
+	expect(typeof init?.body).toBe('string')
+	expect(JSON.parse(init?.body as string)).toEqual(metadata)
 })
 
-it('sends a cover and step photos only for slots marked replace, named by their final index', async () => {
-	fetchMock.mockResolvedValue(json({ id: 'r1' }, 200))
-	const recipe = { ...metadata, cover: 'replace' }
-	expect(await updateRecipe('r1', payload({ recipe, files: { cover: image('cover.png'), 'step-1': image('serve.png') } }))).toMatchObject({ status: 'saved' })
-	expect([...(fetchMock.mock.calls[0][1]?.body as FormData).keys()].sort()).toEqual(['cover', 'recipe', 'step-1'])
-})
-
-it('rejects a photo for a kept slot, or a missing photo for a replaced one, without calling the API', async () => {
-	expect(await updateRecipe('r1', payload({ files: { 'step-1': image('serve.png'), cover: image('cover.png') } }))).toMatchObject({
-		status: 'invalid', fieldErrors: { cover: [expect.any(String)] },
-	})
-	expect(await updateRecipe('r1', payload({ files: {} }))).toMatchObject({ status: 'invalid', fieldErrors: { 'step-1': [expect.any(String)] } })
-	expect(fetchMock).not.toHaveBeenCalled()
-})
-
-it('rejects invalid update metadata, keys and files locally with dotted field errors', async () => {
-	const duplicate = { ...metadata, instructions: [{ id: 's1', description: 'a', image: 'keep' }, { id: 's1', description: 'b', image: 'keep' }] }
-	expect(await updateRecipe('r1', payload({ recipe: duplicate, files: {} }))).toMatchObject({ status: 'invalid', fieldErrors: { instructions: [expect.any(String)] } })
-	const keptNew = { ...metadata, instructions: [{ id: null, description: 'a', image: 'keep' }] }
-	expect(await updateRecipe('r1', payload({ recipe: keptNew, files: {} }))).toMatchObject({ status: 'invalid', fieldErrors: { 'instructions.0.image': [expect.any(String)] } })
-	expect(await updateRecipe('r1', payload({ recipe: { ...metadata, title: ' ' } }))).toMatchObject({ status: 'invalid', fieldErrors: { title: [expect.any(String)] } })
-	expect(await updateRecipe('r1', payload({ recipe: '{not json' }))).toMatchObject({ status: 'invalid', fieldErrors: { recipe: [expect.any(String)] } })
-	expect(await updateRecipe('r1', payload({ key: 'not-a-uuid' }))).toMatchObject({ status: 'invalid', fieldErrors: { idempotencyKey: [expect.any(String)] } })
-	const svg = new File(['<svg/>'], 'logo.svg', { type: 'image/svg+xml' })
-	expect(await updateRecipe('r1', payload({ files: { 'step-1': svg } }))).toMatchObject({ status: 'invalid', fieldErrors: { 'step-1': ['logo.svg is not a JPG, PNG or WebP image.'] } })
+it.each<[string, unknown, string[]]>([
+	['a reused step id', payload({ recipe: { ...metadata, instructions: [{ id: 's1', description: 'a', image: 'keep' }, { id: 's1', description: 'b', image: 'keep' }] } }), ['instructions']],
+	['a kept photo on a new step', payload({ recipe: { ...metadata, instructions: [{ id: null, description: 'a', image: 'keep' }] } }), ['instructions.0.image']],
+	['a blank title', payload({ recipe: { ...metadata, title: ' ' } }), ['title']],
+	['a key that is not a UUID', payload({ idempotencyKey: 'not-a-uuid' }), ['idempotencyKey']],
+])('rejects %s locally with dotted field errors and never calls the API', async (_name, body, fields) => {
+	const result = await updateRecipe('r1', body)
+	expect(result.status).toBe('invalid')
+	expect(Object.keys((result as { fieldErrors: object }).fieldErrors).sort()).toEqual(fields)
 	expect(fetchMock).not.toHaveBeenCalled()
 })
 
@@ -113,8 +90,8 @@ it('maps the remaining statuses exactly as create does, with update wording', as
 		[json({ code: 'ORIGIN_REJECTED', message: 'x' }, 403), 'failed', UPDATE_MESSAGES.unverified],
 		[json({ code: 'IDEMPOTENCY_IN_PROGRESS', message: 'x' }, 409), 'unknown', UPDATE_MESSAGES.unknown],
 		[json({ code: 'IDEMPOTENCY_CONFLICT', message: 'x' }, 409), 'failed', UPDATE_MESSAGES.failed],
-		[json({ code: 'PAYLOAD_TOO_LARGE', message: 'x', fieldErrors: { 'step-1': ['Too big'] } }, 413), 'invalid'],
-		[json({ code: 'UNSUPPORTED_MEDIA_TYPE', message: 'x' }, 415), 'invalid'],
+		[json({ code: 'PAYLOAD_TOO_LARGE', message: 'x' }, 413), 'invalid', UPDATE_MESSAGES.invalid],
+		[json({ code: 'UNSUPPORTED_MEDIA_TYPE', message: 'x' }, 415), 'failed', UPDATE_MESSAGES.failed],
 		[json({ code: 'RATE_LIMITED', message: 'x' }, 429), 'failed', UPDATE_MESSAGES.rateLimited],
 		[json({ code: 'UNAVAILABLE', message: 'x' }, 503), 'failed', UPDATE_MESSAGES.failed],
 		[json({ code: 'DEADLINE', message: 'x' }, 504), 'unknown', UPDATE_MESSAGES.unknown],

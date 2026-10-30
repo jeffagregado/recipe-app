@@ -195,10 +195,9 @@ export function toCreateRecipeMetadata(values: RecipeFormValues): CreateRecipeMe
 	return {
 		...toSharedMetadata(values),
 		...(values.cover.kind === 'pending' ? { cover: pendingPhotoSlot(values.cover) } : {}),
-		// Step photos are named as Pending photos, never sent as files.
 		instructions: flattenGroups(values.instructions, 'steps', (step) => {
 			const image = pendingPhotoSlot(step.photo)
-			return { description: step.description.trim(), hasImage: false, ...(image ? { image } : {}) }
+			return { description: step.description.trim(), ...(image ? { image } : {}) }
 		}),
 	}
 }

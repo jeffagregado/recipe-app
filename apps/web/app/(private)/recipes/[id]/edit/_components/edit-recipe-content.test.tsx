@@ -55,8 +55,8 @@ it('saves with a PATCH to this recipe\'s save endpoint', async () => {
 	await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
 	const [url, init] = fetchMock.mock.calls[0]
 	expect(url).toBe('/api/recipes/recipe-9')
-	expect(init).toMatchObject({ method: 'PATCH', credentials: 'same-origin' })
-	expect(JSON.parse((init?.body as FormData).get('recipe') as string)).toMatchObject({ title: 'Tomato Soup', cover: 'remove', instructions: [{ id: 'step-1', image: 'remove' }] })
+	expect(init).toMatchObject({ method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } })
+	expect(JSON.parse(init?.body as string).recipe).toMatchObject({ title: 'Tomato Soup', cover: 'remove', instructions: [{ id: 'step-1', image: 'remove' }] })
 })
 
 it('cancels back to the recipe page', async () => {

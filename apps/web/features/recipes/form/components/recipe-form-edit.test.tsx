@@ -6,6 +6,8 @@ import { AppToaster } from '@/components/layout/app-toaster'
 import { recipeDetailFixture } from '@/features/recipes/queries/recipe-detail.fixture'
 import { installFakeCanvas } from '@/test/fake-canvas'
 import { toRecipeFormValues } from '../lib/recipe-edit'
+import type { UpdateRecipeMetadata } from '@recipe-app/contracts/types'
+import type { RecipeSaveBody } from '../lib/recipe-payload'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
 import type { PhotoDiscarder, PhotoUploader } from '../lib/upload-pending-photo'
 import { RecipeForm } from './recipe-form'
@@ -28,7 +30,7 @@ const categories = [
 	{ id: 'category-desserts', name: 'Desserts' },
 ]
 
-const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
+const onSave = vi.fn<(body: RecipeSaveBody) => Promise<SaveRecipeResult>>()
 const uploadPhoto = vi.fn<PhotoUploader>()
 const discardPhoto = vi.fn<PhotoDiscarder>()
 const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
@@ -77,7 +79,7 @@ const image = (name: string, size = 1024) => {
 	Object.defineProperty(file, 'size', { value: size })
 	return file
 }
-const metadataOf = (data: FormData) => JSON.parse(data.get('recipe') as string)
+const metadataOf = (body: RecipeSaveBody) => body.recipe as UpdateRecipeMetadata
 
 it('is titled Edit Recipe with a Save Changes button', () => {
 	renderEdit()
@@ -145,7 +147,7 @@ it('saves an untouched recipe as "keep" for every stored photo and uploads nothi
 		ingredients: [{ name: 'Flour', quantity: 200, unit: 'g' }, { name: 'Salt', quantity: null, unit: null }],
 		instructions: [{ id: 's1', description: 'Mix.', image: 'keep' }, { id: 's2', description: 'Bake.', image: 'remove' }, { id: 's3', description: 'Cool.', image: 'keep' }],
 	})
-	expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+	expect(Object.keys(data).sort()).toEqual(['idempotencyKey', 'recipe'])
 })
 
 it('leaves an untouched form for the recipe page without asking', async () => {
@@ -170,7 +172,7 @@ it('replaces a stored step photo with a picked file, uploading only that photo a
 	// The other stored photos are referenced as kept, never uploaded again.
 	expect(uploadPhoto.mock.calls.map(([file]) => file.name)).toEqual(['fresh.webp'])
 	expect(metadataOf(data).instructions.map((step: { image: unknown }) => step.image)).toEqual([{ pendingPhotoId: PHOTO_ID }, 'remove', 'keep'])
-	expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+	expect(Object.keys(data).sort()).toEqual(['idempotencyKey', 'recipe'])
 })
 
 it('removes the stored cover and a stored step photo', async () => {
@@ -185,7 +187,7 @@ it('removes the stored cover and a stored step photo', async () => {
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	expect(metadataOf(onSave.mock.calls[0][0])).toMatchObject({ cover: 'remove', instructions: [{ image: 'keep' }, { image: 'remove' }, { image: 'remove' }] })
-	expect([...onSave.mock.calls[0][0].keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+	expect(Object.keys(onSave.mock.calls[0][0]).sort()).toEqual(['idempotencyKey', 'recipe'])
 	// Saved photos are removed by the save, never discarded like Pending photos.
 	expect(discardPhoto).not.toHaveBeenCalled()
 })
@@ -199,7 +201,7 @@ it('replaces the stored cover and keeps the rest', async () => {
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	expect(metadataOf(onSave.mock.calls[0][0]).cover).toEqual({ pendingPhotoId: PHOTO_ID })
-	expect([...onSave.mock.calls[0][0].keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
+	expect(Object.keys(onSave.mock.calls[0][0]).sort()).toEqual(['idempotencyKey', 'recipe'])
 })
 
 it('notices an image-only change: Cancel asks first and unloading warns', async () => {
@@ -330,14 +332,14 @@ it('reuses the submission key for an unchanged retry but not after an image chan
 	await waitFor(() => expect(save()).toBeEnabled())
 	await user.click(within(formElement()).getByRole('button', { name: 'Retry save' }))
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2))
-	expect(onSave.mock.calls[1][0].get('idempotencyKey')).toBe(onSave.mock.calls[0][0].get('idempotencyKey'))
+	expect(onSave.mock.calls[1][0].idempotencyKey).toBe(onSave.mock.calls[0][0].idempotencyKey)
 
 	// Photo controls are disabled while a save is in flight.
 	await waitFor(() => expect(screen.getByRole('button', { name: 'Remove cover photo' })).toBeEnabled())
 	await user.click(screen.getByRole('button', { name: 'Remove cover photo' }))
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledTimes(3))
-	expect(onSave.mock.calls[2][0].get('idempotencyKey')).not.toBe(onSave.mock.calls[0][0].get('idempotencyKey'))
+	expect(onSave.mock.calls[2][0].idempotencyKey).not.toBe(onSave.mock.calls[0][0].idempotencyKey)
 })
 
 it('maps update field errors for steps and photos onto their rows', async () => {

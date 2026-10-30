@@ -1,5 +1,6 @@
 import { openSavedRecipe } from '@/features/recipes/actions/open-saved-recipe'
 import type { SavedNotice } from '@/features/recipes/actions/results'
+import type { RecipeSaveBody } from './recipe-payload'
 import type { SaveMessages, SaveRecipeResponse, SaveRecipeResult } from './save-recipe-result'
 
 type SaveRequest = { url: string; method: 'POST' | 'PATCH'; notice: SavedNotice; messages: SaveMessages }
@@ -16,16 +17,18 @@ function readResponse(body: unknown): SaveRecipeResponse | null {
 }
 
 /**
- * Sends the form's multipart payload to the save endpoint with the session cookie. Resolves only with the result the form
+ * Sends the form's body to the save endpoint as JSON with the session cookie. Resolves only with the result the form
  * should show: a confirmed save lands on the recipe page (a redirect, which rejects with Next's navigation error). A network
  * failure or an unreadable answer may still have saved, so it is reported as unknown and Retry reuses the submission key.
  */
-export function recipeSaveRequest({ url, method, notice, messages }: SaveRequest): (formData: FormData) => Promise<SaveRecipeResult> {
-	return async (formData) => {
+export function recipeSaveRequest({ url, method, notice, messages }: SaveRequest): (body: RecipeSaveBody) => Promise<SaveRecipeResult> {
+	return async (body) => {
 		const unknown: SaveRecipeResult = { status: 'unknown', message: messages.unknown }
 		let result: SaveRecipeResponse | null
 		try {
-			const response = await fetch(url, { method, body: formData, credentials: 'same-origin', cache: 'no-store', redirect: 'error' })
+			const response = await fetch(url, {
+				method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+			})
 			result = readResponse(await response.json())
 		} catch {
 			return unknown

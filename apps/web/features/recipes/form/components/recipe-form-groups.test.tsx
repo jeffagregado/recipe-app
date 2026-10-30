@@ -4,6 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AppToaster } from '@/components/layout/app-toaster'
 import { installFakeCanvas } from '@/test/fake-canvas'
 import { createEmptyRecipeValues, type RecipeFormValues } from '../lib/recipe-form-schema'
+import type { CreateRecipeMetadata } from '@recipe-app/contracts/types'
+import type { RecipeSaveBody } from '../lib/recipe-payload'
 import type { SaveRecipeResult } from '../lib/save-recipe-result'
 import type { PhotoDiscarder, PhotoUploader } from '../lib/upload-pending-photo'
 import { RecipeForm } from './recipe-form'
@@ -11,7 +13,7 @@ import { RecipeForm } from './recipe-form'
 const router = vi.hoisted(() => ({ push: vi.fn() }))
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => router }))
 
-const onSave = vi.fn<(formData: FormData) => Promise<SaveRecipeResult>>()
+const onSave = vi.fn<(body: RecipeSaveBody) => Promise<SaveRecipeResult>>()
 const uploadPhoto = vi.fn<PhotoUploader>()
 const discardPhoto = vi.fn<PhotoDiscarder>()
 const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
@@ -35,7 +37,7 @@ function renderForm(initialValues?: RecipeFormValues) {
 const ingredients = () => screen.getByRole('region', { name: /^Ingredients/ })
 const instructions = () => screen.getByRole('region', { name: /^Instructions/ })
 const save = () => screen.getByRole('button', { name: /^Save Recipe$|^Saving/ })
-const sent = () => JSON.parse(onSave.mock.calls[0][0].get('recipe') as string)
+const sent = () => onSave.mock.calls[0][0].recipe as CreateRecipeMetadata
 const toTaste = (name: string) => ({ name, amount: '', unit: 'to-taste' as const })
 const step = (description: string) => ({ key: description, id: null, description, photo: { kind: 'none' as const } })
 
@@ -78,7 +80,7 @@ it('flattens groups on save with each heading on its first row and step numbers 
 		{ name: 'Salt', quantity: null, unit: null, heading: null },
 		{ name: 'Cream', quantity: 1.5, unit: 'cup', heading: 'Sauce' },
 	])
-	expect(sent().instructions).toEqual([{ description: 'Boil', hasImage: false, heading: null }, { description: 'Plate', hasImage: false, heading: 'Serve' }])
+	expect(sent().instructions).toEqual([{ description: 'Boil', heading: null }, { description: 'Plate', heading: 'Serve' }])
 })
 
 it('moves rows across group headings by keyboard, but never empties a group', async () => {
@@ -93,7 +95,7 @@ it('moves rows across group headings by keyboard, but never empties a group', as
 	expect(screen.getByRole('button', { name: 'Move ingredient 3 up' })).toBeDisabled()
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
-	expect(sent().ingredients.map(({ name, heading }: { name: string; heading: string | null }) => [name, heading])).toEqual([['Salt', null], ['Butter', null], ['Cream', 'Sauce']])
+	expect(sent().ingredients.map(({ name, heading }: { name: string; heading?: string | null }) => [name, heading])).toEqual([['Salt', null], ['Butter', null], ['Cream', 'Sauce']])
 })
 
 it('keeps a step photo with its step when it moves into another group', async () => {
@@ -105,9 +107,9 @@ it('keeps a step photo with its step when it moves into another group', async ()
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	expect(sent().instructions).toEqual([
-		{ description: 'Boil', hasImage: false, heading: null },
-		{ description: 'Drain', hasImage: false, image: { pendingPhotoId: PHOTO_ID }, heading: 'Serve' },
-		{ description: 'Plate', hasImage: false, heading: null },
+		{ description: 'Boil', heading: null },
+		{ description: 'Drain', image: { pendingPhotoId: PHOTO_ID }, heading: 'Serve' },
+		{ description: 'Plate', heading: null },
 	])
 })
 
@@ -129,7 +131,7 @@ it('reorders named groups and merges a removed heading’s rows into the group a
 	expect([1, 2, 3].map((position) => (screen.getByLabelText(`Ingredient ${position} name`) as HTMLInputElement).value)).toEqual(['Salt', 'Cheese', 'Butter'])
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
-	expect(sent().ingredients.map(({ heading }: { heading: string | null }) => heading)).toEqual([null, null, 'Sauce'])
+	expect(sent().ingredients.map(({ heading }: { heading?: string | null }) => heading)).toEqual([null, null, 'Sauce'])
 })
 
 const lists = [
@@ -149,7 +151,7 @@ it.each(lists)('offers a heading for the first $noun group of a recipe with no g
 	await user.keyboard('Prep')
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
-	expect(sent()[list].map(({ heading }: { heading: string | null }) => heading)).toEqual(['Prep'])
+	expect(sent()[list].map(({ heading }: { heading?: string | null }) => heading)).toEqual(['Prep'])
 })
 
 it('shows a saved first-group heading in its input, and removing it brings the link back with focus', async () => {

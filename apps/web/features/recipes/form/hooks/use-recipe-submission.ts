@@ -6,11 +6,11 @@ import { useAppToast } from '@/lib/use-app-toast'
 import { attemptSave } from '../lib/attempt-save'
 import { mapSaveFieldErrors } from '../lib/map-save-errors'
 import type { RecipeFormValues } from '../lib/recipe-form-schema'
-import { prepareRecipePayload, type RecipeFormMode } from '../lib/recipe-payload'
+import { prepareRecipePayload, type RecipeFormMode, type RecipeSaveBody } from '../lib/recipe-payload'
 import type { PhotoSlots } from './photo-slots'
 import { SAVE_MESSAGES, toastMessage, UPDATE_MESSAGES, type SaveMessages, type SaveRecipeResult } from '../lib/save-recipe-result'
 
-export type SaveRecipeAction = (formData: FormData) => Promise<SaveRecipeResult>
+export type SaveRecipeAction = (body: RecipeSaveBody) => Promise<SaveRecipeResult>
 export type FormAlert = { status: SaveRecipeResult['status']; message: string; details: string[] }
 
 type UseRecipeSubmissionOptions = { form: UseFormReturn<RecipeFormValues>; mode: RecipeFormMode; onSave: SaveRecipeAction; photos: Pick<PhotoSlots, 'isPreparing' | 'settled' | 'reset'> }

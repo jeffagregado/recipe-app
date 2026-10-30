@@ -1,8 +1,9 @@
 import { redirect } from 'next/navigation'
 import { expect, it, vi } from 'vitest'
 import { attemptSave } from './attempt-save'
+import type { RecipeSaveBody } from './recipe-payload'
 
-const payload = new FormData()
+const payload = { recipe: { title: 'Pasta' }, idempotencyKey: '11111111-1111-4111-8111-111111111111' } as unknown as RecipeSaveBody
 
 it('hands back the result the action resolved with', async () => {
 	const result = { status: 'failed', message: 'Nope' } as const
