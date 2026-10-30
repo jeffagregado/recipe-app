@@ -15,15 +15,20 @@ import type {
 } from "./ingredient.js";
 
 const MAX_RECIPE_STEPS = 50;
+const MIB = 1024 * 1024;
+const PHOTO_BYTES = 4 * MIB;
 
 export const RECIPE_LIMITS = {
   title: 200, description: 2000, notes: 5000, videoUrl: 2048,
   categories: 3, categoriesPerUser: 10, categoryName: 10, ingredients: 100, instructions: MAX_RECIPE_STEPS,
   ingredientName: 100, instructionDescription: 5000, groupHeading: 100,
   maxInteger: 2147483647, maxQuantity: 999999999.999, quantityDecimals: 3,
-  imageBytes: 5 * 1024 * 1024, metadataBytes: 1024 * 1024,
+  // One stored photo; also the most a browser-compressed photo may weigh (ADR 0005).
+  imageBytes: PHOTO_BYTES, metadataBytes: MIB,
+  // One Pending photo upload: the photo plus multipart overhead, well under Vercel's 4.5 MB request limit.
+  photoRequestBytes: PHOTO_BYTES + 64 * 1024,
   // The cover plus one photo per step.
-  maxFiles: MAX_RECIPE_STEPS + 1, requestBytes: 128 * 1024 * 1024,
+  maxFiles: MAX_RECIPE_STEPS + 1, requestBytes: 128 * MIB,
 } as const;
 
 export const RECIPE_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
@@ -45,6 +50,12 @@ export type CreateRecipeMetadataInstruction = {
   heading?: string | null;
 };
 
+/** A slot filled by a Pending photo: a photo its uploader has uploaded but not yet saved onto a recipe. */
+export type PendingPhotoSlot = { pendingPhotoId: EntityId };
+
+/** What the API answers to a photo upload: the id of the new Pending photo. */
+export type PendingPhoto = { id: EntityId };
+
 export type CreateRecipeMetadata = {
   title: string;
   description: string | null;
@@ -57,6 +68,8 @@ export type CreateRecipeMetadata = {
   notes: string | null;
   ingredients: CreateRecipeMetadataIngredient[];
   instructions: CreateRecipeMetadataInstruction[];
+  /** A cover uploaded as a Pending photo. Absent means no cover, or one sent as a multipart `cover` file. */
+  cover?: PendingPhotoSlot;
 };
 
 export type CreateRecipeResult = { id: EntityId };
@@ -74,8 +87,8 @@ export type UpdateRecipeMetadataInstruction = {
   heading?: string | null;
 };
 
-export type UpdateRecipeMetadata = Omit<CreateRecipeMetadata, "instructions"> & {
-  cover: RecipeImageSlot;
+export type UpdateRecipeMetadata = Omit<CreateRecipeMetadata, "instructions" | "cover"> & {
+  cover: RecipeImageSlot | PendingPhotoSlot;
   instructions: UpdateRecipeMetadataInstruction[];
 };
 

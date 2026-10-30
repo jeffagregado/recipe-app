@@ -9,6 +9,8 @@ import {
   type CreateRecipeMetadata,
   type CreateRecipeMetadataIngredient,
   type CreateRecipeResult,
+  type PendingPhoto,
+  type PendingPhotoSlot,
   type RecipeDetail,
   type RecipeDetailInstruction,
   type CreateRecipeInput,
@@ -218,6 +220,13 @@ const videoUrlSchema = nullableText(RECIPE_LIMITS.videoUrl).refine((value) => {
   try { return new URL(value).protocol === "https:"; } catch { return false; }
 }, "Enter a valid HTTPS URL.");
 
+/** Pending photo ids are server-generated UUIDs; anything else names no Pending photo. */
+const pendingPhotoIdSchema = z.uuid();
+
+const pendingPhotoSlotSchema: z.ZodType<PendingPhotoSlot> = z.strictObject({ pendingPhotoId: pendingPhotoIdSchema });
+
+export const pendingPhotoSchema: z.ZodType<PendingPhoto> = z.object({ id: pendingPhotoIdSchema });
+
 const metadataFields = {
   title: metadataText().min(1).max(RECIPE_LIMITS.title),
   description: nullableText(RECIPE_LIMITS.description),
@@ -233,6 +242,7 @@ const instructionDescription = () => metadataText().min(1).max(RECIPE_LIMITS.ins
 
 export const createRecipeMetadataSchema: z.ZodType<CreateRecipeMetadata> = z.strictObject({
   ...metadataFields,
+  cover: pendingPhotoSlotSchema.optional(),
   instructions: groupedRows(z.strictObject({
     description: instructionDescription(),
     hasImage: z.boolean(),
@@ -244,7 +254,7 @@ const imageSlotSchema = z.enum(RECIPE_IMAGE_SLOTS);
 
 export const updateRecipeMetadataSchema: z.ZodType<UpdateRecipeMetadata> = z.strictObject({
   ...metadataFields,
-  cover: imageSlotSchema,
+  cover: z.union([imageSlotSchema, pendingPhotoSlotSchema]),
   instructions: groupedRows(z.strictObject({
     id: entityIdSchema.max(200).nullable(),
     description: instructionDescription(),
@@ -272,10 +282,10 @@ export const recipeDetailSchema: z.ZodType<RecipeDetail> = recipeSchema.and(z.ob
   instructions: z.array(recipeDetailInstructionSchema),
 }));
 
-/** Multipart image fields in cover-first order, using original instruction indexes. */
+/** Multipart image fields in cover-first order, using original instruction indexes. A cover named as a Pending photo sends no file. */
 export function expectedRecipeFileFields(metadata: CreateRecipeMetadata, hasCover: boolean): string[] {
   return [
-    ...(hasCover ? ["cover"] : []),
+    ...(hasCover && !metadata.cover ? ["cover"] : []),
     ...metadata.instructions.flatMap((step, index) => step.hasImage ? [`step-${index}`] : []),
   ];
 }

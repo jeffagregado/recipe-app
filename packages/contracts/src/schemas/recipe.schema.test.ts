@@ -5,6 +5,7 @@ import {
   createRecipeResultSchema,
   expectedRecipeFileFields,
   expectedRecipeUpdateFileFields,
+  pendingPhotoSchema,
   recipeDetailSchema,
   recipeListItemSchema,
   recipeListQuerySchema,
@@ -12,6 +13,7 @@ import {
   updateRecipeMetadataSchema,
 } from "./recipe.schema.js";
 import { apiErrorEnvelopeSchema } from "./common.schema.js";
+import { RECIPE_LIMITS } from "../types/recipe.js";
 
 const ingredient = { name: " Salt ", quantity: null, unit: null };
 const instruction = { description: " Stir ", hasImage: false };
@@ -192,6 +194,39 @@ describe("recipe update metadata", () => {
     ] });
     expect(expectedRecipeUpdateFileFields(parsed)).toEqual(["cover", "step-1"]);
     expect(expectedRecipeUpdateFileFields(updateRecipeMetadataSchema.parse(update))).toEqual([]);
+  });
+});
+
+describe("Pending photos", () => {
+  const pendingPhotoId = "0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70";
+  const update = { ...metadata, cover: "keep", instructions: [{ id: "step-a", description: "Stir", image: "keep" }] };
+
+  it("stores at most 4 MiB per photo and sends one photo per request within Vercel's 4.5 MB", () => {
+    expect(RECIPE_LIMITS.imageBytes).toBe(4_194_304);
+    expect(RECIPE_LIMITS.photoRequestBytes).toBe(4_259_840);
+  });
+
+  it.each([
+    ["create", createRecipeMetadataSchema, metadata],
+    ["update", updateRecipeMetadataSchema, update],
+  ] as const)("lets the %s cover name a Pending photo by its UUID", (_name, schema, base) => {
+    expect(schema.parse({ ...base, cover: { pendingPhotoId } })).toMatchObject({ cover: { pendingPhotoId } });
+    for (const cover of [{ pendingPhotoId: "photo-1" }, { pendingPhotoId, extra: true }, {}, pendingPhotoId]) {
+      expect(schema.safeParse({ ...base, cover }).success, JSON.stringify(cover)).toBe(false);
+    }
+  });
+
+  it("expects no cover file when the cover names a Pending photo", () => {
+    const create = createRecipeMetadataSchema.parse({ ...metadata, cover: { pendingPhotoId }, instructions: [instruction, { ...instruction, hasImage: true }] });
+    expect(expectedRecipeFileFields(create, true)).toEqual(["step-1"]);
+    const edit = updateRecipeMetadataSchema.parse({ ...update, cover: { pendingPhotoId }, instructions: [{ id: null, description: "New", image: "replace" }] });
+    expect(expectedRecipeUpdateFileFields(edit)).toEqual(["step-0"]);
+  });
+
+  it("answers an upload with the Pending photo's UUID", () => {
+    expect(pendingPhotoSchema.parse({ id: pendingPhotoId })).toEqual({ id: pendingPhotoId });
+    expect(pendingPhotoSchema.safeParse({ id: "photo-1" }).success).toBe(false);
+    expect(pendingPhotoSchema.safeParse({}).success).toBe(false);
   });
 });
 

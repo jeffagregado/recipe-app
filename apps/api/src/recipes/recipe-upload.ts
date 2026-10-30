@@ -8,6 +8,7 @@ import { RECIPE_IMAGE_MIME_TYPES, RECIPE_LIMITS } from '@recipe-app/contracts/ty
 import type { AuthRequest } from '../auth/auth.request.js';
 import { AuthRateLimiter, rateLimitKey } from '../auth/auth.rate-limit.js';
 import { unauthenticated } from '../auth/auth.errors.js';
+import { IMAGE_TOO_LARGE } from './recipe-images.js';
 import type { RecipeFile } from './recipe-images.js';
 import { fieldError, RecipeError } from './recipe-errors.js';
 
@@ -93,7 +94,7 @@ function parserError(cause: unknown): RecipeError {
   const error = cause as { code?: unknown; field?: unknown } | null | undefined;
   const code = error?.code;
   const field = typeof error?.field === 'string' ? error.field : 'recipe';
-  if (code === 'LIMIT_FILE_SIZE') return fieldError(field, 'Image exceeds 5 MiB.', 413, 'PAYLOAD_TOO_LARGE');
+  if (code === 'LIMIT_FILE_SIZE') return fieldError(field, IMAGE_TOO_LARGE, 413, 'PAYLOAD_TOO_LARGE');
   return new RecipeError(400, 'VALIDATION_FAILED', 'Invalid multipart recipe request.', {
     cause, fieldErrors: Object.assign(Object.create(null), { [field]: [code === 'LIMIT_FIELD_VALUE' ? 'Metadata exceeds 1 MiB.' : 'Invalid or excessive multipart parts.'] }),
   });
@@ -166,7 +167,7 @@ export async function parseRecipeUpload(request: RecipeUploadRequest, response: 
       busboy.on('field', (field: string) => { if (field !== 'recipe') finish(fieldError('recipe', 'Only the recipe metadata field is allowed.')); });
       busboy.on('error', finish);
       for (const event of ['partsLimit', 'filesLimit', 'fieldsLimit']) busboy.on(event, () => finish(fieldError('recipe', 'Invalid or excessive multipart parts.')));
-      busboy.on('file', (field: string, file: Writable) => file.once('limit', () => finish(fieldError(field, 'Image exceeds 5 MiB.', 413, 'PAYLOAD_TOO_LARGE'))));
+      busboy.on('file', (field: string, file: Writable) => file.once('limit', () => finish(fieldError(field, IMAGE_TOO_LARGE, 413, 'PAYLOAD_TOO_LARGE'))));
       // Preserve Multer's default pipe topology so req.unpipe(busboy) works on every abort path.
       request.pipe(busboy);
     },

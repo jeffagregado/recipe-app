@@ -83,7 +83,7 @@ describe('Recipe photo preparation', () => {
 
   it.each([
     ['an empty file', Buffer.alloc(0), 'image/png', rejection('Image must not be empty.')],
-    ['a file over 5 MiB', Buffer.alloc(5 * 1024 * 1024 + 1), 'image/jpeg', rejection('Image exceeds 5 MiB.', 413, 'PAYLOAD_TOO_LARGE')],
+    ['a file over 4 MiB', Buffer.alloc(4 * 1024 * 1024 + 1), 'image/jpeg', rejection('Image exceeds 4 MiB.', 413, 'PAYLOAD_TOO_LARGE')],
     ['a GIF', Buffer.from('GIF89a'), 'image/gif', rejection('Use JPEG, PNG or static WebP.', 415, 'UNSUPPORTED_MEDIA_TYPE')],
     ['an SVG', Buffer.from('<svg/>'), 'image/svg+xml', rejection('Use JPEG, PNG or static WebP.', 415, 'UNSUPPORTED_MEDIA_TYPE')],
     ['JPEG bytes declared as PNG', Buffer.from([255, 216, 255]), 'image/png', rejection('Image bytes do not match PNG.')],

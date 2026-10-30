@@ -11,6 +11,7 @@ export type PreparedPhoto = { fieldname: string; buffer: Buffer; extension: 'web
 const MAX_INPUT_PIXELS = 50_000_000;
 const MAX_STORED_EDGE = 2048;
 const STORED_QUALITY = 80;
+export const IMAGE_TOO_LARGE = `Image exceeds ${RECIPE_LIMITS.imageBytes / (1024 * 1024)} MiB.`;
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 type InvalidImage = (message: string) => never;
 
@@ -68,7 +69,7 @@ const signatureChecks: Record<(typeof RECIPE_IMAGE_MIME_TYPES)[number], (buffer:
 function validateRecipeImage({ fieldname, mimetype, buffer }: RecipeFile): void {
   const invalid = (message: string): never => { throw fieldError(fieldname, message); };
   if (!buffer.length) invalid('Image must not be empty.');
-  if (buffer.length > RECIPE_LIMITS.imageBytes) throw fieldError(fieldname, 'Image exceeds 5 MiB.', 413, 'PAYLOAD_TOO_LARGE');
+  if (buffer.length > RECIPE_LIMITS.imageBytes) throw fieldError(fieldname, IMAGE_TOO_LARGE, 413, 'PAYLOAD_TOO_LARGE');
   const accepted = RECIPE_IMAGE_MIME_TYPES.find((mime) => mime === mimetype);
   if (!accepted) throw fieldError(fieldname, 'Use JPEG, PNG or static WebP.', 415, 'UNSUPPORTED_MEDIA_TYPE');
   signatureChecks[accepted](buffer, invalid);
