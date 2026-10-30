@@ -142,7 +142,9 @@ type ReconcileOptions = { now: Date; ageMs?: number; objectKeys?: string[] };
  */
 export async function reconcilePendingPhotos(db: DrizzleDb, storage: Pick<StorageService, 'deleteObject' | 'listObjects'>,
   { now, ageMs = ORPHAN_AGE_MS, objectKeys }: ReconcileOptions): Promise<{ expired: number; orphans: number; failed: number }> {
+  if (!Number.isFinite(now.getTime()) || ageMs < 0 || !Number.isFinite(ageMs)) throw new RangeError('Invalid reconciliation age or date.');
   const counts = { expired: 0, orphans: 0, failed: 0 };
+  if (objectKeys?.length === 0) return counts;
   for (let batch; !batch || batch.expired === RECONCILE_BATCH;) {
     batch = await sweepExpiredPendingPhotos(db, storage, { limit: RECONCILE_BATCH, objectKeys });
     counts.expired += batch.expired - batch.failed; counts.failed += batch.failed;

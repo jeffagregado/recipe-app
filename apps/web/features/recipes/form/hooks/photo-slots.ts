@@ -59,6 +59,12 @@ export function createPhotoSlots(host: PhotoSlotHost) {
 		statuses.delete(slot)
 	}
 
+	/** The form went back to its opening values: every pick and upload stops. */
+	function reset() {
+		for (const slot of new Set([...picks.keys(), ...uploads.keys(), ...statuses.keys()])) stop(slot)
+		notify()
+	}
+
 	async function prepare(slot: string, pick: object, file: File) {
 		const result = await compressPhoto(file, decodeWithCanvas)
 		// A newer pick, a Remove, a reset or the step's deletion since then owns the slot now.
@@ -123,14 +129,10 @@ export function createPhotoSlots(host: PhotoSlotHost) {
 			notify()
 			discard(host.read(slot))
 		},
-		/** The form went back to its opening values: every pick and upload stops. */
-		reset() {
-			for (const slot of new Set([...picks.keys(), ...uploads.keys(), ...statuses.keys()])) stop(slot)
-			notify()
-		},
+		reset,
 		/** The cook is leaving the form without saving: every pick and upload stops, and every Pending photo is discarded. */
 		abandon() {
-			this.reset()
+			reset()
 			for (const photo of host.all()) discard(photo)
 		},
 	}

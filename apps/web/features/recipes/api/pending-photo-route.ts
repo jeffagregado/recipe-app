@@ -12,8 +12,10 @@ import { sendWrite, type WriteContext } from './write-request'
 const UPLOAD_TIMEOUT_MS = 30_000
 const DELETE_TIMEOUT_MS = 10_000
 
+const NO_STORE = { 'Cache-Control': 'private, no-store' }
+
 function respond(result: PhotoUploadResult, status = 200): Response {
-	return Response.json(result, { status, headers: { 'Cache-Control': 'private, no-store' } })
+	return Response.json(result, { status, headers: NO_STORE })
 }
 const failed = (message: string = UPLOAD_MESSAGES.failed): PhotoUploadResult => ({ status: 'failed', message })
 
@@ -64,7 +66,7 @@ export async function handlePhotoUpload(request: Request): Promise<Response> {
 	return respond(result, status)
 }
 
-const answer = (status: number) => new Response(null, { status, headers: { 'Cache-Control': 'private, no-store' } })
+const emptyResponse = (status: number) => new Response(null, { status, headers: NO_STORE })
 
 /**
  * Deletes one of the caller's Pending photos; the form sends it without waiting for the answer, so no answer has a body.
@@ -72,13 +74,13 @@ const answer = (status: number) => new Response(null, { status, headers: { 'Cach
  * cross-site request, 400 for an id that is not a Pending photo id, and 502 or 503 when that could not be confirmed.
  */
 export async function handlePhotoDelete(request: Request, id: string): Promise<Response> {
-	if (!isSameOrigin(request)) return answer(403)
+	if (!isSameOrigin(request)) return emptyResponse(403)
 
 	const authorized = await authorizeSave(UPLOAD_MESSAGES)
-	if ('result' in authorized) return answer(authorized.result.status === 'session-expired' ? 401 : 503)
-	if (!z.uuid().safeParse(id).success) return answer(400)
+	if ('result' in authorized) return emptyResponse(authorized.result.status === 'session-expired' ? 401 : 503)
+	if (!z.uuid().safeParse(id).success) return emptyResponse(400)
 
 	const outcome = await sendWrite({ context: authorized.context, request: { method: 'DELETE', path: `/pending-photos/${id}`, timeoutMs: DELETE_TIMEOUT_MS } })
-	if ('problem' in outcome) return answer(502)
-	return answer(outcome.response.status === 204 || outcome.response.status === 401 ? outcome.response.status : 502)
+	if ('problem' in outcome) return emptyResponse(502)
+	return emptyResponse(outcome.response.status === 204 || outcome.response.status === 401 ? outcome.response.status : 502)
 }
