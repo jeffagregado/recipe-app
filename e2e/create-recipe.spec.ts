@@ -350,7 +350,10 @@ test.describe('saving', () => {
   test('an expired session keeps the filled form and says to sign in again', async ({ page, context, workerData, creator }) => {
     await openCreate(page);
     await fillMinimal(page, 'Kept through expiry');
+    // The cover uploads as soon as it is picked; the session expires after that, so the save is what meets it.
+    const coverUpload = page.waitForResponse((answer) => new URL(answer.url()).pathname === '/api/pending-photos' && answer.request().method() === 'POST');
     await page.getByLabel('Add cover photo').setInputFiles(COVER);
+    expect(await (await coverUpload).json()).toMatchObject({ status: 'uploaded' });
     await context.clearCookies();
     await field.save(page).click();
     await expect(createForm(page).getByRole('alert').filter({ hasText: 'Your session has expired.' })).toBeVisible();
