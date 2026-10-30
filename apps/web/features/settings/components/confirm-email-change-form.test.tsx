@@ -39,7 +39,8 @@ it('posts the token once from the keyboard and holds the button while it is in f
 	finish({ status: 'failed', message: 'We could not confirm your new email. Please try again.' })
 	// Nothing was confirmed, so the same link can be tried again.
 	expect(await screen.findByRole('alert')).toHaveTextContent('We could not confirm your new email. Please try again.')
-	expect(confirm()).toBeEnabled()
+	// The alert appears a moment before the pending transition ends; the button is enabled once it has.
+	await waitFor(() => expect(confirm()).toBeEnabled())
 })
 
 it('shows a link without a token as expired, with the way back to Settings and nothing to press', () => {
