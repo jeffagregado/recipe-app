@@ -17,7 +17,7 @@ The API's address is a Render custom domain: in Cloudflare, a CNAME `api` points
 
 The browser talks to the web app only. The web server calls the API server-to-server.
 
-The API runs on Render. Every request now fits Vercel's 4.5 MB request body limit: each photo is shrunk in the browser and uploaded on its own, and a recipe save is JSON that names its photos (ADR 0005). Moving the API to Vercel is a separate step.
+The API runs on Render. Every request now fits Vercel's 4.5 MB request body limit: each photo is shrunk in the browser and uploaded on its own, and a recipe save is JSON that names its photos (ADR 0005). [Moving the API to Vercel](#moving-the-api-to-vercel) describes the move, which is under way (#127).
 
 ## First deployment
 
@@ -98,6 +98,97 @@ Rotate a secret by setting the new value on the host, redeploying, and then revo
 | `BETTER_AUTH_SECRET` | Render | Set a new value and redeploy. Every user is signed out |
 | `RESEND_API_KEY` | Render | Create a new key in Resend, set it, redeploy, then delete the old key |
 | `GOOGLE_CLIENT_SECRET` | Render | Add a new secret to the OAuth client in Google Cloud, set it, redeploy, then disable the old secret. `GOOGLE_CLIENT_ID` changes only with a new client |
+
+## Moving the API to Vercel
+
+The API moves to its own Vercel project, `recapp-api`, side by side with Render (#127, ADR 0005). Render keeps serving `api.recapp.site` until the cutover below.
+
+### How the API runs on Vercel
+
+- Vercel's NestJS support runs the whole API as one function, with Fluid compute. [`apps/api/vercel.json`](apps/api/vercel.json) holds the build settings, so the dashboard shows them as overridden:
+  - install: `pnpm install --frozen-lockfile --prod=false`. Vercel picks the pnpm version from `packageManager` in the root `package.json` and installs the whole workspace from the repository root. `--prod=false` keeps the build tools if `NODE_ENV` is `production` during the build.
+  - build: `cd ../.. && pnpm exec turbo run build --filter=@recipe/api`, the same build as on Render.
+  - output directory `dist`, so the function's entrypoint is the built `dist/main.js`.
+  - region `sin1`.
+  - Git deployments for `master` only. Every other branch, and so every pull request, gets no deployment.
+- `dist/main.js` is the same bootstrap Render starts. On Vercel (`VERCEL=1`) it initialises the app and exports its request handler without listening; anywhere else it listens on `PORT`.
+- sharp's Linux binary and libvips come from the Linux install on Vercel's build machine. sharp names libvips for Vercel's file tracer, so both ship in the function.
+- Work that continues after a response runs under `waitUntil`, and the Postgres pool is registered with `attachDatabasePool`, so idle connections close before an instance pauses. Off Vercel both do nothing.
+- Requests reach the app through Vercel's own local proxy, so the connecting address is not the user's. As on Render, only a request with the [proxy secret](#proxy-secret) is keyed on `X-Recipe-Client-IP`; every other caller shares one rate-limit bucket.
+
+### Create the `recapp-api` project
+
+In the Vercel dashboard, on the team that owns `recipe-app`:
+
+1. **Add New > Project** and import `jeffagregado/recipe-app`.
+2. **Project Name:** `recapp-api`.
+3. **Root Directory:** `apps/api`. Keep **Include files outside the root directory in the Build Step** on: the install needs the root lockfile and `packages/contracts`.
+4. **Framework Preset:** NestJS. Leave the build, install and output settings empty; `apps/api/vercel.json` sets them.
+5. Add the variables from [Variables to copy](#variables-to-copy) to the **Production** environment before the first deploy, then **Deploy**.
+6. **Settings > Build and Deployment > Node.js Version:** `24.x`. `.nvmrc` stays at 25 by decision (#127), so CI runs 25 and Vercel 24. Redeploy if the first build ran on another version.
+7. **Settings > Functions:** confirm **Function Region** shows Singapore (`sin1`) and Fluid compute is on.
+8. **Settings > Environments > Production:** branch tracking is `master`.
+9. **Settings > Git:** previews need nothing more. `git.deploymentEnabled` in `vercel.json` already skips every branch except `master`.
+10. **Settings > Environment Variables:** keep **Automatically expose System Environment Variables** on. The API reads `VERCEL` to know it runs on Vercel, and `attachDatabasePool` reads `VERCEL_URL` and `VERCEL_REGION`.
+11. **Settings > Deployment Protection:** make sure the production URL answers without a Vercel login. Open `https://<production URL>/api/auth/ok`; it should answer `{"ok":true}`. If a Vercel login page appears, set Vercel Authentication to protect only preview deployments.
+
+### Variables to copy
+
+Copy each name from `render.yaml` and the Render dashboard to the `recapp-api` **Production** environment, with the same value. The owner enters the secret values; never paste them into the repository or a chat.
+
+| Variable | From |
+| --- | --- |
+| `NODE_ENV` | `render.yaml` (`production`) |
+| `AWS_REGION`, `S3_BUCKET`, `AWS_ENDPOINT_URL_S3` | `render.yaml` |
+| `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS`, `GOOGLE_REDIRECT_URI`, `MAIL_FROM` | `render.yaml` |
+| `DATABASE_URL` | secret, Render dashboard |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | secret, Render dashboard |
+| `BETTER_AUTH_SECRET` | secret, Render dashboard. The same value keeps every session valid across the move |
+| `RESEND_API_KEY` | secret, Render dashboard |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | secret, Render dashboard |
+| `RECIPE_WEB_PROXY_SECRET` | secret, Render dashboard. Must equal the web project's value |
+
+Do not copy:
+
+- `NODE_VERSION`: Render only. Vercel takes the Node version from the project setting.
+- `PORT`: Vercel ignores it, and nothing listens there.
+- `TRUST_PROXY_HOPS`: retired (#133). Delete it from the Render dashboard if it is still there.
+
+The API reads these from the process environment; it needs no env file.
+
+### Smoke checklist
+
+Run it twice: on the production `*.vercel.app` URL (cutover step 1) and on `api.recapp.site` (step 2). The user journeys go through a web app whose `RECIPE_API_URL` names the address under test. Record each result in the pull request.
+
+For the `*.vercel.app` run, only the production web origins are trusted and Google returns to `recapp.site`. A full run, Google included, therefore points the production web project's `RECIPE_API_URL` at the `*.vercel.app` URL and redeploys the web app. Users reach the new API until `RECIPE_API_URL` is set back to `https://api.recapp.site` and the web app is redeployed.
+
+| Check | How | `*.vercel.app` | `api.recapp.site` |
+| --- | --- | --- | --- |
+| Deployment starts | The build log shows the install, the Turborepo build and no sharp or libvips error; the first request's runtime log shows `Nest application successfully started` | | |
+| Health | `GET /api/auth/ok` answers `{"ok":true}` | | |
+| Password sign-in | Sign in with an existing Account and open the recipe list | | |
+| Google sign-in | Sign in with Google | | |
+| Sign-up mail | Sign up with a new address; the verification mail arrives and its link verifies the Account | | |
+| Create a recipe with photos | Create a recipe with a cover and a step photo; both show after saving | | |
+| Edit a recipe with photos | Replace one photo and remove another; the recipe shows the change | | |
+| Upload and remove a Pending photo | Pick a photo in the form, then remove it before saving; no error | | |
+| Rate limit keyed per user | From one network, request a password reset for an address with no Account 11 times; the 11th is refused as too many requests (the limit is 10 an hour per client address). From another network, such as a phone on mobile data, a reset request still goes through. If both are refused, every user shares one bucket: check `RECIPE_WEB_PROXY_SECRET` | | |
+| Runtime errors | The project's Logs show no errors from the checks above | | |
+
+### Cutover
+
+Issue #135 carries this out.
+
+1. **Smoke test on `*.vercel.app`.** Deploy `recapp-api` and run the [smoke checklist](#smoke-checklist) against production config while Render keeps serving `api.recapp.site`.
+2. **Switch the domain.** Add `api.recapp.site` to `recapp-api` under **Settings > Domains**. In Cloudflare, point the `api` CNAME at the target the Vercel dashboard shows, still DNS only (not proxied). Run the smoke checklist again on `api.recapp.site`. `BETTER_AUTH_URL`, cookies, `AUTH_TRUSTED_ORIGINS` and the Google redirect need no change, because the address stays the same.
+3. **Watch for a few days.** Check the project's runtime errors and logs, and the [CI watch items](docs/agents/ci.md#watch-items). Keep the Render service running.
+4. **Retire Render.** Remove `render.yaml` from `master` and delete the Render service `recapp-api`. Then update this guide: the hosting table, the variables, the 4.5 MB note (point to ADR 0005), the Render cold-start limit, the client-address notes and this section.
+
+The live demo API (`recapp-demo-api`) stays on Render until a later `master` → `demo` sync moves it.
+
+### Rollback
+
+During the watch period, point the Cloudflare `api` CNAME back at `recapp-api-9984.onrender.com` (DNS only). Render still runs the same `master`, so nothing else changes. Remove `api.recapp.site` from `recapp-api` once the record has switched back.
 
 ## Production migrations
 
