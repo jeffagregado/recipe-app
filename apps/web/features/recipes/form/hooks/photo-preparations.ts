@@ -1,8 +1,4 @@
-'use client'
-
-import { createContext, useContext } from 'react'
-
-/** The photos of one form still being shrunk. Save waits for them, so it never sends the form without a photo just picked. */
+/** The photo work of one form still running: shrinking and uploading. Save waits for it, so it never sends the form without a photo just picked. */
 export type PhotoPreparations = {
 	track: (work: Promise<unknown>) => void
 	isPreparing: () => boolean
@@ -23,12 +19,4 @@ export function createPhotoPreparations(): PhotoPreparations {
 			while (pending.size > 0) await Promise.allSettled([...pending])
 		},
 	}
-}
-
-export const PhotoPreparationsContext = createContext<PhotoPreparations | null>(null)
-
-export function usePhotoPreparations(): PhotoPreparations {
-	const preparations = useContext(PhotoPreparationsContext)
-	if (!preparations) throw new Error('usePhotoPreparations must be used inside a recipe form.')
-	return preparations
 }

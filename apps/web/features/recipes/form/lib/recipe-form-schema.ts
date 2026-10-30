@@ -4,8 +4,7 @@ import { z } from 'zod'
 import { KITCHEN_FRACTIONS } from '../../lib/kitchen-amount'
 import { toFormFieldPath } from './map-save-errors'
 import type { FormGroup } from './row-groups'
-import { checkRecipeImage } from './recipe-files'
-import { isPhotoValue, noPhoto, type PhotoValue } from './recipe-photo'
+import { isPhotoValue, noPhoto, pendingPhotoSlot, type PhotoValue } from './recipe-photo'
 
 export const TO_TASTE = 'to-taste'
 export const MAX_ROWS = { ingredients: RECIPE_LIMITS.ingredients, instructions: RECIPE_LIMITS.instructions }
@@ -67,15 +66,15 @@ const ingredientRowSchema = z.object({
 	else if (row.unit === '') ctx.addIssue({ code: 'custom', path: ['unit'], message: 'Choose a unit.' })
 })
 
-// Stored photos were checked when they were uploaded; only a file picked in this session needs checking.
-// A photo that is not yet a Pending photo blocks the save; Save waits for uploads first, so this is a failed one.
+// Photos are checked when picked and again by the API on upload. One that is not yet a Pending photo blocks the save;
+// Save waits for uploads first, so this is a failed one.
 const photoSchema = z.custom<PhotoValue>(isPhotoValue, 'Choose an image file.').superRefine((photo, ctx) => {
-	if (photo.kind === 'picked') return ctx.addIssue({ code: 'custom', message: 'Retry or remove this photo.' })
-	const problem = photo.kind === 'new' ? checkRecipeImage(photo.file) : null
-	if (problem) ctx.addIssue({ code: 'custom', message: problem })
+	if (photo.kind === 'picked') ctx.addIssue({ code: 'custom', message: 'Retry or remove this photo.' })
 })
 
 const instructionRowSchema = z.object({
+	/** Names the row for as long as the form is open, wherever it moves; its photo slot follows it by this key. */
+	key: z.string(),
 	/** The stored step this row continues; null for a row added in this session. */
 	id: z.string().nullable(),
 	description: z.string().trim()
@@ -139,7 +138,17 @@ export type IngredientFormRow = IngredientFormGroup['rows'][number]
 export type InstructionFormRow = InstructionFormGroup['steps'][number]
 
 export const emptyIngredientRow = (): IngredientFormRow => ({ name: '', amount: '', unit: '' })
-export const emptyInstructionRow = (): InstructionFormRow => ({ id: null, description: '', photo: noPhoto() })
+export const emptyInstructionRow = (): InstructionFormRow => ({ key: crypto.randomUUID(), id: null, description: '', photo: noPhoto() })
+
+/** The form path of a photo slot: the cover, or the photo of the step with this key wherever it is now; null once that step is gone. */
+export function photoSlotPath(values: Pick<RecipeFormValues, 'instructions'>, slot: string): 'cover' | `instructions.${number}.steps.${number}.photo` | null {
+	if (slot === 'cover') return 'cover'
+	for (const [group, { steps }] of values.instructions.entries()) {
+		const row = steps.findIndex((step) => step.key === slot)
+		if (row >= 0) return `instructions.${group}.steps.${row}.photo`
+	}
+	return null
+}
 
 export function createEmptyRecipeValues(): RecipeFormValues {
 	return {
@@ -183,7 +192,11 @@ export function toSharedMetadata(values: RecipeFormValues): Omit<CreateRecipeMet
 export function toCreateRecipeMetadata(values: RecipeFormValues): CreateRecipeMetadata {
 	return {
 		...toSharedMetadata(values),
-		...(values.cover.kind === 'pending' ? { cover: { pendingPhotoId: values.cover.id } } : {}),
-		instructions: flattenGroups(values.instructions, 'steps', (step) => ({ description: step.description.trim(), hasImage: step.photo.kind === 'new' })),
+		...(values.cover.kind === 'pending' ? { cover: pendingPhotoSlot(values.cover) } : {}),
+		// Step photos are named as Pending photos, never sent as files.
+		instructions: flattenGroups(values.instructions, 'steps', (step) => {
+			const image = pendingPhotoSlot(step.photo)
+			return { description: step.description.trim(), hasImage: false, ...(image ? { image } : {}) }
+		}),
 	}
 }

@@ -1,8 +1,8 @@
-import type { RecipeDetail, RecipeImageSlot, UpdateRecipeMetadata } from '@recipe-app/contracts/types'
+import type { PendingPhotoSlot, RecipeDetail, RecipeImageSlot, UpdateRecipeMetadata } from '@recipe-app/contracts/types'
 import { groupRows } from '../../lib/group-rows'
 import { kitchenAmount } from '../../lib/kitchen-amount'
 import { flattenGroups, TO_TASTE, toSharedMetadata, type RecipeFormValues } from './recipe-form-schema'
-import { existingPhoto, type PhotoValue } from './recipe-photo'
+import { existingPhoto, pendingPhotoSlot, type PhotoValue } from './recipe-photo'
 
 const text = (value: number | null) => (value === null ? '' : String(value))
 
@@ -28,25 +28,22 @@ export function toRecipeFormValues(recipe: RecipeDetail): RecipeFormValues {
 		})),
 		instructions: groupRows(recipe.instructions.toSorted((a, b) => a.stepNumber - b.stepNumber)).map((group) => ({
 			heading: group.heading,
-			steps: group.rows.map((step) => ({ id: step.id, description: step.description, photo: existingPhoto(step.imageUrl) })),
+			steps: group.rows.map((step) => ({ key: step.id, id: step.id, description: step.description, photo: existingPhoto(step.imageUrl) })),
 		})),
 	}
 }
 
-/** An untouched stored photo is kept, a file picked in this session replaces it, and anything else leaves the slot empty. */
-const slot = (photo: PhotoValue): RecipeImageSlot => {
+/** An untouched stored photo is kept and a Pending photo replaces it, so only that one was uploaded; anything else leaves the slot empty. */
+const slot = (photo: PhotoValue): RecipeImageSlot | PendingPhotoSlot => {
 	if (photo.kind === 'existing') return 'keep'
-	return photo.kind === 'new' ? 'replace' : 'remove'
+	return pendingPhotoSlot(photo) ?? 'remove'
 }
-
-/** The cover is replaced by naming its uploaded Pending photo; step photos still travel in the multipart save. */
-const coverSlot = (photo: PhotoValue): UpdateRecipeMetadata['cover'] => (photo.kind === 'pending' ? { pendingPhotoId: photo.id } : slot(photo))
 
 /** Maps form values to the update metadata: stored steps keep their id so their photo can follow them, new steps carry none. */
 export function toUpdateRecipeMetadata(values: RecipeFormValues): UpdateRecipeMetadata {
 	return {
 		...toSharedMetadata(values),
-		cover: coverSlot(values.cover),
+		cover: slot(values.cover),
 		instructions: flattenGroups(values.instructions, 'steps', (step) => ({ id: step.id, description: step.description.trim(), image: slot(step.photo) })),
 	}
 }

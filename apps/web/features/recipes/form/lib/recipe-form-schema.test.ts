@@ -1,13 +1,15 @@
 import { createRecipeMetadataSchema } from '@recipe-app/contracts/schemas'
 import { describe, expect, it } from 'vitest'
-import { existingPhoto, newPhoto, noPhoto } from './recipe-photo'
+import { existingPhoto, noPhoto, pendingPhoto, pickedPhoto } from './recipe-photo'
+
+const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
 import { createEmptyRecipeValues, parseAmount, recipeFormSchema, toCreateRecipeMetadata, TO_TASTE, type RecipeFormValues } from './recipe-form-schema'
 
 const valid = (overrides: Partial<RecipeFormValues> = {}): RecipeFormValues => ({
 	...createEmptyRecipeValues(),
 	title: '  Creamy Garlic Pasta  ',
 	ingredients: [{ heading: null, rows: [{ name: ' Spaghetti ', amount: '200', unit: 'g' }] }],
-	instructions: [{ heading: null, steps: [{ id: null, description: ' Boil the pasta. ', photo: noPhoto() }] }],
+	instructions: [{ heading: null, steps: [{ key: 'new- Boil the pasta. ', id: null, description: ' Boil the pasta. ', photo: noPhoto() }] }],
 	...overrides,
 })
 const issues = (values: RecipeFormValues) => {
@@ -48,8 +50,8 @@ describe('toCreateRecipeMetadata', () => {
 				{ heading: ' Sauce ', rows: [{ name: 'Butter', amount: '1 1/2', unit: 'tbsp' }, { name: 'Cream', amount: '½', unit: 'cup' }] },
 			],
 			instructions: [
-				{ heading: null, steps: [{ id: null, description: 'Boil', photo: noPhoto() }] },
-				{ heading: 'Make the sauce', steps: [{ id: null, description: 'Melt', photo: noPhoto() }, { id: null, description: 'Stir', photo: noPhoto() }] },
+				{ heading: null, steps: [{ key: 'new-Boil', id: null, description: 'Boil', photo: noPhoto() }] },
+				{ heading: 'Make the sauce', steps: [{ key: 'new-Melt', id: null, description: 'Melt', photo: noPhoto() }, { key: 'new-Stir', id: null, description: 'Stir', photo: noPhoto() }] },
 			],
 		}))
 		expect(metadata.ingredients).toEqual([
@@ -65,10 +67,10 @@ describe('toCreateRecipeMetadata', () => {
 		expect(createRecipeMetadataSchema.safeParse(metadata).success).toBe(true)
 	})
 
-	it('marks hasImage from the attached photo and its output satisfies the shared schema', () => {
+	it('names a step’s Pending photo, never a file, and its output satisfies the shared schema', () => {
 		const photo = new File(['x'], 'boil.jpg', { type: 'image/jpeg' })
-		const metadata = toCreateRecipeMetadata(valid({ instructions: [{ heading: null, steps: [{ id: null, description: 'Boil', photo: newPhoto(photo) }, { id: null, description: 'Drain', photo: noPhoto() }] }], videoUrl: 'https://youtu.be/abc' }))
-		expect(metadata.instructions.map((step) => step.hasImage)).toEqual([true, false])
+		const metadata = toCreateRecipeMetadata(valid({ instructions: [{ heading: null, steps: [{ key: 'new-Boil', id: null, description: 'Boil', photo: pendingPhoto(photo, PHOTO_ID) }, { key: 'new-Drain', id: null, description: 'Drain', photo: noPhoto() }] }], videoUrl: 'https://youtu.be/abc' }))
+		expect(metadata.instructions.map(({ hasImage, image }) => ({ hasImage, image }))).toEqual([{ hasImage: false, image: { pendingPhotoId: PHOTO_ID } }, { hasImage: false, image: undefined }])
 		expect(createRecipeMetadataSchema.safeParse(metadata).success).toBe(true)
 	})
 })
@@ -110,7 +112,7 @@ describe('recipeFormSchema', () => {
 	})
 
 	it('reports a blank title, blank rows and a malformed amount on the exact field', () => {
-		const found = issues(valid({ title: '  ', ingredients: [{ heading: null, rows: [{ name: '', amount: '', unit: '' }, { name: 'Sugar', amount: '1/0', unit: 'cup' }] }], instructions: [{ heading: null, steps: [{ id: null, description: ' ', photo: noPhoto() }] }] }))
+		const found = issues(valid({ title: '  ', ingredients: [{ heading: null, rows: [{ name: '', amount: '', unit: '' }, { name: 'Sugar', amount: '1/0', unit: 'cup' }] }], instructions: [{ heading: null, steps: [{ key: 'new- ', id: null, description: ' ', photo: noPhoto() }] }] }))
 		expect(found['title']).toBe('Add a title before saving.')
 		expect(found['ingredients.0.rows.0.name']).toBe('Add an ingredient name.')
 		expect(found['ingredients.0.rows.0.amount']).toBe('Enter an amount, or choose “to taste”.')
@@ -143,7 +145,7 @@ describe('recipeFormSchema', () => {
 		expect(issues(sauce('  '))).toEqual({ 'ingredients.1.heading': 'Name this group, or remove the heading.' })
 		expect(issues(sauce('x'.repeat(101)))).toEqual({ 'ingredients.1.heading': 'Use 100 characters or fewer.' })
 		expect(issues(sauce('x'.repeat(100)))).toEqual({})
-		const step = valid({ instructions: [...valid().instructions, { heading: '', steps: [{ id: null, description: 'Serve', photo: noPhoto() }] }] })
+		const step = valid({ instructions: [...valid().instructions, { heading: '', steps: [{ key: 'new-Serve', id: null, description: 'Serve', photo: noPhoto() }] }] })
 		expect(issues(step)).toEqual({ 'instructions.1.heading': 'Name this group, or remove the heading.' })
 	})
 })
@@ -158,25 +160,24 @@ describe('photo slots', () => {
 	it('starts every slot empty, with new steps carrying no id', () => {
 		const empty = createEmptyRecipeValues()
 		expect(empty.cover).toEqual({ kind: 'none' })
-		expect(empty.instructions).toEqual([{ heading: null, steps: [{ id: null, description: '', photo: { kind: 'none' } }] }])
+		expect(empty.instructions).toEqual([{ heading: null, steps: [{ key: expect.any(String), id: null, description: '', photo: { kind: 'none' } }] }])
 	})
 
-	it('accepts stored photos and valid new files', () => {
-		expect(issues(valid({ cover: existingPhoto('https://storage.example/cover.jpg'), instructions: [{ heading: null, steps: [{ id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') }] }] }))).toEqual({})
-		expect(issues(valid({ cover: newPhoto(file('cover.png')) }))).toEqual({})
+	it('accepts stored photos and uploaded Pending photos', () => {
+		expect(issues(valid({ cover: existingPhoto('https://storage.example/cover.jpg'), instructions: [{ heading: null, steps: [{ key: 's1', id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') }] }] }))).toEqual({})
+		expect(issues(valid({ cover: pendingPhoto(file('cover.png'), PHOTO_ID) }))).toEqual({})
 	})
 
-	it('reports an unsupported or oversized new file on its own slot and ignores stored photos', () => {
+	it('blocks a photo that is not yet a Pending photo on its own slot', () => {
 		const found = issues(valid({
-			cover: newPhoto(file('logo.svg', 'image/svg+xml')),
-			instructions: [{ heading: null, steps: [{ id: 's1', description: 'Boil', photo: newPhoto(file('huge.png', 'image/png', 6 * 1024 * 1024)) }] }],
+			cover: pickedPhoto(file('cover.png')),
+			instructions: [{ heading: null, steps: [{ key: 's1', id: 's1', description: 'Boil', photo: pickedPhoto(file('boil.png')) }] }],
 		}))
-		expect(found['cover']).toBe('logo.svg is not a JPG, PNG or WebP image.')
-		expect(found['instructions.0.steps.0.photo']).toMatch(/huge\.png is 6\.0 MB/)
+		expect(found).toEqual({ cover: 'Retry or remove this photo.', 'instructions.0.steps.0.photo': 'Retry or remove this photo.' })
 	})
 
 	it('rejects a slot that is not one of the three photo states', () => {
-		expect(issues(valid({ cover: { kind: 'new', file: 'nope' } as never }))['cover']).toBe('Choose an image file.')
+		expect(issues(valid({ cover: { kind: 'picked', file: 'nope' } as never }))['cover']).toBe('Choose an image file.')
 		expect(issues(valid({ cover: null as never }))['cover']).toBe('Choose an image file.')
 	})
 })

@@ -1,29 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { prepareRecipePayload } from './recipe-payload'
 import { createEmptyRecipeValues, type RecipeFormValues } from './recipe-form-schema'
-import { existingPhoto, newPhoto, noPhoto } from './recipe-photo'
+import { existingPhoto, noPhoto, pendingPhoto } from './recipe-photo'
 
-const file = (name: string, size = 4) => {
-	const picked = new File(['x'], name, { type: 'image/png', lastModified: 1 })
-	Object.defineProperty(picked, 'size', { value: size })
-	return picked
-}
+const PHOTO_ID = '0b0f6a3e-4c1d-4d6e-9f1a-2b3c4d5e6f70'
+const OTHER_ID = '1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f'
+const file = (name: string) => new File(['x'], name, { type: 'image/webp', lastModified: 1 })
 
 const values = (overrides: Partial<RecipeFormValues> = {}): RecipeFormValues => ({
 	...createEmptyRecipeValues(),
 	title: 'Pasta',
 	ingredients: [{ heading: null, rows: [{ name: 'Pasta', amount: '200', unit: 'g' }] }],
-	instructions: [{ heading: null, steps: [{ id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') }] }],
+	instructions: [{ heading: null, steps: [{ key: 's1', id: 's1', description: 'Boil', photo: existingPhoto('https://storage.example/s1.jpg') }] }],
 	cover: existingPhoto('https://storage.example/cover.jpg'),
 	...overrides,
 })
+const withStepPhoto = (photo: RecipeFormValues['cover']) => ({ instructions: [{ heading: null, steps: [{ key: 's1', id: 's1', description: 'Boil', photo }] }] })
 
 describe('create mode', () => {
-	it('builds the create payload with the step photo it declares', () => {
-		const prepared = prepareRecipePayload('create', values({ cover: noPhoto(), instructions: [{ heading: null, steps: [{ id: null, description: 'Boil', photo: newPhoto(file('boil.png')) }] }] }))
+	it('names each step’s Pending photo and sends no photo files', () => {
+		const prepared = prepareRecipePayload('create', values({ cover: noPhoto(), instructions: [{ heading: null, steps: [{ key: 'k1', id: null, description: 'Boil', photo: pendingPhoto(file('boil.webp'), PHOTO_ID) }] }] }))
 		const data = prepared!.build('11111111-1111-4111-8111-111111111111')
-		expect(JSON.parse(data.get('recipe') as string).instructions).toEqual([{ description: 'Boil', hasImage: true, heading: null }])
-		expect((data.get('step-0') as File).name).toBe('boil.png')
+		expect(JSON.parse(data.get('recipe') as string).instructions).toEqual([{ description: 'Boil', hasImage: false, image: { pendingPhotoId: PHOTO_ID }, heading: null }])
+		expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
 	})
 
 	it('returns null for values the shared schema rejects', () => {
@@ -38,9 +37,10 @@ describe('edit mode', () => {
 		expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
 	})
 
-	it('uploads only replaced slots', () => {
-		const data = prepareRecipePayload('edit', values({ cover: newPhoto(file('cover.png')) }))!.build('11111111-1111-4111-8111-111111111111')
-		expect([...data.keys()].sort()).toEqual(['cover', 'idempotencyKey', 'recipe'])
+	it('names a replaced slot’s Pending photo and sends no photo files', () => {
+		const data = prepareRecipePayload('edit', values({ cover: pendingPhoto(file('cover.webp'), PHOTO_ID) }))!.build('11111111-1111-4111-8111-111111111111')
+		expect(JSON.parse(data.get('recipe') as string).cover).toEqual({ pendingPhotoId: PHOTO_ID })
+		expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
 	})
 
 	it('returns null for values the shared schema rejects', () => {
@@ -53,20 +53,20 @@ describe('fingerprint', () => {
 
 	it('is stable for the same values so a retry can reuse its submission key', () => {
 		expect(fingerprint('edit')).toBe(fingerprint('edit'))
-		expect(fingerprint('edit', { cover: newPhoto(file('a.png')) })).toBe(fingerprint('edit', { cover: newPhoto(file('a.png')) }))
+		expect(fingerprint('edit', { cover: pendingPhoto(file('a.webp'), PHOTO_ID) })).toBe(fingerprint('edit', { cover: pendingPhoto(file('a.webp'), PHOTO_ID) }))
 	})
 
 	it('changes with text, and with every image slot state', () => {
 		const baseline = fingerprint('edit')
 		expect(fingerprint('edit', { title: 'Pasta 2' })).not.toBe(baseline)
 		expect(fingerprint('edit', { cover: noPhoto() })).not.toBe(baseline)
-		expect(fingerprint('edit', { cover: newPhoto(file('a.png')) })).not.toBe(baseline)
-		expect(fingerprint('edit', { instructions: [{ heading: null, steps: [{ id: 's1', description: 'Boil', photo: noPhoto() }] }] })).not.toBe(baseline)
-		expect(fingerprint('edit', { instructions: [{ heading: null, steps: [{ id: 's1', description: 'Boil', photo: newPhoto(file('b.png')) }] }] })).not.toBe(baseline)
+		expect(fingerprint('edit', { cover: pendingPhoto(file('a.webp'), PHOTO_ID) })).not.toBe(baseline)
+		expect(fingerprint('edit', withStepPhoto(noPhoto()))).not.toBe(baseline)
+		expect(fingerprint('edit', withStepPhoto(pendingPhoto(file('b.webp'), PHOTO_ID)))).not.toBe(baseline)
 	})
 
-	it('tells two different replacement files for the same slot apart', () => {
-		expect(fingerprint('edit', { cover: newPhoto(file('a.png')) })).not.toBe(fingerprint('edit', { cover: newPhoto(file('b.png')) }))
-		expect(fingerprint('edit', { cover: newPhoto(file('a.png', 4)) })).not.toBe(fingerprint('edit', { cover: newPhoto(file('a.png', 5)) }))
+	it('tells photos apart by their Pending photo ids, not their files', () => {
+		expect(fingerprint('create', withStepPhoto(pendingPhoto(file('a.webp'), PHOTO_ID)))).not.toBe(fingerprint('create', withStepPhoto(pendingPhoto(file('a.webp'), OTHER_ID))))
+		expect(fingerprint('create', withStepPhoto(pendingPhoto(file('a.webp'), PHOTO_ID)))).toBe(fingerprint('create', withStepPhoto(pendingPhoto(file('b.webp'), PHOTO_ID))))
 	})
 })

@@ -155,7 +155,7 @@ it('leaves an untouched form for the recipe page without asking', async () => {
 	expect(router.push).toHaveBeenCalledWith('/recipes/recipe-1')
 })
 
-it('replaces a stored step photo with a picked file and uploads only that file', async () => {
+it('replaces a stored step photo with a picked file, uploading only that photo and naming it on save', async () => {
 	const user = userEvent.setup()
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	renderEdit()
@@ -166,9 +166,10 @@ it('replaces a stored step photo with a picked file and uploads only that file',
 	await user.click(save())
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	const data = onSave.mock.calls[0][0]
-	expect(metadataOf(data).instructions.map((step: { image: string }) => step.image)).toEqual(['replace', 'remove', 'keep'])
-	expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe', 'step-0'])
-	expect((data.get('step-0') as File).name).toBe('fresh.webp')
+	// The other stored photos are referenced as kept, never uploaded again.
+	expect(uploadPhoto.mock.calls.map(([file]) => file.name)).toEqual(['fresh.webp'])
+	expect(metadataOf(data).instructions.map((step: { image: unknown }) => step.image)).toEqual([{ pendingPhotoId: PHOTO_ID }, 'remove', 'keep'])
+	expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe'])
 })
 
 it('removes the stored cover and a stored step photo', async () => {
@@ -237,7 +238,7 @@ it('notices a step moved without any text change, and a move back is no change',
 	expect(router.push).toHaveBeenCalledWith('/recipes/recipe-1')
 })
 
-it('keeps a stored photo with its step when steps are reordered and numbers a replacement by its final position', async () => {
+it('keeps a stored photo with its step when steps are reordered and names a replacement at its final position', async () => {
 	const user = userEvent.setup()
 	onSave.mockResolvedValue({ status: 'failed', message: 'x' })
 	renderEdit()
@@ -252,11 +253,10 @@ it('keeps a stored photo with its step when steps are reordered and numbers a re
 	await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
 	const data = onSave.mock.calls[0][0]
 	expect(metadataOf(data).instructions).toEqual([
-		{ id: 's1', description: 'Mix.', image: 'replace', heading: null },
+		{ id: 's1', description: 'Mix.', image: { pendingPhotoId: PHOTO_ID }, heading: null },
 		{ id: 's3', description: 'Cool.', image: 'keep', heading: null },
 		{ id: 's2', description: 'Bake.', image: 'remove', heading: null },
 	])
-	expect([...data.keys()].sort()).toEqual(['idempotencyKey', 'recipe', 'step-0'])
 })
 
 it('sends a new step without an id and with its new photo, and drops a deleted step', async () => {
@@ -275,9 +275,8 @@ it('sends a new step without an id and with its new photo, and drops a deleted s
 	expect(metadataOf(data).instructions).toEqual([
 		{ id: 's2', description: 'Bake.', image: 'remove', heading: null },
 		{ id: 's3', description: 'Cool.', image: 'keep', heading: null },
-		{ id: null, description: 'Decorate.', image: 'replace', heading: null },
+		{ id: null, description: 'Decorate.', image: { pendingPhotoId: PHOTO_ID }, heading: null },
 	])
-	expect((data.get('step-2') as File).name).toBe('decorate.webp')
 })
 
 it('keeps the slot as kept and shows a placeholder when a stored preview can no longer load', async () => {
