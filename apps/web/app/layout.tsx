@@ -25,8 +25,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col"><NuqsAdapter>{children}</NuqsAdapter></body>
-      <Analytics />
+      <body className="min-h-full flex flex-col">
+        <NuqsAdapter>{children}</NuqsAdapter>
+        <Analytics />
+      </body>
     </html>
   );
 }
