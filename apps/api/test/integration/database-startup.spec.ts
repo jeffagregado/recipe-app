@@ -7,7 +7,6 @@ describe('Database startup probe', () => {
   let service: DatabaseService | undefined;
   afterEach(async () => { await service?.onApplicationShutdown(); service = undefined; });
 
-  // On Vercel a pooled client opened at boot carries no request context, so its every release logs a warning (#134).
   it('leaves the pool without clients after a successful probe', async () => {
     service = new DatabaseService(new ConfigService({ DATABASE_URL: await getDevDatabaseUrl() }));
 

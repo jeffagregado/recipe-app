@@ -17,7 +17,7 @@ export class DatabaseError extends Error {
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
   readonly db: DrizzleDb & { $client: pg.Pool };
-  private readonly connection: pg.ClientConfig;
+  private readonly connectionConfig: pg.ClientConfig;
   private readonly pool: pg.Pool;
   private closePromise?: Promise<void>;
 
@@ -25,12 +25,12 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
   onPoolError: (error: DatabaseError) => void = (error) => { throw error; };
 
   constructor(config: ConfigService<Environment, true>) {
-    this.connection = {
+    this.connectionConfig = {
       connectionString: config.get('DATABASE_URL', { infer: true }),
       ssl: { rejectUnauthorized: true },
       connectionTimeoutMillis: 10_000,
     };
-    this.pool = new pg.Pool({ ...this.connection, max: 5 });
+    this.pool = new pg.Pool({ ...this.connectionConfig, max: 5 });
     // On Vercel, keeps a paused function from holding Neon connections: idle clients close before it pauses (ADR 0005).
     // Elsewhere this does nothing.
     attachDatabasePool(this.pool);
@@ -56,7 +56,9 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
   // Its own client, not the pool's: on Vercel a pooled client opened at boot releases outside every later request,
   // so attachDatabasePool cannot keep a paused function from holding it idle (#134).
   private async probe(): Promise<void> {
-    const client = new pg.Client({ ...this.connection, query_timeout: 10_000 });
+    const client = new pg.Client({ ...this.connectionConfig, query_timeout: 10_000 });
+    // A socket error also rejects the pending query; without a listener its 'error' event would crash the process.
+    client.on('error', () => {});
     try {
       await client.connect();
       await client.query('SELECT 1');
