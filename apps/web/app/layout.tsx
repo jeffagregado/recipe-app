@@ -27,6 +27,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         <NuqsAdapter>{children}</NuqsAdapter>
+        {/* Inside <body>: its search-params read outside <body> stops prerendering. */}
         <Analytics />
       </body>
     </html>
