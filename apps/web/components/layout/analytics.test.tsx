@@ -5,33 +5,40 @@ import { Analytics } from './analytics'
 
 const GTAG_SRC = 'https://www.googletagmanager.com/gtag/js?id=G-TEST1234'
 
-const scripts = () => Array.from(document.querySelectorAll('script'))
+const scriptSources = () => Array.from(document.querySelectorAll('script')).map((script) => script.src)
+const hasVercelScript = () => scriptSources().some((src) => src.includes('vercel-scripts.com'))
 
 afterEach(() => {
 	vi.unstubAllEnvs()
-	for (const script of scripts()) script.remove()
+	for (const script of document.querySelectorAll('script')) script.remove()
 })
 
-it('loads both Google Analytics and Vercel Analytics when GA is configured', () => {
+it('loads Google Analytics when NEXT_PUBLIC_GA_ID is set', () => {
 	vi.stubEnv('NEXT_PUBLIC_GA_ID', 'G-TEST1234')
 	render(<Analytics />)
-	const scriptSources = scripts().map((script) => script.src)
-	// Google Analytics script should be present
-	expect(scriptSources).toContain(GTAG_SRC)
-	// Vercel Analytics script should be present
-	const vercelScript = scripts().find((script) => script.src.includes('vercel-scripts.com'))
-	expect(vercelScript).toBeDefined()
+	expect(scriptSources()).toContain(GTAG_SRC)
 })
 
 it.each([
 	['unset', undefined],
 	['empty', ''],
-])('renders only Vercel Analytics when NEXT_PUBLIC_GA_ID is %s', (_, value) => {
+])('loads no Google Analytics when NEXT_PUBLIC_GA_ID is %s', (_, value) => {
 	vi.stubEnv('NEXT_PUBLIC_GA_ID', value)
 	render(<Analytics />)
-	// Vercel Analytics script should be present
-	const vercelScript = scripts().find((script) => script.src.includes('vercel-scripts.com'))
-	expect(vercelScript).toBeDefined()
-	// Google Analytics script should not be present
-	expect(scripts().map((script) => script.src)).not.toContain(GTAG_SRC)
+	expect(scriptSources()).not.toContain(GTAG_SRC)
+})
+
+it.each(['production', 'preview'])('loads Vercel Analytics on a Vercel %s build', (vercelEnv) => {
+	vi.stubEnv('NEXT_PUBLIC_VERCEL_ENV', vercelEnv)
+	render(<Analytics />)
+	expect(hasVercelScript()).toBe(true)
+})
+
+it.each([
+	['unset', undefined],
+	['empty', ''],
+])('loads no Vercel Analytics off Vercel, when NEXT_PUBLIC_VERCEL_ENV is %s', (_, value) => {
+	vi.stubEnv('NEXT_PUBLIC_VERCEL_ENV', value)
+	render(<Analytics />)
+	expect(hasVercelScript()).toBe(false)
 })
