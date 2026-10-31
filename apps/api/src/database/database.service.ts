@@ -16,7 +16,8 @@ export class DatabaseError extends Error {
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
-  readonly db: DrizzleDb;
+  readonly db: DrizzleDb & { $client: pg.Pool };
+  private readonly connection: pg.ClientConfig;
   private readonly pool: pg.Pool;
   private closePromise?: Promise<void>;
 
@@ -24,12 +25,12 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
   onPoolError: (error: DatabaseError) => void = (error) => { throw error; };
 
   constructor(config: ConfigService<Environment, true>) {
-    this.pool = new pg.Pool({
+    this.connection = {
       connectionString: config.get('DATABASE_URL', { infer: true }),
       ssl: { rejectUnauthorized: true },
-      max: 5,
       connectionTimeoutMillis: 10_000,
-    });
+    };
+    this.pool = new pg.Pool({ ...this.connection, max: 5 });
     // On Vercel, keeps a paused function from holding Neon connections: idle clients close before it pauses (ADR 0005).
     // Elsewhere this does nothing.
     attachDatabasePool(this.pool);
@@ -41,10 +42,7 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
 
   async onModuleInit(): Promise<void> {
     try {
-      const probe: pg.QueryConfig & Pick<pg.ClientConfig, 'query_timeout'> = {
-        text: 'SELECT 1', query_timeout: 10_000,
-      };
-      await this.pool.query(probe);
+      await this.probe();
     } catch (cause) {
       try {
         await this.onApplicationShutdown();
@@ -52,6 +50,18 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
         throw new DatabaseError('Database startup probe and pool cleanup failed. Check DATABASE_URL and Neon connectivity.', { cause: new AggregateError([cause, cleanupCause]) });
       }
       throw new DatabaseError('Database startup SELECT 1 failed. Check DATABASE_URL, Neon availability, TLS, and network access.', { cause });
+    }
+  }
+
+  // Its own client, not the pool's: on Vercel a pooled client opened at boot releases outside every later request,
+  // so attachDatabasePool cannot keep a paused function from holding it idle (#134).
+  private async probe(): Promise<void> {
+    const client = new pg.Client({ ...this.connection, query_timeout: 10_000 });
+    try {
+      await client.connect();
+      await client.query('SELECT 1');
+    } finally {
+      await client.end();
     }
   }
 
