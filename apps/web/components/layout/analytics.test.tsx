@@ -12,18 +12,26 @@ afterEach(() => {
 	for (const script of scripts()) script.remove()
 })
 
-it('loads the gtag script for the configured measurement ID', () => {
+it('loads both Google Analytics and Vercel Analytics when GA is configured', () => {
 	vi.stubEnv('NEXT_PUBLIC_GA_ID', 'G-TEST1234')
 	render(<Analytics />)
-	expect(scripts().map((script) => script.src)).toContain(GTAG_SRC)
+	const scriptSources = scripts().map((script) => script.src)
+	// Google Analytics script should be present
+	expect(scriptSources).toContain(GTAG_SRC)
+	// Vercel Analytics script should be present
+	const vercelScript = scripts().find((script) => script.src.includes('vercel-scripts.com'))
+	expect(vercelScript).toBeDefined()
 })
 
 it.each([
 	['unset', undefined],
 	['empty', ''],
-])('renders nothing when NEXT_PUBLIC_GA_ID is %s', (_, value) => {
+])('renders only Vercel Analytics when NEXT_PUBLIC_GA_ID is %s', (_, value) => {
 	vi.stubEnv('NEXT_PUBLIC_GA_ID', value)
-	const { container } = render(<Analytics />)
-	expect(container).toBeEmptyDOMElement()
-	expect(scripts()).toEqual([])
+	render(<Analytics />)
+	// Vercel Analytics script should be present
+	const vercelScript = scripts().find((script) => script.src.includes('vercel-scripts.com'))
+	expect(vercelScript).toBeDefined()
+	// Google Analytics script should not be present
+	expect(scripts().map((script) => script.src)).not.toContain(GTAG_SRC)
 })
