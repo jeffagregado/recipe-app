@@ -106,7 +106,7 @@ The API moves to its own Vercel project, `recapp-api`, side by side with Render 
 ### How the API runs on Vercel
 
 - Vercel's NestJS support runs the whole API as one function, with Fluid compute. [`apps/api/vercel.json`](apps/api/vercel.json) holds the build settings, so the dashboard shows them as overridden:
-  - install: `npx --yes pnpm@12.9.1 install --frozen-lockfile --prod=false`, from the repository root, for the whole workspace. pnpm runs through npx, as on Render, because Vercel uses its own pnpm when the install command is overridden, and that pnpm rejects `--prod=false`. `--prod=false` keeps the build tools, since `NODE_ENV` is `production` during the build.
+  - install: `npx --yes pnpm@12.9.1 install --frozen-lockfile --prod=false`, which installs the whole workspace. pnpm runs through npx, as on Render, because Vercel uses its own pnpm when the install command is overridden, and that pnpm rejects `--prod=false`. `--prod=false` keeps the build tools, since `NODE_ENV` is `production` during the build.
   - build: `cd ../.. && npx --yes pnpm@12.9.1 exec turbo run build --filter=@recipe/api`, the same build as on Render.
   - output directory `dist`, so the function's entrypoint is the built `dist/main.js`.
   - region `sin1`.
